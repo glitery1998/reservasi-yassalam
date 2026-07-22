@@ -1,4 +1,3 @@
-/* eslint-disable @next/next/no-img-element */
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
@@ -15,12 +14,75 @@ type Area = {
   deskripsi: string | null; kapasitas_max: number; foto_url: string | null; urutan: number;
 };
 type TableData = {
-  Id: number; outlet: string; nomor_meja: number; kapasitas: number;
-  posisi: string; status: string;
+  Id: number; outlet: string; nomor_meja: number; nama_meja: string | null;
+  kapasitas: number; posisi: string; status: string;
+  foto_url: string | null; dp_minimum: number | null;
 };
+function AreaCardImage({ area, tables }: { area: Area; tables: TableData[] }) {
+  const photos = tables.filter((t) => t.outlet === area.outlet && t.posisi === area.slug && t.foto_url).map((t) => t.foto_url as string);
+  const [idx, setIdx] = useState(0);
 
+  useEffect(() => {
+    if (photos.length < 2) return;
+    const t = setInterval(() => setIdx((i) => (i + 1) % photos.length), 3000);
+    return () => clearInterval(t);
+  }, [photos.length]);
+
+  if (photos.length === 0) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+        <span className="text-3xl text-[#C8973E]/20">📷</span>
+        <span className="text-xs text-gray-700">Belum ada foto meja</span>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {photos.map((url, i) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={url}
+          src={url}
+          alt={area.nama}
+          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ease-in-out"
+          style={{ opacity: i === idx ? 1 : 0 }}
+        />
+      ))}
+      {photos.length > 1 && (
+        <div className="absolute bottom-3 right-3 flex gap-1 z-10">
+          {photos.map((_, i) => (
+            <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${i === idx ? "w-4 bg-white" : "w-1.5 bg-white/40"}`} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+function compressImage(file: File, maxWidth = 1200, quality = 0.75): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, maxWidth / img.width);
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { reject(new Error("Canvas tidak didukung")); return; }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        if (blob) resolve(blob); else reject(new Error("Gagal kompres gambar"));
+      }, "image/jpeg", quality);
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
 export default function AdminDashboard() {
-  const [tab, setTab] = useState<"reservasi" | "area" | "meja">("reservasi");
+  const [tab, setTab] = useState<"reservasi" | "area">("reservasi");
+  const [drillArea, setDrillArea] = useState<Area | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
   const [tables, setTables] = useState<TableData[]>([]);
@@ -32,19 +94,18 @@ export default function AdminDashboard() {
   const [showAreaForm, setShowAreaForm] = useState(false);
   const [editTable, setEditTable] = useState<TableData | null>(null);
   const [showTableForm, setShowTableForm] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingTable, setUploadingTable] = useState(false);
 
   const [aOutlet, setAOutlet] = useState("solo");
   const [aNama, setANama] = useState("");
   const [aSlug, setASlug] = useState("");
   const [aDesc, setADesc] = useState("");
-  const [aKap, setAKap] = useState("4");
   const [aUrutan, setAUrutan] = useState("0");
 
-  const [tOutlet, setTOutlet] = useState("solo");
   const [tNomor, setTNomor] = useState("");
+  const [tNama, setTNama] = useState("");
   const [tKap, setTKap] = useState("4");
-  const [tPosisi, setTPosisi] = useState("indoor-tengah");
+  const [tDp, setTDp] = useState("");
 
   const fetchReservations = useCallback(async () => {
     setLoading(true);
@@ -70,8 +131,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
     if (tab === "reservasi") void fetchReservations();
-    if (tab === "area") void fetchAreas();
-    if (tab === "meja") void fetchTables();
+    if (tab === "area") { void fetchAreas(); void fetchTables(); }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [tab, fetchReservations, fetchAreas, fetchTables]);
 
@@ -82,40 +142,57 @@ export default function AdminDashboard() {
   function formatRupiah(n: number) { return "Rp " + n.toLocaleString("id-ID"); }
 
   function openAreaForm(area?: Area) {
-    if (area) { setEditArea(area); setAOutlet(area.outlet); setANama(area.nama); setASlug(area.slug); setADesc(area.deskripsi || ""); setAKap(String(area.kapasitas_max)); setAUrutan(String(area.urutan)); }
-    else { setEditArea(null); setAOutlet("solo"); setANama(""); setASlug(""); setADesc(""); setAKap("4"); setAUrutan("0"); }
+    if (area) { setEditArea(area); setAOutlet(area.outlet); setANama(area.nama); setASlug(area.slug); setADesc(area.deskripsi || ""); setAUrutan(String(area.urutan)); }
+    else { setEditArea(null); setAOutlet("solo"); setANama(""); setASlug(""); setADesc(""); setAUrutan("0"); }
     setShowAreaForm(true);
   }
+  function totalKapasitas(a: Area) {
+    return tables.filter((t) => t.outlet === a.outlet && t.posisi === a.slug).reduce((sum, t) => sum + t.kapasitas, 0);
+  }
   async function saveArea() {
-    const p = { outlet: aOutlet, nama: aNama, slug: aSlug, deskripsi: aDesc, kapasitas_max: Number(aKap), urutan: Number(aUrutan) };
-    if (editArea) await supabase.from("Areas").update(p).eq("Id", editArea.Id);
-    else await supabase.from("Areas").insert(p);
+    const p = { outlet: aOutlet, nama: aNama, slug: aSlug, deskripsi: aDesc, urutan: Number(aUrutan) };
+    const { error } = editArea
+      ? await supabase.from("Areas").update(p).eq("Id", editArea.Id)
+      : await supabase.from("Areas").insert(p);
+    if (error) { alert("Gagal simpan area: " + error.message); return; }
     setShowAreaForm(false); fetchAreas();
   }
   async function deleteArea(id: number) { if (!confirm("Hapus area ini?")) return; await supabase.from("Areas").delete().eq("Id", id); fetchAreas(); }
-  async function uploadPhoto(areaId: number, file: File) {
-    setUploading(true);
-    const ext = file.name.split(".").pop();
-    const rand = Math.random().toString(36).slice(2, 10);
-    const path = `areas/${areaId}-${rand}.${ext}`;
-    const { error } = await supabase.storage.from("photos").upload(path, file);
-    if (error) { alert("Upload gagal: " + error.message); setUploading(false); return; }
-    const { data: u } = supabase.storage.from("photos").getPublicUrl(path);
-    await supabase.from("Areas").update({ foto_url: u.publicUrl }).eq("Id", areaId);
-    setUploading(false); fetchAreas();
-  }
+  
   function openTableForm(t?: TableData) {
-    if (t) { setEditTable(t); setTOutlet(t.outlet); setTNomor(String(t.nomor_meja)); setTKap(String(t.kapasitas)); setTPosisi(t.posisi); }
-    else { setEditTable(null); setTOutlet("solo"); setTNomor(""); setTKap("4"); setTPosisi("indoor-tengah"); }
+    if (t) { setEditTable(t); setTNomor(String(t.nomor_meja)); setTNama(t.nama_meja || ""); setTKap(String(t.kapasitas)); setTDp(t.dp_minimum ? String(t.dp_minimum) : ""); }
+    else { setEditTable(null); setTNomor(""); setTNama(""); setTKap("4"); setTDp(""); }
     setShowTableForm(true);
   }
   async function saveTable() {
-    const p = { outlet: tOutlet, nomor_meja: Number(tNomor), kapasitas: Number(tKap), posisi: tPosisi };
-    if (editTable) await supabase.from("Tables").update(p).eq("Id", editTable.Id);
-    else await supabase.from("Tables").insert(p);
+    if (!drillArea) return;
+    const p = {
+      outlet: drillArea.outlet, posisi: drillArea.slug,
+      nomor_meja: Number(tNomor), nama_meja: tNama || null,
+      kapasitas: Number(tKap), dp_minimum: tDp ? Number(tDp) : null,
+    };
+    const { error } = editTable
+      ? await supabase.from("Tables").update(p).eq("Id", editTable.Id)
+      : await supabase.from("Tables").insert(p);
+    if (error) { alert("Gagal simpan meja: " + error.message); return; }
     setShowTableForm(false); fetchTables();
   }
   async function deleteTable(id: number) { if (!confirm("Hapus meja ini?")) return; await supabase.from("Tables").delete().eq("Id", id); fetchTables(); }
+  async function uploadTablePhoto(tableId: number, file: File) {
+    setUploadingTable(true);
+    try {
+      const compressed = await compressImage(file);
+      const rand = crypto.randomUUID();
+      const path = `tables/${tableId}-${rand}.jpg`;
+      const { error } = await supabase.storage.from("photos").upload(path, compressed, { contentType: "image/jpeg" });
+      if (error) { alert("Upload gagal: " + error.message); setUploadingTable(false); return; }
+      const { data: u } = supabase.storage.from("photos").getPublicUrl(path);
+      await supabase.from("Tables").update({ foto_url: u.publicUrl }).eq("Id", tableId);
+    } catch {
+      alert("Gagal memproses gambar. Coba foto lain.");
+    }
+    setUploadingTable(false); fetchTables();
+  }
 
   const stats = {
     total: reservations.length, pending: reservations.filter((r) => r.status === "Pending").length,
@@ -154,8 +231,7 @@ export default function AdminDashboard() {
         <div className="flex bg-[#111] rounded-2xl p-1.5 border border-[#C8973E]/10">
           {[
             { key: "reservasi", label: "Reservasi", icon: "📋" },
-            { key: "area", label: "Area / Ruangan", icon: "🏛" },
-            { key: "meja", label: "Meja", icon: "🪑" },
+            { key: "area", label: "Area & Meja", icon: "🏛" },
           ].map((t) => (
             <button key={t.key} onClick={() => setTab(t.key as typeof tab)}
               className={`flex-1 py-3.5 rounded-xl text-sm font-bold transition-all ${tab === t.key ? "bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-black shadow-lg shadow-[#C8973E]/20" : "text-gray-500 hover:text-[#C8973E]"}`}>
@@ -238,13 +314,13 @@ export default function AdminDashboard() {
           </>
         )}
 
-        {/* ========== TAB AREA ========== */}
-        {tab === "area" && (
+        {/* ========== TAB AREA & MEJA ========== */}
+        {tab === "area" && !drillArea && (
           <>
             <div className="flex justify-between items-center mb-8">
               <div>
                 <h2 className="text-xl font-bold text-white font-serif">Area &amp; Ruangan</h2>
-                <p className="text-gray-500 text-sm mt-1">Kelola area, upload foto, dan atur kapasitas</p>
+                <p className="text-gray-500 text-sm mt-1">Klik salah satu area untuk kelola meja di dalamnya</p>
               </div>
               <button onClick={() => openAreaForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-black text-sm font-bold hover:shadow-lg hover:shadow-[#C8973E]/20 transition-all">+ Tambah Area</button>
             </div>
@@ -264,12 +340,9 @@ export default function AdminDashboard() {
                     <input value={aSlug} onChange={(e) => setASlug(e.target.value)} placeholder="Contoh: vip" className={modalInput} /></div>
                   <div><label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Deskripsi</label>
                     <textarea value={aDesc} onChange={(e) => setADesc(e.target.value)} rows={2} className={modalInput + " resize-none"} /></div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div><label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Kapasitas Max</label>
-                      <input type="number" value={aKap} onChange={(e) => setAKap(e.target.value)} className={modalInput} /></div>
-                    <div><label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Urutan</label>
-                      <input type="number" value={aUrutan} onChange={(e) => setAUrutan(e.target.value)} className={modalInput} /></div>
-                  </div>
+                  <div><label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Urutan</label>
+                    <input type="number" value={aUrutan} onChange={(e) => setAUrutan(e.target.value)} className={modalInput} /></div>
+                  <p className="text-xs text-gray-600 -mt-2">Kapasitas Max akan otomatis dihitung dari total kapasitas semua meja di area ini setelah disimpan.</p>
                   <div className="flex gap-3 pt-3">
                     <button onClick={() => setShowAreaForm(false)} className="flex-1 py-3.5 rounded-xl border border-gray-700 text-gray-400 font-semibold hover:bg-white/5">Batal</button>
                     <button onClick={saveArea} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-black font-bold">Simpan</button>
@@ -279,52 +352,45 @@ export default function AdminDashboard() {
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {areas.map((a) => (
-                <div key={a.Id} className="bg-[#111] border border-[#C8973E]/10 rounded-3xl overflow-hidden group hover:border-[#C8973E]/30 transition-all hover:shadow-xl hover:shadow-[#C8973E]/5">
-                  <div className="h-44 bg-[#0a0a0a] relative overflow-hidden">
-                    {a.foto_url ? (
-                      <img src={a.foto_url} alt={a.nama} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center gap-2">
-                        <span className="text-3xl text-[#C8973E]/20">📷</span>
-                        <span className="text-xs text-gray-700">Belum ada foto</span>
+              {areas.map((a) => {
+                const jumlahMeja = tables.filter((t) => t.outlet === a.outlet && t.posisi === a.slug).length;
+                return (
+                  <div key={a.Id} className="bg-[#111] border border-[#C8973E]/10 rounded-3xl overflow-hidden group hover:border-[#C8973E]/30 transition-all hover:shadow-xl hover:shadow-[#C8973E]/5">
+                    <button onClick={() => setDrillArea(a)} className="w-full h-44 bg-[#0a0a0a] relative overflow-hidden block text-left">
+                      <AreaCardImage area={a} tables={tables} />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                      <div className="absolute bottom-3 left-3 right-3 flex justify-between items-end">
+                        <span className="bg-[#C8973E] text-black text-[10px] px-3 py-1 rounded-full font-bold tracking-wider uppercase">Max {totalKapasitas(a)} orang</span>
+                        <span className="bg-black/60 text-white/80 text-[10px] px-3 py-1 rounded-full capitalize backdrop-blur-sm">{a.outlet}</span>
                       </div>
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-                    <div className="absolute bottom-3 left-3 right-3 flex justify-between items-end">
-                      <span className="bg-[#C8973E] text-black text-[10px] px-3 py-1 rounded-full font-bold tracking-wider uppercase">Max {a.kapasitas_max} orang</span>
-                      <span className="bg-black/60 text-white/80 text-[10px] px-3 py-1 rounded-full capitalize backdrop-blur-sm">{a.outlet}</span>
+                    </button>
+                    <div className="p-5 space-y-3">
+                      <button onClick={() => setDrillArea(a)} className="text-left w-full">
+                        <h3 className="font-bold text-white text-lg font-serif hover:text-[#C8973E] transition-colors">{a.nama} →</h3>
+                        <p className="text-gray-500 text-sm mt-1 line-clamp-2">{a.deskripsi}</p>
+                        <p className="text-[#C8973E]/70 text-xs mt-2">{jumlahMeja} meja terdaftar</p>
+                      </button>
+                      <p className="text-xs text-gray-600">Foto diambil otomatis dari foto tiap meja di area ini. Upload foto lewat kartu meja saat masuk ke area.</p>
+                      <div className="flex gap-2 pt-1">
+                        <button onClick={(e) => { e.stopPropagation(); openAreaForm(a); }} className="flex-1 py-2.5 rounded-xl border border-[#C8973E]/30 text-[#C8973E] text-sm font-bold hover:bg-[#C8973E]/10 transition-all">Edit</button>
+                        <button onClick={(e) => { e.stopPropagation(); deleteArea(a.Id); }} className="py-2.5 px-4 rounded-xl border border-red-500/20 text-red-400 text-sm hover:bg-red-500/10 transition-all">🗑</button>
+                      </div>
                     </div>
                   </div>
-                  <div className="p-5 space-y-3">
-                    <div>
-                      <h3 className="font-bold text-white text-lg font-serif">{a.nama}</h3>
-                      <p className="text-gray-500 text-sm mt-1 line-clamp-2">{a.deskripsi}</p>
-                    </div>
-                    <label className="inline-block cursor-pointer">
-                      <span className="text-xs text-[#C8973E] font-semibold hover:text-[#D4A44A] transition-colors">
-                        {uploading ? "⏳ Mengupload..." : a.foto_url ? "📷 Ganti Foto" : "📷 Upload Foto"}
-                      </span>
-                      <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPhoto(a.Id, f); }} />
-                    </label>
-                    <div className="flex gap-2 pt-1">
-                      <button onClick={() => openAreaForm(a)} className="flex-1 py-2.5 rounded-xl border border-[#C8973E]/30 text-[#C8973E] text-sm font-bold hover:bg-[#C8973E]/10 transition-all">Edit</button>
-                      <button onClick={() => deleteArea(a.Id)} className="py-2.5 px-4 rounded-xl border border-red-500/20 text-red-400 text-sm hover:bg-red-500/10 transition-all">🗑</button>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
 
-        {/* ========== TAB MEJA ========== */}
-        {tab === "meja" && (
+        {/* ========== DRILL-DOWN: MEJA DI DALAM AREA ========== */}
+        {tab === "area" && drillArea && (
           <>
             <div className="flex justify-between items-center mb-8">
               <div>
-                <h2 className="text-xl font-bold text-white font-serif">Kelola Meja</h2>
-                <p className="text-gray-500 text-sm mt-1">Tambah, edit, atau hapus meja di setiap outlet</p>
+                <button onClick={() => setDrillArea(null)} className="text-sm text-[#C8973E]/70 hover:text-[#C8973E] mb-2 transition-colors">← Kembali ke Area</button>
+                <h2 className="text-xl font-bold text-white font-serif">{drillArea.nama} <span className="text-gray-500 text-base capitalize">· {drillArea.outlet}</span></h2>
+                <p className="text-gray-500 text-sm mt-1">Total kapasitas area ini: <span className="text-[#C8973E] font-semibold">{totalKapasitas(drillArea)} orang</span></p>
               </div>
               <button onClick={() => openTableForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-black text-sm font-bold hover:shadow-lg hover:shadow-[#C8973E]/20 transition-all">+ Tambah Meja</button>
             </div>
@@ -334,19 +400,17 @@ export default function AdminDashboard() {
                 <div className="bg-[#1a1a1a] border border-[#C8973E]/20 rounded-3xl p-8 max-w-md w-full space-y-5">
                   <div>
                     <h3 className="text-xl font-bold text-white font-serif">{editTable ? "Edit Meja" : "Meja Baru"}</h3>
+                    <p className="text-gray-500 text-xs mt-1">{drillArea.nama} · <span className="capitalize">{drillArea.outlet}</span></p>
                     <div className="w-12 h-0.5 bg-[#C8973E] mt-2" />
                   </div>
-                  <div><label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Outlet</label>
-                    <select value={tOutlet} onChange={(e) => setTOutlet(e.target.value)} className={modalInput}><option value="solo">Solo</option><option value="jogja">Yogyakarta</option></select></div>
                   <div><label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Nomor Meja</label>
                     <input type="number" value={tNomor} onChange={(e) => setTNomor(e.target.value)} className={modalInput} /></div>
+                  <div><label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Nama Meja <span className="normal-case font-normal text-gray-600">(opsional)</span></label>
+                    <input value={tNama} onChange={(e) => setTNama(e.target.value)} placeholder="Contoh: Meja Sultan" className={modalInput} /></div>
                   <div><label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Kapasitas</label>
                     <input type="number" value={tKap} onChange={(e) => setTKap(e.target.value)} className={modalInput} /></div>
-                  <div><label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Area / Posisi</label>
-                    <select value={tPosisi} onChange={(e) => setTPosisi(e.target.value)} className={modalInput}>
-                      <option value="indoor-jendela">Dekat Jendela</option><option value="indoor-tengah">Indoor Tengah</option>
-                      <option value="indoor-pojok">Indoor Pojok</option><option value="outdoor">Outdoor</option><option value="vip">VIP Room</option>
-                    </select></div>
+                  <div><label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">DP Minimum (Rp)</label>
+                    <input type="number" value={tDp} onChange={(e) => setTDp(e.target.value)} placeholder="Contoh: 50000" className={modalInput} /></div>
                   <div className="flex gap-3 pt-3">
                     <button onClick={() => setShowTableForm(false)} className="flex-1 py-3.5 rounded-xl border border-gray-700 text-gray-400 font-semibold hover:bg-white/5">Batal</button>
                     <button onClick={saveTable} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-black font-bold">Simpan</button>
@@ -355,36 +419,42 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {["solo", "jogja"].map((outlet) => {
-              const filtered = tables.filter((t) => t.outlet === outlet);
-              if (filtered.length === 0) return null;
-              return (
-                <div key={outlet} className="mb-8">
-                  <div className="flex items-center gap-3 mb-4">
-                    <span className="text-[#C8973E]">◈</span>
-                    <h3 className="text-sm font-bold text-[#C8973E] tracking-[0.2em] uppercase">{outlet === "solo" ? "Solo" : "Yogyakarta"}</h3>
-                    <div className="flex-1 h-[1px] bg-[#C8973E]/15" />
-                    <span className="text-xs text-gray-600">{filtered.length} meja</span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                    {filtered.map((t) => (
-                      <div key={t.Id} className="bg-[#111] border border-[#C8973E]/10 rounded-2xl p-5 hover:border-[#C8973E]/30 transition-all group">
-                        <div className="w-10 h-10 bg-[#C8973E]/10 rounded-xl flex items-center justify-center mb-3">
-                          <span className="text-[#C8973E] font-bold">{t.nomor_meja}</span>
-                        </div>
-                        <p className="font-bold text-white">Meja {t.nomor_meja}</p>
-                        <p className="text-[#C8973E] text-sm font-semibold mt-1">{t.kapasitas} orang</p>
-                        <p className="text-gray-600 text-xs capitalize mt-1">{t.posisi.replace("-", " ")}</p>
-                        <div className="flex gap-2 mt-4">
-                          <button onClick={() => openTableForm(t)} className="flex-1 py-2 rounded-lg border border-[#C8973E]/20 text-[#C8973E] text-xs font-bold hover:bg-[#C8973E]/10">Edit</button>
-                          <button onClick={() => deleteTable(t.Id)} className="py-2 px-3 rounded-lg border border-red-500/20 text-red-400 text-xs hover:bg-red-500/10">🗑</button>
-                        </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {tables.filter((t) => t.outlet === drillArea.outlet && t.posisi === drillArea.slug).map((t) => (
+                <div key={t.Id} className="bg-[#111] border border-[#C8973E]/10 rounded-3xl overflow-hidden group hover:border-[#C8973E]/30 transition-all">
+                  <div className="h-40 bg-[#0a0a0a] relative overflow-hidden">
+                    {t.foto_url ? (
+                      <img src={t.foto_url} alt={t.nama_meja || `Meja ${t.nomor_meja}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+                        <span className="text-3xl text-[#C8973E]/20">📷</span>
+                        <span className="text-xs text-gray-700">Belum ada foto</span>
                       </div>
-                    ))}
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                    <span className="absolute bottom-3 left-3 bg-[#C8973E] text-black text-[10px] px-3 py-1 rounded-full font-bold tracking-wider uppercase">{t.kapasitas} orang</span>
+                  </div>
+                  <div className="p-5 space-y-2">
+                    <p className="font-bold text-white text-lg">{t.nama_meja || `Meja ${t.nomor_meja}`}</p>
+                    {t.nama_meja && <p className="text-gray-500 text-xs">No. {t.nomor_meja}</p>}
+                    <p className="text-[#C8973E] text-sm font-semibold">{t.dp_minimum ? `DP min. Rp ${t.dp_minimum.toLocaleString("id-ID")}` : "Tanpa DP"}</p>
+                    <label className="inline-block cursor-pointer pt-1">
+                      <span className="text-xs text-[#C8973E] font-semibold hover:text-[#D4A44A] transition-colors">
+                        {uploadingTable ? "⏳ Mengupload..." : t.foto_url ? "📷 Ganti Foto Meja" : "📷 Upload Foto Meja"}
+                      </span>
+                      <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadTablePhoto(t.Id, f); }} />
+                    </label>
+                    <div className="flex gap-2 pt-2">
+                      <button onClick={() => openTableForm(t)} className="flex-1 py-2 rounded-lg border border-[#C8973E]/20 text-[#C8973E] text-xs font-bold hover:bg-[#C8973E]/10">Edit</button>
+                      <button onClick={() => deleteTable(t.Id)} className="py-2 px-3 rounded-lg border border-red-500/20 text-red-400 text-xs hover:bg-red-500/10">🗑</button>
+                    </div>
                   </div>
                 </div>
-              );
-            })}
+              ))}
+              {tables.filter((t) => t.outlet === drillArea.outlet && t.posisi === drillArea.slug).length === 0 && (
+                <p className="text-gray-600 col-span-full text-center py-10">Belum ada meja di area ini. Klik &quot;+ Tambah Meja&quot;.</p>
+              )}
+            </div>
           </>
         )}
       </div>
