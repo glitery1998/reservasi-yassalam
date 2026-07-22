@@ -168,7 +168,7 @@ export default function Home() {
             {/* Header */}
             <div className="text-center mb-6">
               <button onClick={backToHome} className="text-[#C8973E] text-sm hover:underline mb-3 inline-block">← Kembali ke Beranda</button>
-              <Image src="/logo.png" alt="Yassalam" width={100} height={100} className="mx-auto drop-shadow-md" />
+              <Image src="/logo.PNG" alt="Yassalam" width={100} height={100} className="mx-auto drop-shadow-md" />
               <p className="text-[#C8973E]/40 mt-1 text-sm">━━ ✦ ━━</p>
               <p className="text-[#C8973E] mt-1 text-sm tracking-[0.2em] uppercase font-semibold">Reservasi Meja</p>
             </div>
@@ -395,7 +395,7 @@ export default function Home() {
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#C8973E] to-transparent" />
 
         <div className="relative text-center px-6 max-w-2xl">
-          <Image src="/logo.png" alt="Yassalam" width={160} height={160} className="mx-auto drop-shadow-2xl" />
+          <Image src="/logo.PNG" alt="Yassalam" width={160} height={160} className="mx-auto drop-shadow-2xl" />
           <p className="text-[#C8973E]/40 mt-3 text-sm tracking-[0.5em]">━━━ ✦ ━━━</p>
           <p className="text-[#C8973E]/80 mt-4 text-lg tracking-widest uppercase font-light">Pengalaman Kuliner Arabian Terbaik</p>
           <p className="text-gray-500 mt-3 max-w-md mx-auto text-sm leading-relaxed">
@@ -500,7 +500,7 @@ export default function Home() {
       <div className="py-16 px-4 bg-gradient-to-b from-[#2a1a0e] to-[#1a0f07] relative overflow-hidden">
         <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 5L35 15L45 15L37 22L40 32L30 26L20 32L23 22L15 15L25 15Z' fill='%23C8973E'/%3E%3C/svg%3E\")", backgroundSize: "60px 60px" }} />
         <div className="relative text-center max-w-lg mx-auto">
-          <Image src="/logo.png" alt="Yassalam" width={80} height={80} className="mx-auto opacity-80" />
+          <Image src="/logo.PNG" alt="Yassalam" width={80} height={80} className="mx-auto opacity-80" />
           <h2 className="text-2xl font-bold text-[#C8973E] font-serif mt-4">Siap untuk Pengalaman Arabian?</h2>
           <p className="text-gray-500 mt-3 text-sm">Reservasi meja Anda sekarang dan nikmati hidangan terbaik kami</p>
           <button onClick={() => startReservation()}
