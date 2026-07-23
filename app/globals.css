@@ -42,3 +42,14 @@ button:not(:disabled) {
   cursor: pointer;
 }
 
+/* Sembunyikan area kosong di kiri cover flipbook */
+.stf__parent {
+  background: transparent !important;
+}
+.stf__wrapper {
+  background: transparent !important;
+}
+
+.stf__block {
+  background: transparent !important;
+}

@@ -2,6 +2,9 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { supabase } from "./supabase";
+import dynamic from "next/dynamic";
+
+const MenuFlipbook = dynamic(() => import("./MenuFlipbook"), { ssr: false });
 
 type Table = {
   Id: number; outlet: string; nomor_meja: number; nama_meja?: string | null;
@@ -165,8 +168,7 @@ function WelcomeSplash({
           </>
         )}
 
-        <p className="text-[#C8973E]/30 mt-10 text-xs tracking-widest animate-fadeInUp" style={{ animationDelay: "0.5s" }}>Solo · Yogyakarta</p>
-      </div>
+        </div>
     </div>
   );
 }
@@ -195,20 +197,21 @@ function AreaModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-3xl overflow-hidden max-w-lg w-full shadow-2xl animate-fadeInUp max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-        {/* Foto — slideshow area, atau foto meja spesifik kalau sedang dipilih */}
-        <div className={`relative h-56 shrink-0 bg-gradient-to-br ${gradient} overflow-hidden`}>
+      <div className="bg-white rounded-3xl overflow-hidden max-w-3xl w-full shadow-2xl animate-fadeInUp max-h-[90vh] grid md:grid-cols-2" onClick={(e) => e.stopPropagation()}>
+
+        {/* KOLOM KIRI: Foto — slideshow area, atau foto meja spesifik kalau sedang dipilih */}
+        <div className={`relative h-64 md:h-auto shrink-0 bg-gradient-to-br ${gradient} overflow-hidden`}>
           {displayedPhoto ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={displayedPhoto} alt={pickedTable ? (pickedTable.nama_meja || `Meja ${pickedTable.nomor_meja}`) : area.nama}
-              className="absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ease-in-out" />
+            <img key={displayedPhoto} src={displayedPhoto} alt={pickedTable ? (pickedTable.nama_meja || `Meja ${pickedTable.nomor_meja}`) : area.nama}
+              className="absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ease-in-out animate-fadeInUp" style={{ animationDuration: "0.4s" }} />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">
               <span className="text-6xl opacity-30 text-white">{icon}</span>
             </div>
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-          <button onClick={onClose} className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center transition-all">✕</button>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent md:bg-gradient-to-r md:from-black/40 md:via-transparent md:to-transparent" />
+          <button onClick={onClose} className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center transition-all z-10">✕</button>
 
           {pickedTable ? (
             <span className="absolute bottom-4 left-4 bg-[#C8973E] text-white text-xs px-3 py-1 rounded-full font-semibold">
@@ -223,8 +226,8 @@ function AreaModal({
           ) : null}
         </div>
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto">
+        {/* KOLOM KANAN: Info & daftar meja */}
+        <div className="p-6 overflow-y-auto max-h-[90vh]">
           <h3 className="font-bold text-2xl text-[#5C3D1A] font-serif">{area.nama}</h3>
           {area.deskripsi && <p className="text-[#8B7355] text-sm mt-2 leading-relaxed">{area.deskripsi}</p>}
 
@@ -233,7 +236,7 @@ function AreaModal({
             {tables.length === 0 ? (
               <p className="text-sm text-[#B8A88A]">Belum ada meja tersedia di area ini.</p>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 {tables.map((t) => (
                   <button key={t.Id} onClick={() => setPickedTable(t)}
                     className={`p-4 rounded-2xl border-2 text-left transition-all ${pickedTable?.Id === t.Id ? "border-[#C8973E] bg-[#FDF6EC] shadow-md" : "border-[#E8DCC8] hover:border-[#C8973E]/50"}`}>
@@ -268,7 +271,6 @@ export default function Home() {
   const [outlet, setOutlet] = useState("");
   const [tanggal, setTanggal] = useState("");
   const [jam, setJam] = useState("");
-  const [jamSelesai, setJamSelesai] = useState("");
   const [jumlahTamu, setJumlahTamu] = useState("");
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [selectedMenu, setSelectedMenu] = useState<MenuPaket | null>(null);
@@ -295,14 +297,14 @@ export default function Home() {
       .then(({ data }) => setAreasData(data || []));
   }, [outlet]);
 
-  useEffect(() => {
-    if (!jam) { setJamSelesai(""); return; }
+  const jamSelesai = (() => {
+    if (!jam) return "";
     const [h, m] = jam.split(":").map(Number);
     const totalMenit = (h * 60 + m + 120) % (24 * 60);
     const eh = Math.floor(totalMenit / 60);
     const em = totalMenit % 60;
-    setJamSelesai(`${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`);
-  }, [jam]);
+    return `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
+  })();
 
   function formatRupiah(n: number) { return "Rp " + n.toLocaleString("id-ID"); }
   function getPosisiLabel(p: string) {
@@ -856,7 +858,7 @@ export default function Home() {
      {/* ===== SECTION: DISCOVER / OUR STORY ===== */}
       <div className="py-20 px-4 bg-[#FDF6EC]">
         <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 items-center">
-          <div>
+          <div className="order-2 md:order-1">
             <p className="text-[#C8973E] text-sm tracking-[0.3em] uppercase font-semibold">Kisah Kami</p>
             <h2 className="text-3xl sm:text-4xl font-bold text-[#5C3D1A] font-serif mt-3 leading-snug">
               Warisan Rasa Yang Disajikan Dengan Sepenuh Hati
@@ -868,21 +870,21 @@ export default function Home() {
             <p className="text-[#8B7355] leading-relaxed text-[15px] mt-4">
               Tiga hidangan istimewa Yassalam — Nasi Mandhi, Kabsah, dan Kabuli — hadir sebagai bukti nyata dedikasi tersebut. Setiap suapan mengajak Anda menyelami kehangatan cita rasa Timur Tengah yang otentik, tersaji dengan sepenuh hati di dua kota tercinta: Solo dan Yogyakarta.
             </p>
-            <button onClick={() => startReservation()}
-              className="mt-7 inline-flex items-center gap-2 text-[#C8973E] font-bold text-sm tracking-wide uppercase hover:gap-3 transition-all">
-              Reservasi Sekarang <span>→</span>
-            </button>
+            <div className="mt-8 flex items-center gap-6">
+              <div className="flex items-center gap-3">
+                <p className="text-4xl font-bold text-[#C8973E] font-serif leading-none">8+</p>
+                <p className="text-xs text-[#8B7355] leading-tight">Tahun<br/>Pengalaman</p>
+              </div>
+              <div className="h-10 w-px bg-[#C8973E]/20" />
+              <div className="flex items-center gap-3">
+                <p className="text-4xl font-bold text-[#C8973E] font-serif leading-none">100%</p>
+                <p className="text-xs text-[#8B7355] leading-tight">Resep<br/>Autentik</p>
+              </div>
+            </div>
           </div>
 
-          <div className="relative">
-            <div className="aspect-[4/5] rounded-[2rem] bg-gradient-to-br from-amber-800 via-stone-800 to-[#1a0f07] shadow-2xl shadow-[#C8973E]/10 flex items-center justify-center relative overflow-hidden">
-              <div className="absolute inset-0 opacity-[0.08]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 5L35 15L45 15L37 22L40 32L30 26L20 32L23 22L15 15L25 15Z' fill='%23C8973E'/%3E%3C/svg%3E\")", backgroundSize: "60px 60px" }} />
-              <span className="text-6xl opacity-25 text-white">✦</span>
-            </div>
-            <div className="absolute -bottom-6 -left-6 bg-white rounded-2xl shadow-xl p-5 border border-[#C8973E]/15">
-              <p className="text-3xl font-bold text-[#C8973E] font-serif">8+</p>
-              <p className="text-xs text-[#8B7355] mt-1 tracking-wide">Tahun Pengalaman</p>
-            </div>
+          <div className="overflow-hidden order-1 md:order-2 bg-[#FDF6EC]">
+            <MenuFlipbook />
           </div>
         </div>
       </div>
