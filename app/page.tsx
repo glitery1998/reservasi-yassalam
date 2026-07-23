@@ -200,7 +200,7 @@ function AreaModal({
       <div className="bg-white rounded-3xl overflow-hidden overflow-y-auto max-w-3xl w-full shadow-2xl animate-fadeInUp max-h-[90vh] grid md:grid-cols-2" onClick={(e) => e.stopPropagation()}>
 
         {/* KOLOM KIRI: Foto — slideshow area, atau foto meja spesifik kalau sedang dipilih */}
-        <div className={`relative h-48 sm:h-56 md:h-auto shrink-0 bg-gradient-to-br ${gradient} overflow-hidden sticky top-0 z-20`}>
+        <div className={`relative h-56 sm:h-64 md:h-auto shrink-0 bg-gradient-to-br ${gradient} overflow-hidden sticky top-0 z-20`}>
           {displayedPhoto ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img key={displayedPhoto} src={displayedPhoto} alt={pickedTable ? (pickedTable.nama_meja || `Meja ${pickedTable.nomor_meja}`) : area.nama}
