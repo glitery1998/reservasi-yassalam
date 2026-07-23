@@ -311,13 +311,12 @@ export default function Home() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [selectedAreaModal, showForm, sukses, step, showWelcome]);
 
-  // Push history state saat overlay dibuka
+  // Push history state saat overlay/screen dibuka
   useEffect(() => {
-    if (showForm || selectedAreaModal) {
+    if (showForm || selectedAreaModal || showWelcome) {
       window.history.pushState({ overlay: true }, "");
     }
-  }, [showForm, selectedAreaModal]);
-
+  }, [showForm, selectedAreaModal, showWelcome]);
   useEffect(() => {
     if (!outlet) return;
     supabase.from("Tables").select("*").eq("outlet", outlet).order("nomor_meja")
