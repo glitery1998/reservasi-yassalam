@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { supabase } from "./supabase";
 import dynamic from "next/dynamic";
@@ -18,6 +18,34 @@ type AreaData = {
   Id: number; outlet: string; nama: string; slug: string;
   deskripsi: string | null; urutan: number;
 };
+type BookingSlot = {
+  Id: number; meja_id: number; tanggal: string; jam: string; jam_selesai: string;
+  status: string; type: "reservation" | "hold";
+};
+
+/** Cek apakah dua slot waktu overlap */
+function isTimeOverlap(startA: string, endA: string, startB: string, endB: string): boolean {
+  return startA < endB && endA > startB;
+}
+
+/** Status ketersediaan meja pada jam tertentu */
+function getTableAvailability(
+  tableId: number, checkJam: string, checkJamSelesai: string, slots: BookingSlot[]
+): { status: "available" | "booked" | "on-hold"; conflictSlot?: BookingSlot } {
+  const tableSlots = slots.filter((s) => s.meja_id === tableId);
+  for (const slot of tableSlots) {
+    if (isTimeOverlap(checkJam, checkJamSelesai, slot.jam, slot.jam_selesai)) {
+      if (slot.type === "hold") return { status: "on-hold", conflictSlot: slot };
+      return { status: "booked", conflictSlot: slot };
+    }
+  }
+  return { status: "available" };
+}
+
+/** Ambil semua booking hari itu untuk satu meja */
+function getTableDaySchedule(tableId: number, slots: BookingSlot[]): BookingSlot[] {
+  return slots.filter((s) => s.meja_id === tableId).sort((a, b) => a.jam.localeCompare(b.jam));
+}
 
 const areaVisuals = [
   { gradient: "from-amber-800 to-yellow-900", icon: "✦" },
@@ -26,6 +54,16 @@ const areaVisuals = [
   { gradient: "from-emerald-900 to-emerald-950", icon: "❋" },
   { gradient: "from-yellow-800 to-amber-950", icon: "★" },
 ];
+
+/** Helper: hitung jam selesai (jam + 2 jam) */
+function hitungJamSelesai(jam: string): string {
+  if (!jam) return "";
+  const [h, m] = jam.split(":").map(Number);
+  const totalMenit = (h * 60 + m + 120) % (24 * 60);
+  const eh = Math.floor(totalMenit / 60);
+  const em = totalMenit % 60;
+  return `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
+}
 
 function AreaCardPhotos({ photos, icon, gradient }: { photos: string[]; icon: string; gradient: string }) {
   const [idx, setIdx] = useState(0);
@@ -69,12 +107,13 @@ function WelcomeSplash({
 
   function handleOutletPicked(outletValue: string) {
     const outletLabel = outletValue === "solo" ? "Solo" : "Yogyakarta";
+    const waNumber = outletValue === "solo" ? "6281222666068" : "6281222666030";
     if (pendingAction === "reservasi") {
       onReservasi(outletValue);
     } else if (pendingAction === "aqiqah") {
-      window.open(`https://wa.me/62xxxxxxxxxx?text=Halo%20Yassalam%2C%20saya%20ingin%20order%20Aqiqah%20untuk%20outlet%20${outletLabel}`, "_blank");
+      window.open(`https://wa.me/${waNumber}?text=Halo%20Yassalam%2C%20saya%20ingin%20order%20Aqiqah%20untuk%20outlet%20${outletLabel}`, "_blank");
     } else if (pendingAction === "preorder") {
-      window.open(`https://wa.me/62xxxxxxxxxx?text=Halo%20Yassalam%2C%20saya%20ingin%20Pre%20Order%20untuk%20outlet%20${outletLabel}`, "_blank");
+      window.open(`https://wa.me/${waNumber}?text=Halo%20Yassalam%2C%20saya%20ingin%20Pre%20Order%20untuk%20outlet%20${outletLabel}`, "_blank");
     }
     setPendingAction(null);
   }
@@ -174,6 +213,7 @@ function WelcomeSplash({
 }
 function AreaModal({
   area, tables, gradient, icon, onClose, onSelectTable,
+  previewJam, previewJamSelesai, daySlots, previewTamu,
 }: {
   area: AreaData;
   tables: Table[];
@@ -181,25 +221,30 @@ function AreaModal({
   icon: string;
   onClose: () => void;
   onSelectTable: (table: Table) => void;
+  previewJam: string;
+  previewJamSelesai: string;
+  daySlots: BookingSlot[];
+  previewTamu: number;
 }) {
   const photos = tables.filter((t) => t.foto_url).map((t) => t.foto_url as string);
   const [slideIndex, setSlideIndex] = useState(0);
   const [pickedTable, setPickedTable] = useState<Table | null>(null);
 
   useEffect(() => {
-    if (pickedTable) return; // stop auto-slide kalau lagi lihat foto meja tertentu
+    if (pickedTable) return;
     if (photos.length < 2) return;
     const t = setInterval(() => setSlideIndex((i) => (i + 1) % photos.length), 3500);
     return () => clearInterval(t);
   }, [photos.length, pickedTable]);
 
   const displayedPhoto = pickedTable?.foto_url || photos[slideIndex] || null;
+  const hasTimeFilter = !!previewJam && !!previewJamSelesai;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-3xl overflow-hidden overflow-y-auto max-w-3xl w-full shadow-2xl animate-fadeInUp max-h-[90vh] grid md:grid-cols-2" onClick={(e) => e.stopPropagation()}>
 
-        {/* KOLOM KIRI: Foto — slideshow area, atau foto meja spesifik kalau sedang dipilih */}
+        {/* KOLOM KIRI: Foto */}
         <div className={`relative h-56 sm:h-64 md:h-auto shrink-0 bg-gradient-to-br ${gradient} overflow-hidden sticky top-0 z-20`}>
           {displayedPhoto ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -231,20 +276,104 @@ function AreaModal({
           <h3 className="font-bold text-2xl text-[#5C3D1A] font-serif">{area.nama}</h3>
           {area.deskripsi && <p className="text-[#8B7355] text-sm mt-2 leading-relaxed">{area.deskripsi}</p>}
 
-          <div className="mt-6">
+          {/* Legend ketersediaan */}
+          {hasTimeFilter && (
+            <div className="mt-4 flex flex-wrap gap-3 text-[10px] font-semibold uppercase tracking-wider">
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Tersedia</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-400" /> Terisi</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> Di-hold</span>
+              {previewTamu > 0 && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-300" /> Kapasitas kurang</span>}
+            </div>
+          )}
+
+          <div className="mt-5">
             <p className="text-xs font-bold text-[#C8973E] mb-3 tracking-[0.15em] uppercase">Pilih Meja</p>
             {tables.length === 0 ? (
               <p className="text-sm text-[#B8A88A]">Belum ada meja tersedia di area ini.</p>
             ) : (
               <div className="grid grid-cols-2 gap-3">
-                {tables.map((t) => (
-                  <button key={t.Id} onClick={() => setPickedTable(t)}
-                    className={`p-4 rounded-2xl border-2 text-left transition-all ${pickedTable?.Id === t.Id ? "border-[#C8973E] bg-[#FDF6EC] shadow-md" : "border-[#E8DCC8] hover:border-[#C8973E]/50"}`}>
-                    <p className="font-bold text-[#5C3D1A]">{t.nama_meja || `Meja ${t.nomor_meja}`}</p>
-                    <p className="text-sm text-[#8B7355] mt-1">{t.kapasitas} orang</p>
-                    {t.dp_minimum ? <p className="text-xs text-[#C8973E] mt-1 font-semibold">DP min. Rp {t.dp_minimum.toLocaleString("id-ID")}</p> : null}
-                  </button>
-                ))}
+                {tables.map((t) => {
+                  const avail = hasTimeFilter
+                    ? getTableAvailability(t.Id, previewJam, previewJamSelesai, daySlots)
+                    : { status: "available" as const };
+                  const schedule = getTableDaySchedule(t.Id, daySlots);
+                  const isBooked = avail.status === "booked";
+                  const isHeld = avail.status === "on-hold";
+                  const isTooSmall = previewTamu > 0 && t.kapasitas < previewTamu;
+                  const isDisabled = isBooked || isHeld || isTooSmall;
+
+                  return (
+                    <button
+                      key={t.Id}
+                      onClick={() => { if (!isDisabled) setPickedTable(t); }}
+                      disabled={isDisabled}
+                      className={`p-4 rounded-2xl border-2 text-left transition-all relative ${
+                        isDisabled
+                          ? "border-gray-200 bg-gray-50 opacity-70 cursor-not-allowed"
+                          : pickedTable?.Id === t.Id
+                          ? "border-[#C8973E] bg-[#FDF6EC] shadow-md"
+                          : "border-[#E8DCC8] hover:border-[#C8973E]/50"
+                      }`}
+                    >
+                      {/* Status badge */}
+                      {hasTimeFilter && (
+                        <span className={`absolute top-3 right-3 w-3 h-3 rounded-full ${
+                          isBooked ? "bg-red-400" : isHeld ? "bg-amber-400" : isTooSmall ? "bg-orange-300" : "bg-emerald-500"
+                        }`} />
+                      )}
+
+                      <p className={`font-bold ${isDisabled ? "text-gray-400" : "text-[#5C3D1A]"}`}>
+                        {t.nama_meja || `Meja ${t.nomor_meja}`}
+                      </p>
+                      <p className={`text-sm mt-1 ${isDisabled ? "text-gray-400" : "text-[#8B7355]"}`}>
+                        {t.kapasitas} orang
+                      </p>
+
+                      {/* Status text */}
+                      {isBooked && (
+                        <p className="text-xs text-red-500 mt-1.5 font-semibold">
+                          Terisi {avail.conflictSlot?.jam}–{avail.conflictSlot?.jam_selesai}
+                        </p>
+                      )}
+                      {isHeld && (
+                        <p className="text-xs text-amber-600 mt-1.5 font-semibold">
+                          Sedang di-hold
+                        </p>
+                      )}
+                      {isTooSmall && !isBooked && !isHeld && (
+                        <p className="text-xs text-orange-500 mt-1.5 font-semibold">
+                          Maks {t.kapasitas} orang
+                        </p>
+                      )}
+                      {!isDisabled && hasTimeFilter && (
+                        <p className="text-xs text-emerald-600 mt-1.5 font-semibold">✓ Tersedia</p>
+                      )}
+
+                      {t.dp_minimum && !isDisabled ? (
+                        <p className="text-xs text-[#C8973E] mt-1 font-semibold">
+                          DP min. Rp {t.dp_minimum.toLocaleString("id-ID")}
+                        </p>
+                      ) : null}
+
+                      {/* Jadwal hari ini */}
+                      {schedule.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-dashed border-gray-200">
+                          <p className="text-[10px] text-[#8B7355] font-semibold uppercase tracking-wider mb-1">Jadwal hari ini</p>
+                          {schedule.map((s) => (
+                            <p key={s.Id} className={`text-[11px] leading-relaxed ${
+                              hasTimeFilter && isTimeOverlap(previewJam, previewJamSelesai, s.jam, s.jam_selesai)
+                                ? "text-red-500 font-semibold"
+                                : "text-[#B8A88A]"
+                            }`}>
+                              {s.jam}–{s.jam_selesai}
+                              {s.type === "hold" && " (hold)"}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -253,7 +382,7 @@ function AreaModal({
 
         {/* Tombol reservasi sticky di bawah */}
         {pickedTable && (
-          <div className="md:col-span-2 sticky bottom-0 bg-white border-t border-[#E8DCC8] p-4">
+          <div className="md:col-start-2 sticky bottom-0 bg-white border-t border-[#E8DCC8] p-4">
             <button onClick={() => onSelectTable(pickedTable)}
               className="w-full py-4 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] hover:from-[#D4A44A] hover:to-[#B8892E] text-white font-bold transition-all active:scale-[0.98] shadow-lg shadow-[#C8973E]/20">
               Reservasi {pickedTable.nama_meja || `Meja ${pickedTable.nomor_meja}`} →
@@ -282,16 +411,147 @@ export default function Home() {
   const [namaTamu, setNamaTamu] = useState("");
   const [noWa, setNoWa] = useState("");
   const [catatan, setCatatan] = useState("");
-  const [preselectedArea, setPreselectedArea] = useState("");
   const [selectedAreaModal, setSelectedAreaModal] = useState<AreaData | null>(null);
-
+  const [kapasitasWarning, setKapasitasWarning] = useState(false);
+  const [holdId, setHoldId] = useState<number | null>(null);
+  const [holdExpiry, setHoldExpiry] = useState<Date | null>(null);
+  const [countdown, setCountdown] = useState("");
+  const [reservationId, setReservationId] = useState<number | null>(null);
   const [tables, setTables] = useState<Table[]>([]);
   const [menus, setMenus] = useState<MenuPaket[]>([]);
   const [areasData, setAreasData] = useState<AreaData[]>([]);
 
+  // Preview tanggal & jam untuk cek ketersediaan meja di landing page
+  const [previewTanggal, setPreviewTanggal] = useState("");
+  const [previewJam, setPreviewJam] = useState("");
+  const [previewTamu, setPreviewTamu] = useState("");
+  const previewJamSelesai = hitungJamSelesai(previewJam);
+  const [daySlots, setDaySlots] = useState<BookingSlot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+
+  // FIX #1: jamSelesai dihitung via helper function yang juga dipakai di createBookingHold
+  const jamSelesai = hitungJamSelesai(jam);
+
+  // FIX #2: backToHome dibungkus useCallback agar stabil untuk dependency useEffect
+  const backToHome = useCallback(() => {
+    // release hold inline (tidak bisa panggil releaseHold karena circular dep)
+    if (holdId) {
+      supabase.from("BookingHold").update({ status: "released" }).eq("Id", holdId);
+    }
+    setHoldId(null);
+    setHoldExpiry(null);
+    setReservationId(null);
+    setShowForm(false);
+    setSukses(false);
+    setStep(1);
+    setOutlet("");
+    setTanggal("");
+    setJam("");
+    setJumlahTamu("");
+    setSelectedTable(null);
+    setSelectedMenu(null);
+    setNamaTamu("");
+    setNoWa("");
+    setCatatan("");
+  }, [holdId]);
+
+  // FIX #2: Countdown timer — backToHome sekarang ada di dependency array
+  useEffect(() => {
+    if (!holdExpiry) { queueMicrotask(() => setCountdown("")); return; }
+    const tick = () => {
+      const diff = holdExpiry.getTime() - Date.now();
+      if (diff <= 0) {
+        setCountdown("00:00");
+        setHoldId(null);
+        setHoldExpiry(null);
+        alert("Waktu hold meja telah habis. Silakan pilih meja kembali.");
+        backToHome();
+        return;
+      }
+      const m = Math.floor(diff / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setCountdown(`${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [holdExpiry, backToHome]);
+
+  // FIX #1: createBookingHold sekarang pakai hitungJamSelesai() langsung
+  async function createBookingHold() {
+    if (!selectedTable || !tanggal || !jam) return false;
+    const computedJamSelesai = hitungJamSelesai(jam);
+    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    
+    // Cleanup expired holds first, then check existing active holds
+    await supabase.from("BookingHold").delete().lt("expires_at", new Date().toISOString());
+    
+    const { data: existingHolds } = await supabase
+      .from("BookingHold")
+      .select("*")
+      .eq("meja_id", selectedTable.Id)
+      .eq("tanggal", tanggal)
+      .eq("status", "active")
+      .gt("expires_at", new Date().toISOString());
+    
+    if (existingHolds && existingHolds.length > 0) {
+      alert("Meja ini sedang di-hold oleh customer lain. Silakan pilih meja atau waktu lain.");
+      return false;
+    }
+
+    // Also check existing confirmed reservations
+    const { data: existingRes } = await supabase
+      .from("Reservation")
+      .select("*")
+      .eq("meja_id", selectedTable.Id)
+      .eq("tanggal", tanggal)
+      .eq("status", "Confirmed");
+
+    if (existingRes && existingRes.length > 0) {
+      const conflict = existingRes.some((r: { jam: string; jam_selesai: string }) => {
+        const rStart = r.jam.replace(":00", "");
+        const rEnd = r.jam_selesai;
+        // FIX #1: pakai computedJamSelesai, bukan variabel luar yang mungkin belum tersedia
+        return (jam < rEnd && computedJamSelesai > rStart);
+      });
+      if (conflict) {
+        alert("Meja ini sudah dibooking pada jam tersebut. Silakan pilih waktu atau meja lain.");
+        return false;
+      }
+    }
+    
+    const { data, error } = await supabase.from("BookingHold").insert({
+      meja_id: selectedTable.Id,
+      tanggal,
+      jam,
+      jam_selesai: computedJamSelesai,
+      session_id: sessionId,
+      expires_at: expiresAt,
+      status: "active",
+    }).select().single();
+    
+    if (error) {
+      alert("Gagal hold meja: " + error.message);
+      return false;
+    }
+    
+    setHoldId(data.Id);
+    setHoldExpiry(new Date(expiresAt));
+    return true;
+  }
+
+  async function releaseHold() {
+    if (holdId) {
+      await supabase.from("BookingHold").update({ status: "released" }).eq("Id", holdId);
+      setHoldId(null);
+      setHoldExpiry(null);
+    }
+  }
+
   const today = new Date().toISOString().split("T")[0];
 
-  // Handle tombol back HP: tutup modal/form alih-alih keluar browser
+  // Handle tombol back HP
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       e.preventDefault();
@@ -310,12 +570,18 @@ export default function Home() {
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [selectedAreaModal, showForm, sukses, step, showWelcome]);
+  }, [selectedAreaModal, showForm, sukses, step, showWelcome, backToHome]);
 
-  // Push history state saat state berubah
   useEffect(() => {
     window.history.pushState({ overlay: true }, "");
-  }, [showForm, selectedAreaModal, showWelcome, step]);
+  }, [showForm, selectedAreaModal, showWelcome]);
+
+  useEffect(() => {
+    if (showForm && step > 1) {
+      window.history.pushState({ overlay: true }, "");
+    }
+  }, [step, showForm]);
+
   useEffect(() => {
     if (!outlet) return;
     supabase.from("Tables").select("*").eq("outlet", outlet).order("nomor_meja")
@@ -326,89 +592,157 @@ export default function Home() {
       .then(({ data }) => setAreasData(data || []));
   }, [outlet]);
 
-  const jamSelesai = (() => {
-    if (!jam) return "";
-    const [h, m] = jam.split(":").map(Number);
-    const totalMenit = (h * 60 + m + 120) % (24 * 60);
-    const eh = Math.floor(totalMenit / 60);
-    const em = totalMenit % 60;
-    return `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
-  })();
+  // Fetch booking slots ketika preview tanggal/outlet berubah
+  useEffect(() => {
+    if (!outlet || !previewTanggal) { setDaySlots([]); return; }
+    setLoadingSlots(true);
+    const fetchSlots = async () => {
+      // Fetch confirmed reservations
+      const { data: resData } = await supabase
+        .from("Reservation")
+        .select("Id, meja_id, tanggal, jam, jam_selesai, status")
+        .eq("tanggal", previewTanggal)
+        .in("status", ["Confirmed", "Pending"])
+        .in("meja_id", tables.map((t) => t.Id));
+
+      // Fetch active holds
+      const { data: holdData } = await supabase
+        .from("BookingHold")
+        .select("Id, meja_id, tanggal, jam, jam_selesai, status")
+        .eq("tanggal", previewTanggal)
+        .eq("status", "active")
+        .gt("expires_at", new Date().toISOString())
+        .in("meja_id", tables.map((t) => t.Id));
+
+      const slots: BookingSlot[] = [
+        ...(resData || []).map((r) => ({ ...r, type: "reservation" as const })),
+        ...(holdData || []).map((h) => ({ ...h, type: "hold" as const })),
+      ];
+      setDaySlots(slots);
+      setLoadingSlots(false);
+    };
+    fetchSlots();
+  }, [outlet, previewTanggal, tables]);
 
   function formatRupiah(n: number) { return "Rp " + n.toLocaleString("id-ID"); }
   function getPosisiLabel(p: string) {
     const map: Record<string, string> = { "indoor-jendela": "Dekat Jendela", "indoor-tengah": "Indoor Tengah", "indoor-pojok": "Indoor Pojok", "outdoor": "Outdoor Garden", "vip": "VIP Room" };
     return map[p] || p;
   }
-  function getPosisiIcon(p: string) {
-    const map: Record<string, string> = { "indoor-jendela": "✦", "indoor-tengah": "◈", "indoor-pojok": "◆", "outdoor": "❋", "vip": "★" };
-    return map[p] || "◈";
-  }
 
+  // FIX #3: validateStep sekarang validasi semua step yang relevan
   function validateStep(s: number): string[] {
     const errs: string[] = [];
+    // Step 1: Waktu & data tamu
     if (s === 1) {
-      if (!outlet) errs.push("Pilih outlet terlebih dahulu");
       if (!tanggal) errs.push("Pilih tanggal reservasi");
       if (tanggal && tanggal < today) errs.push("Tanggal tidak boleh hari yang sudah lewat");
       if (!jam) errs.push("Pilih jam reservasi");
       if (jam) { const h = parseInt(jam.split(":")[0]); if (h < 7 || h >= 20) errs.push("Jam reservasi hanya 07:00 - 20:00"); }
-      if (!jumlahTamu || Number(jumlahTamu) < 1) errs.push("Jumlah tamu minimal 1 orang");
       if (!namaTamu || namaTamu.trim().length < 2) errs.push("Nama tamu minimal 2 karakter");
       if (!noWa || !/^[0-9]{10,15}$/.test(noWa)) errs.push("No. WhatsApp harus 10-15 digit angka");
     }
-    if (s === 2 && !selectedTable) errs.push("Pilih meja terlebih dahulu");
+    // Step 2: DP — meja sudah dipilih sebelum masuk form
+    if (s === 2) {
+      if (!selectedTable) errs.push("Pilih meja terlebih dahulu");
+    }
+    // Step 3: Konfirmasi — validasi ulang semua sebelum booking
+    if (s === 3) {
+      if (!tanggal) errs.push("Tanggal reservasi belum dipilih");
+      if (!jam) errs.push("Jam reservasi belum dipilih");
+      if (!selectedTable) errs.push("Meja belum dipilih");
+      if (!namaTamu || namaTamu.trim().length < 2) errs.push("Nama tamu tidak valid");
+      if (!noWa || !/^[0-9]{10,15}$/.test(noWa)) errs.push("No. WhatsApp tidak valid");
+    }
+    // Step 4: Menu — opsional, tapi kalau pilih harus isi porsi
+    if (s === 4) {
+      if (selectedMenu && (!jumlahPorsi || Number(jumlahPorsi) < 1)) {
+        errs.push("Jumlah porsi minimal 1 jika memilih menu paket");
+      }
+    }
     return errs;
   }
 
-  function nextStep() {
+  async function nextStep() {
+    if (step === 1 && selectedTable && Number(jumlahTamu) > selectedTable.kapasitas) {
+      setKapasitasWarning(true);
+      return;
+    }
     const errs = validateStep(step);
     setErrors(errs);
     if (errs.length > 0) return;
+    
+    // Step 1 → 2: create booking hold
+    if (step === 1) {
+      const success = await createBookingHold();
+      if (!success) return;
+    }
+    
     setStep(step + 1);
   }
 
-  async function handleSubmit() {
-    const errs = validateStep(4);
+  // Step 3: Konfirmasi → insert reservation ke DB (meja langsung terbooking)
+  async function handleConfirmBooking() {
+    const errs = validateStep(3);
     setErrors(errs);
     if (errs.length > 0) return;
     setLoading(true);
-    const { error } = await supabase.from("Reservation").insert({
+    
+    const dpAmount = selectedTable?.dp_minimum || 0;
+    
+    const { data, error } = await supabase.from("Reservation").insert({
       nama_tamu: namaTamu, no_whatsapp: noWa, outlet, tanggal, jam, jam_selesai: jamSelesai,
       jumlah_tamu: Number(jumlahTamu), catatan: catatan || null,
-      meja_id: selectedTable?.Id, menu_paket_id: selectedMenu?.Id || null,
-      dp_amount: selectedMenu ? Number(jumlahPorsi || jumlahTamu) * selectedMenu.harga : 0,
-    });
+      meja_id: selectedTable?.Id, menu_paket_id: null,
+      dp_amount: dpAmount,
+      dp_status: "belum_bayar",
+      status: "Confirmed",
+    }).select().single();
+    
+    // Mark hold as completed
+    if (holdId) {
+      await supabase.from("BookingHold").update({ status: "completed" }).eq("Id", holdId);
+      setHoldId(null);
+      setHoldExpiry(null);
+    }
+    
     setLoading(false);
-    if (error) alert("Gagal: " + error.message);
-    else setSukses(true);
+    if (error) {
+      alert("Gagal: " + error.message);
+    } else {
+      setReservationId(data.Id);
+      setStep(4); // lanjut ke pilih menu (opsional)
+    }
   }
 
-  function backToHome() {
-    setShowForm(false);
-    setSukses(false);
-    setStep(1);
-    setOutlet("");
-    setTanggal("");
-    setJam("");
-    setJumlahTamu("");
-    setSelectedTable(null);
-    setSelectedMenu(null);
-    setNamaTamu("");
-    setNoWa("");
-    setCatatan("");
+  // Step 4: Update menu ke reservation yang sudah ada (opsional)
+  async function handleSaveMenu() {
+    if (selectedMenu) {
+      const errs = validateStep(4);
+      setErrors(errs);
+      if (errs.length > 0) return;
+    }
+    setLoading(true);
+
+    if (selectedMenu && reservationId) {
+      await supabase.from("Reservation").update({
+        menu_paket_id: selectedMenu.Id,
+      }).eq("Id", reservationId);
+    }
+
+    setLoading(false);
+    setSukses(true);
   }
 
-  function startReservation(area?: string) {
+  function startReservation() {
     setShowForm(true);
-    setPreselectedArea(area || "");
     setStep(1);
     setSukses(false);
     setErrors([]);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  const stepLabels = ["Waktu", "Meja", "Menu", "Konfirmasi"];
+  const stepLabels = ["Waktu", "DP", "Konfirmasi", "Menu"];
   const inputClass = "w-full px-4 py-3 rounded-xl border-2 border-[#E8DCC8] focus:border-[#C8973E] bg-[#FEFCF8] outline-none text-[#5C3D1A] placeholder-[#C8B89A] transition-all";
   const labelClass = "block text-xs font-bold text-[#C8973E] mb-2 tracking-[0.15em] uppercase";
 
@@ -429,6 +763,9 @@ export default function Home() {
         onReservasi={(outletPilihan) => {
           setOutlet(outletPilihan);
           setShowWelcome(false);
+          setTimeout(() => {
+            document.getElementById("pilihan-area")?.scrollIntoView({ behavior: "smooth" });
+          }, 300);
         }}
       />
     );
@@ -436,38 +773,181 @@ export default function Home() {
 
   // ==================== SUKSES ====================
   if (showForm && sukses) {
+    async function downloadTiket() {
+      const jsPDF = (await import("jspdf")).default;
+
+      const logoImg = await new Promise<string>((resolve) => {
+        const img = new window.Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width;
+          canvas.height = img.height;
+          canvas.getContext("2d")!.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        img.src = "/logo.PNG";
+      });
+
+      const pdf = new jsPDF("p", "mm", [120, 220]);
+      const w = 120, h = 220;
+      const cx = w / 2;
+
+      pdf.setFillColor(255, 252, 245);
+      pdf.rect(0, 0, w, h, "F");
+      pdf.setFillColor(200, 151, 62);
+      pdf.rect(0, 0, w, 3, "F");
+      pdf.rect(0, h - 3, w, 3, "F");
+      pdf.setDrawColor(200, 151, 62);
+      pdf.setLineWidth(0.3);
+      pdf.roundedRect(5, 7, w - 10, h - 14, 3, 3, "S");
+      pdf.setFillColor(200, 151, 62);
+      pdf.circle(9, 11, 0.8, "F");
+      pdf.circle(w - 9, 11, 0.8, "F");
+      pdf.circle(9, h - 11, 0.8, "F");
+      pdf.circle(w - 9, h - 11, 0.8, "F");
+      pdf.addImage(logoImg, "PNG", cx - 14, 14, 28, 28);
+      pdf.setDrawColor(200, 151, 62);
+      pdf.setLineWidth(0.3);
+      pdf.line(25, 48, cx - 4, 48);
+      pdf.line(cx + 4, 48, w - 25, 48);
+      pdf.setFillColor(200, 151, 62);
+      pdf.triangle(cx, 46, cx - 2, 48, cx, 50, "F");
+      pdf.triangle(cx, 46, cx + 2, 48, cx, 50, "F");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(8);
+      pdf.setTextColor(200, 151, 62);
+      pdf.text("TIKET RESERVASI", cx, 57, { align: "center" });
+      pdf.setDrawColor(200, 151, 62);
+      pdf.setLineWidth(0.3);
+      pdf.line(20, 60, w - 20, 60);
+      pdf.setFillColor(253, 246, 236);
+      pdf.roundedRect(12, 65, w - 24, 78, 3, 3, "F");
+      pdf.setDrawColor(220, 195, 150);
+      pdf.setLineWidth(0.2);
+      pdf.roundedRect(12, 65, w - 24, 78, 3, 3, "S");
+
+      let y = 76;
+      const lx = 18, vx = w - 18;
+      const rh = 10;
+
+      function infoRow(lbl: string, val: string, gold?: boolean) {
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(6);
+        pdf.setTextColor(160, 140, 115);
+        pdf.text(lbl, lx, y);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(8);
+        if (gold) {
+          pdf.setTextColor(200, 151, 62);
+        } else {
+          pdf.setTextColor(72, 51, 26);
+        }
+        pdf.text(val, vx, y, { align: "right" });
+        pdf.setDrawColor(230, 220, 200);
+        pdf.setLineWidth(0.1);
+        pdf.line(lx, y + 3, vx, y + 3);
+        y += rh;
+      }
+
+      infoRow("NAMA TAMU", namaTamu);
+      infoRow("OUTLET", outlet.charAt(0).toUpperCase() + outlet.slice(1));
+      infoRow("TANGGAL", tanggal);
+      infoRow("JAM", `${jam} - ${jamSelesai}`);
+      infoRow("JUMLAH TAMU", `${jumlahTamu} orang`);
+      infoRow("MEJA", `No. ${selectedTable?.nomor_meja} - ${getPosisiLabel(selectedTable?.posisi || "")}`, true);
+
+      if (selectedTable?.dp_minimum) {
+        pdf.setDrawColor(200, 151, 62);
+        pdf.setLineWidth(0.15);
+        pdf.line(lx, y - 4, vx, y - 4);
+        infoRow("DOWN PAYMENT", formatRupiah(selectedTable.dp_minimum), true);
+      }
+
+      const tearY = 150;
+      pdf.setFillColor(255, 252, 245);
+      pdf.circle(5, tearY, 4, "F");
+      pdf.circle(w - 5, tearY, 4, "F");
+      pdf.setDrawColor(200, 151, 62);
+      pdf.setLineDashPattern([1.5, 1.5], 0);
+      pdf.setLineWidth(0.2);
+      pdf.line(10, tearY, w - 10, tearY);
+      pdf.setLineDashPattern([], 0);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(6);
+      pdf.setTextColor(200, 151, 62);
+      pdf.text("MEJA", cx, 159, { align: "center" });
+      pdf.setFontSize(36);
+      pdf.setTextColor(200, 151, 62);
+      pdf.text(`${selectedTable?.nomor_meja || "-"}`, cx, 174, { align: "center" });
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(6);
+      pdf.setTextColor(160, 140, 115);
+      pdf.text(`${outlet.charAt(0).toUpperCase() + outlet.slice(1)} - ${tanggal} - ${jam}`, cx, 181, { align: "center" });
+
+      const barcodeY = 186;
+      const barH = 10;
+      const pattern = [1.2, 0.6, 1.2, 0.6, 1.8, 0.6, 1.2, 0.6, 0.6, 1.8, 1.2, 0.6, 1.2, 0.6, 1.8, 0.6, 0.6, 1.2, 1.8, 0.6, 1.2, 0.6, 1.2, 0.6, 1.8, 0.6, 1.2, 0.6, 0.6, 1.8, 1.2, 0.6, 1.2, 0.6, 1.8, 0.6, 0.6, 1.2, 1.8, 0.6];
+      const totalBars = pattern.length;
+      const barGap = 0.8;
+      const totalW = pattern.reduce((a, b) => a + b, 0) + (totalBars - 1) * barGap;
+      let bx = cx - totalW / 2;
+      pdf.setFillColor(200, 151, 62);
+      for (let i = 0; i < totalBars; i++) {
+        pdf.rect(bx, barcodeY, pattern[i], barH, "F");
+        bx += pattern[i] + barGap;
+      }
+
+      const barcodeNum = `YSL-${outlet.toUpperCase().slice(0, 3)}-${tanggal.replace(/-/g, "")}-M${selectedTable?.nomor_meja || "0"}`;
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(5);
+      pdf.setTextColor(160, 140, 115);
+      pdf.text(barcodeNum, cx, 200, { align: "center" });
+      pdf.setFontSize(4.5);
+      pdf.setTextColor(180, 165, 140);
+      pdf.text("Tunjukkan tiket ini kepada staff saat tiba di outlet", cx, 207, { align: "center" });
+      pdf.text("Reservasi berlaku selama 2 jam", cx, 211, { align: "center" });
+
+      pdf.save(`Tiket-Reservasi-Yassalam-${tanggal}.pdf`);
+    }
     return (
-      <div className="min-h-screen bg-[#FDF6EC] flex items-center justify-center px-4">
-        <div className="bg-white border border-[#C8973E]/20 rounded-3xl p-10 text-center max-w-md w-full shadow-xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-[#C8973E]/20 via-[#C8973E] to-[#C8973E]/20" />
-          <div className="w-20 h-20 bg-gradient-to-br from-[#C8973E] to-[#A67B2E] rounded-full flex items-center justify-center mx-auto shadow-lg shadow-[#C8973E]/20">
-            <span className="text-white text-3xl">✓</span>
+      <div className="min-h-screen bg-[#FDF6EC] flex items-center justify-center px-4 py-8">
+        <div className="max-w-md w-full">
+          <div className="bg-white border border-[#C8973E]/20 rounded-3xl p-10 text-center shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-[#C8973E]/20 via-[#C8973E] to-[#C8973E]/20" />
+            <div className="w-20 h-20 bg-gradient-to-br from-[#C8973E] to-[#A67B2E] rounded-full flex items-center justify-center mx-auto shadow-lg shadow-[#C8973E]/20">
+              <span className="text-white text-3xl">✓</span>
+            </div>
+            <h1 className="text-2xl font-bold text-[#5C3D1A] font-serif mt-5">Reservasi Berhasil</h1>
+            <p className="text-[#C8973E]/50 mt-1 text-sm">━━ ✦ ━━</p>
+            <p className="text-[#8B7355] mt-3 text-sm">Terima kasih telah memilih Yassalam. Simpan tiket Anda sebagai bukti reservasi.</p>
+            <div className="bg-[#FDF6EC] border border-[#C8973E]/15 rounded-2xl p-5 mt-6 text-left text-sm space-y-2">
+              <div className="flex justify-between"><span className="text-[#8B7355]">Outlet</span><span className="font-semibold text-[#5C3D1A] capitalize">{outlet}</span></div>
+              <div className="flex justify-between"><span className="text-[#8B7355]">Tanggal</span><span className="font-semibold text-[#5C3D1A]">{tanggal}</span></div>
+              <div className="flex justify-between"><span className="text-[#8B7355]">Jam</span><span className="font-semibold text-[#5C3D1A]">{jam} - {jamSelesai}</span></div>
+              <div className="flex justify-between"><span className="text-[#8B7355]">Meja</span><span className="font-semibold text-[#C8973E]">No. {selectedTable?.nomor_meja} · {getPosisiLabel(selectedTable?.posisi || "")}</span></div>
+              {selectedTable?.dp_minimum ? (
+                <div className="flex justify-between border-t border-[#C8973E]/15 pt-2"><span className="text-[#8B7355]">DP</span><span className="font-bold text-[#C8973E]">{formatRupiah(selectedTable.dp_minimum)}</span></div>
+              ) : null}
+            </div>
+            <div className="flex flex-col gap-3 mt-6">
+              <button onClick={downloadTiket} className="w-full bg-gradient-to-r from-[#C8973E] to-[#A67B2E] hover:from-[#D4A44A] hover:to-[#B8892E] text-white px-8 py-4 rounded-xl font-bold transition-all active:scale-[0.98] shadow-lg shadow-[#C8973E]/20 flex items-center justify-center gap-2">
+                <span>📄</span> Download Tiket Reservasi
+              </button>
+              <button onClick={backToHome} className="w-full border-2 border-[#E8DCC8] text-[#8B7355] px-8 py-3 rounded-xl font-semibold hover:bg-[#FDF6EC] transition-all">
+                Kembali ke Beranda
+              </button>
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-[#5C3D1A] font-serif mt-5">Reservasi Berhasil</h1>
-          <p className="text-[#C8973E]/50 mt-1 text-sm">━━ ✦ ━━</p>
-          <p className="text-[#8B7355] mt-3 text-sm">Terima kasih telah memilih Yassalam. Kami akan menghubungi Anda via WhatsApp.</p>
-          <div className="bg-[#FDF6EC] border border-[#C8973E]/15 rounded-2xl p-5 mt-6 text-left text-sm space-y-2">
-            <div className="flex justify-between"><span className="text-[#8B7355]">Outlet</span><span className="font-semibold text-[#5C3D1A] capitalize">{outlet}</span></div>
-            <div className="flex justify-between"><span className="text-[#8B7355]">Tanggal</span><span className="font-semibold text-[#5C3D1A]">{tanggal}</span></div>
-            <div className="flex justify-between"><span className="text-[#8B7355]">Jam</span><span className="font-semibold text-[#5C3D1A]">{jam} - {jamSelesai}</span></div>
-            <div className="flex justify-between"><span className="text-[#8B7355]">Meja</span><span className="font-semibold text-[#C8973E]">No. {selectedTable?.nomor_meja} · {getPosisiLabel(selectedTable?.posisi || "")}</span></div>
-            {selectedMenu && (
-              <div className="flex justify-between border-t border-[#C8973E]/15 pt-2"><span className="text-[#8B7355]">Total</span><span className="font-bold text-[#C8973E]">{formatRupiah(selectedMenu.harga * Number(jumlahPorsi || 0))}</span></div>
-            )}
-          </div>
-          <button onClick={backToHome} className="mt-8 bg-gradient-to-r from-[#C8973E] to-[#A67B2E] hover:from-[#D4A44A] hover:to-[#B8892E] text-white px-8 py-3 rounded-xl font-bold transition-all active:scale-[0.98] shadow-lg shadow-[#C8973E]/20">
-            Kembali ke Beranda
-          </button>
         </div>
       </div>
     );
   }
-
   // ==================== FORM RESERVASI ====================
   if (showForm) {
     return (
       <div className="min-h-screen bg-white animate-fadeInUp" style={{ animationDuration: "0.6s" }}>
-        {/* Sticky header — matches Home hero identity */}
+        {/* Sticky header */}
         <div className="sticky top-0 z-20 bg-gradient-to-b from-[#2a1a0e] to-[#1a0f07] relative overflow-hidden">
           <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 10L50 25H30L40 10ZM40 70L30 55H50L40 70ZM10 40L25 30V50L10 40ZM70 40L55 50V30L70 40Z' fill='%23C8973E'/%3E%3Ccircle cx='40' cy='40' r='8' fill='none' stroke='%23C8973E' stroke-width='1'/%3E%3C/svg%3E\")", backgroundSize: "80px 80px" }} />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#C8973E] to-transparent" />
@@ -484,6 +964,34 @@ export default function Home() {
         </div>
 
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-12">
+          {/* Kapasitas Warning Modal */}
+          {kapasitasWarning && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm" onClick={() => setKapasitasWarning(false)}>
+              <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-fadeInUp" onClick={(e) => e.stopPropagation()}>
+                <div className="w-16 h-16 bg-[#FDF6EC] rounded-full flex items-center justify-center mx-auto">
+                  <span className="text-3xl">⚠️</span>
+                </div>
+                <h3 className="text-lg font-bold text-[#5C3D1A] font-serif mt-4">Kapasitas Meja Tidak Cukup</h3>
+                <p className="text-sm text-[#8B7355] mt-3 leading-relaxed">
+                  Jumlah tamu (<span className="font-bold text-[#C8973E]">{jumlahTamu} orang</span>) melebihi kapasitas <span className="font-bold text-[#C8973E]">{selectedTable?.nama_meja || `Meja ${selectedTable?.nomor_meja}`}</span> (maks <span className="font-bold text-[#C8973E]">{selectedTable?.kapasitas} orang</span>).
+                </p>
+                <div className="mt-6 flex flex-col gap-3">
+                  <button onClick={() => {
+                    setKapasitasWarning(false);
+                    backToHome();
+                    setTimeout(() => {
+                      document.getElementById("pilihan-area")?.scrollIntoView({ behavior: "smooth" });
+                    }, 300);
+                  }} className="w-full py-3 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold transition-all active:scale-[0.98] shadow-lg shadow-[#C8973E]/20">
+                    Pilih Meja Lain
+                  </button>
+                  <button onClick={() => setKapasitasWarning(false)} className="w-full py-3 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC] transition-all">
+                    Ubah Jumlah Tamu
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Progress bar */}
           <div className="max-w-2xl mx-auto mb-2">
             <div className="relative flex items-start justify-between">
@@ -520,22 +1028,15 @@ export default function Home() {
               {step === 1 && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Pilih Outlet & Waktu</h2>
-                    <p className="text-[#8B7355] text-sm mt-1">Tentukan lokasi dan waktu kunjungan Anda</p>
+                    <h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Pilih Waktu</h2>
+                    <p className="text-[#8B7355] text-sm mt-1">Tentukan waktu kunjungan Anda</p>
                   </div>
-                  <div>
-                    <label className={labelClass}>Outlet</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {[{ value: "solo", label: "Solo", alamat: "Jl. Slamet Riyadi" }, { value: "jogja", label: "Yogyakarta", alamat: "Jl. Kaliurang" }].map((o) => (
-                        <button key={o.value} type="button"
-                          onClick={() => { setOutlet(o.value); setSelectedTable(null); setSelectedMenu(null); }}
-                          className={`p-4 rounded-2xl border-2 text-left transition-all ${outlet === o.value ? "border-[#C8973E] bg-[#FDF6EC] shadow-md shadow-[#C8973E]/10" : "border-[#E8DCC8] hover:border-[#C8973E]/50 bg-white"}`}>
-                          <span className={`text-lg ${outlet === o.value ? "text-[#C8973E]" : "text-[#E8DCC8]"}`}>◈</span>
-                          <p className={`font-bold mt-1 ${outlet === o.value ? "text-[#5C3D1A]" : "text-[#8B7355]"}`}>{o.label}</p>
-                          <p className={`text-xs mt-0.5 ${outlet === o.value ? "text-[#C8973E]" : "text-[#B8A88A]"}`}>{o.alamat}</p>
-                        </button>
-                      ))}
+                  <div className="bg-[#FDF6EC] border border-[#C8973E]/20 rounded-2xl p-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-[#8B7355]">Outlet</p>
+                      <p className="font-bold text-[#5C3D1A] capitalize">{outlet}</p>
                     </div>
+                    <span className="text-[#C8973E]">◈</span>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -588,62 +1089,141 @@ export default function Home() {
                     <input type="tel" placeholder="081234567890" value={noWa} onChange={(e) => setNoWa(e.target.value)} className={inputClass} />
                   </div>
                   <button onClick={nextStep} className="w-full py-4 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] hover:from-[#D4A44A] hover:to-[#B8892E] text-white font-bold text-lg transition-all active:scale-[0.98] shadow-lg shadow-[#C8973E]/25">
-                    Lanjut Pilih Meja →
+                    Lanjut ke Pembayaran DP →
                   </button>
                 </div>
               )}
 
-              {/* STEP 2 */}
+              
+
+              {/* STEP 2 — DP */}
               {step === 2 && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Pilih Meja</h2>
-                    <p className="text-[#8B7355] text-sm mt-1">Outlet <span className="capitalize font-semibold text-[#C8973E]">{outlet}</span> · {jumlahTamu} tamu</p>
+                    <h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Pembayaran DP</h2>
+                    <p className="text-[#8B7355] text-sm mt-1">Selesaikan pembayaran DP untuk mengkonfirmasi meja Anda</p>
                   </div>
-                  {["indoor-jendela", "indoor-tengah", "indoor-pojok", "outdoor", "vip"].map((posisi) => {
-                    const filtered = tables.filter((t) => t.posisi === posisi);
-                    if (filtered.length === 0) return null;
-                    const isPreselected = preselectedArea === posisi;
-                    return (
-                      <div key={posisi} className={`${isPreselected ? "ring-2 ring-[#C8973E] ring-offset-2 rounded-2xl p-3 -m-3" : ""}`}>
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-[#C8973E]">{getPosisiIcon(posisi)}</span>
-                          <span className="text-xs font-bold text-[#C8973E] tracking-[0.15em] uppercase">{getPosisiLabel(posisi)}</span>
-                          {isPreselected && <span className="text-[10px] bg-[#C8973E] text-white px-2 py-0.5 rounded-full">Rekomendasi</span>}
-                          <div className="flex-1 h-[1px] bg-[#E8DCC8]" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          {filtered.map((t) => {
-                            const tooSmall = Number(jumlahTamu) > t.kapasitas;
-                            const isSelected = selectedTable?.Id === t.Id;
-                            return (
-                              <button key={t.Id} type="button" disabled={tooSmall} onClick={() => setSelectedTable(t)}
-                                className={`p-4 rounded-2xl border-2 text-left transition-all relative ${tooSmall ? "border-[#E8DCC8]/50 opacity-40 cursor-not-allowed" : isSelected ? "border-[#C8973E] bg-[#FDF6EC] shadow-md shadow-[#C8973E]/10" : "border-[#E8DCC8] hover:border-[#C8973E]/50 bg-white"}`}>
-                                {isSelected && <div className="absolute top-2 right-2 w-6 h-6 bg-[#C8973E] rounded-full flex items-center justify-center text-white text-xs font-bold">✓</div>}
-                                <p className={`font-bold text-lg ${isSelected ? "text-[#5C3D1A]" : tooSmall ? "text-[#C8B89A]" : "text-[#5C3D1A]"}`}>Meja {t.nomor_meja}</p>
-                                <p className={`text-sm mt-1 ${isSelected ? "text-[#C8973E]" : "text-[#8B7355]"}`}>{t.kapasitas} orang</p>
-                                {tooSmall && <p className="text-xs text-red-400 mt-1">Kapasitas kurang</p>}
-                              </button>
-                            );
-                          })}
-                        </div>
+
+                  {/* Countdown timer */}
+                  {countdown && (
+                    <div className={`flex items-center gap-3 p-4 rounded-2xl border-2 ${countdown === "00:00" ? "border-red-300 bg-red-50" : "border-[#C8973E]/30 bg-[#FDF6EC]"}`}>
+                      <div className="w-10 h-10 rounded-full bg-[#C8973E] flex items-center justify-center shrink-0">
+                        <span className="text-white text-lg">⏱</span>
                       </div>
-                    );
-                  })}
+                      <div>
+                        <p className="text-xs text-[#8B7355]">Meja di-hold selama</p>
+                        <p className={`text-2xl font-bold font-mono ${countdown === "00:00" ? "text-red-500" : "text-[#C8973E]"}`}>{countdown}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Info meja & DP */}
+                  <div className="border-2 border-[#C8973E]/15 rounded-2xl overflow-hidden">
+                    <div className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] px-5 py-3">
+                      <h3 className="text-sm font-bold text-white tracking-[0.15em] uppercase">Detail Pembayaran</h3>
+                    </div>
+                    <div className="p-5 space-y-3 text-sm bg-[#FEFCF8]">
+                      <div className="flex justify-between">
+                        <span className="text-[#8B7355]">Meja</span>
+                        <span className="font-semibold text-[#C8973E]">{selectedTable?.nama_meja || `Meja ${selectedTable?.nomor_meja}`} · {getPosisiLabel(selectedTable?.posisi || "")}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[#8B7355]">Kapasitas</span>
+                        <span className="font-semibold text-[#5C3D1A]">{selectedTable?.kapasitas} orang</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[#8B7355]">Tanggal</span>
+                        <span className="font-semibold text-[#5C3D1A]">{tanggal}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[#8B7355]">Jam</span>
+                        <span className="font-semibold text-[#5C3D1A]">{jam} - {jamSelesai}</span>
+                      </div>
+                      <div className="border-t border-[#E8DCC8] pt-3 flex justify-between items-center">
+                        <span className="text-[#8B7355] font-semibold">DP Minimum</span>
+                        <span className="text-xl font-bold text-[#C8973E]">{formatRupiah(selectedTable?.dp_minimum || 0)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Placeholder pembayaran BCA */}
+                  <div className="bg-[#FDF6EC] border-2 border-dashed border-[#C8973E]/30 rounded-2xl p-6 text-center">
+                    <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center mx-auto shadow-md">
+                      <span className="text-2xl">🏦</span>
+                    </div>
+                    <p className="font-bold text-[#5C3D1A] mt-4">Integrasi BCA API</p>
+                    <p className="text-sm text-[#8B7355] mt-2">Fitur pembayaran otomatis via BCA akan segera tersedia.</p>
+                    <p className="text-xs text-[#B8A88A] mt-3">Saat ini, lanjutkan ke tahap berikutnya dan selesaikan pembayaran DP di outlet.</p>
+                  </div>
+
                   <div className="flex gap-3 pt-2">
-                    <button onClick={() => setStep(1)} className="flex-1 py-4 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC] transition-all">← Kembali</button>
-                    <button onClick={nextStep} className="flex-1 py-4 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold transition-all active:scale-[0.98] shadow-lg shadow-[#C8973E]/25">Lanjut →</button>
+                    <button onClick={() => { releaseHold(); setStep(1); }} className="flex-1 py-4 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC] transition-all">← Kembali</button>
+                    <button onClick={() => { setErrors([]); setStep(3); }} className="flex-1 py-4 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold transition-all active:scale-[0.98] shadow-lg shadow-[#C8973E]/25">Lanjut Konfirmasi →</button>
                   </div>
                 </div>
               )}
 
-              {/* STEP 3 */}
+              {/* STEP 3 — Konfirmasi & Booking (meja langsung terkunci setelah ini) */}
               {step === 3 && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Pilih Menu Paket</h2>
-                    <p className="text-[#8B7355] text-sm mt-1">Opsional — bisa pesan langsung di outlet</p>
+                    <h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Konfirmasi Reservasi</h2>
+                    <p className="text-[#8B7355] text-sm mt-1">Periksa kembali data Anda. Setelah konfirmasi, meja akan langsung terbooking.</p>
                   </div>
+                  <div><label className={labelClass}>Catatan <span className="text-[#B8A88A] normal-case tracking-normal font-normal">(opsional)</span></label><textarea placeholder="Contoh: kursi bayi, alergi, dll." rows={3} value={catatan} onChange={(e) => setCatatan(e.target.value)} className={inputClass + " resize-none"} /></div>
+
+                  <div className="border-2 border-[#C8973E]/15 rounded-2xl overflow-hidden">
+                    <div className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] px-5 py-3">
+                      <h3 className="text-sm font-bold text-white tracking-[0.15em] uppercase">Ringkasan Booking</h3>
+                    </div>
+                    <div className="p-5 space-y-2 text-sm bg-[#FEFCF8]">
+                      <div className="flex justify-between"><span className="text-[#8B7355]">Outlet</span><span className="font-semibold text-[#5C3D1A] capitalize">{outlet}</span></div>
+                      <div className="flex justify-between"><span className="text-[#8B7355]">Tanggal</span><span className="font-semibold text-[#5C3D1A]">{tanggal}</span></div>
+                      <div className="flex justify-between"><span className="text-[#8B7355]">Jam</span><span className="font-semibold text-[#5C3D1A]">{jam} - {jamSelesai}</span></div>
+                      <div className="flex justify-between"><span className="text-[#8B7355]">Tamu</span><span className="font-semibold text-[#5C3D1A]">{jumlahTamu} orang</span></div>
+                      <div className="border-t border-[#E8DCC8] pt-2 flex justify-between"><span className="text-[#8B7355]">Meja</span><span className="font-semibold text-[#C8973E]">No. {selectedTable?.nomor_meja} · {getPosisiLabel(selectedTable?.posisi || "")}</span></div>
+                      {selectedTable?.dp_minimum ? (
+                        <div className="border-t border-[#E8DCC8] pt-2 flex justify-between"><span className="text-[#8B7355]">DP</span><span className="font-bold text-[#C8973E]">{formatRupiah(selectedTable.dp_minimum)}</span></div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="bg-[#FDF6EC] border border-[#C8973E]/20 rounded-2xl p-4">
+                    <p className="text-sm text-[#8B7355] leading-relaxed">
+                      <span className="font-bold text-[#C8973E]">⚡ Penting:</span> Setelah konfirmasi, meja <span className="font-semibold text-[#5C3D1A]">{selectedTable?.nama_meja || `No. ${selectedTable?.nomor_meja}`}</span> akan langsung terbooking untuk Anda pada tanggal dan jam tersebut. Customer lain tidak bisa memilih meja ini di waktu yang sama.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => setStep(2)} className="flex-1 py-4 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC] transition-all">← Kembali</button>
+
+                    <button onClick={handleConfirmBooking} disabled={loading}
+                      className={`flex-1 py-4 rounded-xl font-bold text-lg transition-all ${loading ? "bg-[#E8DCC8] text-[#B8A88A] cursor-not-allowed" : "bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white active:scale-[0.98] shadow-lg shadow-[#C8973E]/25"}`}>
+                      {loading ? "Memproses..." : "Konfirmasi Booking ✦"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 4 — Pilih Menu (opsional, reservasi sudah tersimpan) */}
+              {step === 4 && (
+                <div className="space-y-6">
+                  <div>
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 bg-gradient-to-br from-[#C8973E] to-[#A67B2E] rounded-full flex items-center justify-center shrink-0">
+                        <span className="text-white text-lg">✓</span>
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Meja Berhasil Dibooking!</h2>
+                        <p className="text-[#8B7355] text-sm">Ingin pre-order menu sekarang? (opsional)</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#FDF6EC] border border-[#C8973E]/20 rounded-2xl p-4 text-sm text-[#8B7355]">
+                    Reservasi Anda sudah dikonfirmasi. Anda bisa pilih menu sekarang atau langsung pesan di outlet nanti.
+                  </div>
+
                   <div className="space-y-3">
                     <button type="button" onClick={() => { setSelectedMenu(null); setJumlahPorsi(""); }}
                       className={`w-full p-4 rounded-2xl border-2 text-left transition-all ${selectedMenu === null ? "border-[#C8973E] bg-[#FDF6EC] shadow-md" : "border-[#E8DCC8] hover:border-[#C8973E]/50 bg-white"}`}>
@@ -678,48 +1258,10 @@ export default function Home() {
                       </div>
                     </div>
                   )}
-                  <div className="flex gap-3 pt-2">
-                    <button onClick={() => setStep(2)} className="flex-1 py-4 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC] transition-all">← Kembali</button>
-                    <button onClick={() => { setErrors([]); setStep(4); }} className="flex-1 py-4 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold transition-all active:scale-[0.98] shadow-lg shadow-[#C8973E]/25">Lanjut →</button>
-                  </div>
-                </div>
-              )}
-
-              {/* STEP 4 */}
-              {step === 4 && (
-                <div className="space-y-6">
-                  <div>
-                    <h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Konfirmasi Reservasi</h2>
-                    <p className="text-[#8B7355] text-sm mt-1">Periksa kembali pesanan Anda sebelum mengirim</p>
-                  </div>
-                  <div><label className={labelClass}>Catatan <span className="text-[#B8A88A] normal-case tracking-normal font-normal">(opsional)</span></label><textarea placeholder="Contoh: kursi bayi, alergi, dll." rows={3} value={catatan} onChange={(e) => setCatatan(e.target.value)} className={inputClass + " resize-none"} /></div>
-
-                  <div className="border-2 border-[#C8973E]/15 rounded-2xl overflow-hidden">
-                    <div className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] px-5 py-3">
-                      <h3 className="text-sm font-bold text-white tracking-[0.15em] uppercase">Ringkasan</h3>
-                    </div>
-                    <div className="p-5 space-y-2 text-sm bg-[#FEFCF8]">
-                      <div className="flex justify-between"><span className="text-[#8B7355]">Outlet</span><span className="font-semibold text-[#5C3D1A] capitalize">{outlet}</span></div>
-                      <div className="flex justify-between"><span className="text-[#8B7355]">Tanggal</span><span className="font-semibold text-[#5C3D1A]">{tanggal}</span></div>
-                      <div className="flex justify-between"><span className="text-[#8B7355]">Jam</span><span className="font-semibold text-[#5C3D1A]">{jam} - {jamSelesai}</span></div>
-                      <div className="flex justify-between"><span className="text-[#8B7355]">Tamu</span><span className="font-semibold text-[#5C3D1A]">{jumlahTamu} orang</span></div>
-                      <div className="border-t border-[#E8DCC8] pt-2 flex justify-between"><span className="text-[#8B7355]">Meja</span><span className="font-semibold text-[#C8973E]">No. {selectedTable?.nomor_meja} · {getPosisiLabel(selectedTable?.posisi || "")}</span></div>
-                      {selectedMenu && (
-                        <>
-                          <div className="border-t border-[#E8DCC8] pt-2 flex justify-between"><span className="text-[#8B7355]">Menu</span><span className="font-semibold text-[#5C3D1A]">{selectedMenu.nama_paket} × {jumlahPorsi}</span></div>
-                          <div className="flex justify-between"><span className="text-[#8B7355]">Total</span><span className="font-bold text-[#C8973E]">{formatRupiah(selectedMenu.harga * Number(jumlahPorsi || 0))}</span></div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex gap-3 pt-2">
-                    <button onClick={() => setStep(3)} className="flex-1 py-4 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC] transition-all">← Kembali</button>
-                    <button onClick={handleSubmit} disabled={loading}
-                      className={`flex-1 py-4 rounded-xl font-bold text-lg transition-all ${loading ? "bg-[#E8DCC8] text-[#B8A88A] cursor-not-allowed" : "bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white active:scale-[0.98] shadow-lg shadow-[#C8973E]/25"}`}>
-                      {loading ? "Mengirim..." : "Kirim Reservasi ✦"}
-                    </button>
-                  </div>
+                  <button onClick={handleSaveMenu} disabled={loading}
+                    className={`w-full py-4 rounded-xl font-bold text-lg transition-all ${loading ? "bg-[#E8DCC8] text-[#B8A88A] cursor-not-allowed" : "bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white active:scale-[0.98] shadow-lg shadow-[#C8973E]/25"}`}>
+                    {loading ? "Menyimpan..." : selectedMenu ? "Simpan Menu & Selesai ✦" : "Lewati & Selesai ✦"}
+                  </button>
                 </div>
               )}
             </div>
@@ -741,6 +1283,18 @@ export default function Home() {
                     {selectedTable ? `No. ${selectedTable.nomor_meja} · ${getPosisiLabel(selectedTable.posisi)}` : "Belum dipilih"}
                   </span>
                 </div>
+                {selectedTable?.dp_minimum ? (
+                  <div className="pt-3 border-t border-[#EFE6D6] flex justify-between">
+                    <span className="text-[#8B7355]">DP</span>
+                    <span className="font-bold text-[#C8973E]">{formatRupiah(selectedTable.dp_minimum)}</span>
+                  </div>
+                ) : null}
+                {countdown && (
+                  <div className="pt-3 border-t border-[#EFE6D6] flex justify-between items-center">
+                    <span className="text-[#8B7355]">Hold</span>
+                    <span className="font-bold text-[#C8973E] font-mono">{countdown}</span>
+                  </div>
+                )}
 
                 {selectedMenu ? (
                   <>
@@ -775,7 +1329,6 @@ export default function Home() {
 
       {/* ===== HERO SECTION ===== */}
       <div className="relative h-[90vh] min-h-[560px] bg-[#1a0f07] flex items-center justify-center overflow-hidden">
-        {/* Slideshow layers — sama seperti splash screen */}
         {slides.map((grad, i) => (
           <div
             key={i}
@@ -787,14 +1340,10 @@ export default function Home() {
           />
         ))}
 
-        {/* Pattern overlay */}
         <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 10L50 25H30L40 10ZM40 70L30 55H50L40 70ZM10 40L25 30V50L10 40ZM70 40L55 50V30L70 40Z' fill='%23C8973E'/%3E%3Ccircle cx='40' cy='40' r='8' fill='none' stroke='%23C8973E' stroke-width='1'/%3E%3C/svg%3E\")", backgroundSize: "80px 80px" }} />
-        {/* Gold accent top */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#C8973E] to-transparent" />
-        {/* Vignette so text stays readable over the moving background */}
         <div className="absolute inset-0 bg-gradient-to-t from-[#1a0f07]/80 via-transparent to-[#1a0f07]/30" />
 
-        {/* Back to splash button */}
         <button
           onClick={() => setShowWelcome(true)}
           className="absolute top-4 left-4 sm:top-6 sm:left-6 z-20 flex items-center gap-2 text-sm font-bold text-[#C8973E] bg-[#1a0f07] hover:bg-[#241608] border border-[#C8973E]/50 hover:border-[#C8973E] rounded-full px-5 py-3 sm:px-4 sm:py-2 transition-colors active:scale-[0.97] shadow-lg"
@@ -802,7 +1351,6 @@ export default function Home() {
           <span aria-hidden className="text-lg">←</span> <span>Beranda</span>
         </button>
 
-        {/* Slide dots */}
         <div className="absolute bottom-16 left-1/2 -translate-x-1/2 flex gap-2 z-10">
           {slides.map((_, i) => (
             <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${i === slideIndex ? "w-6 bg-[#C8973E]" : "w-1.5 bg-[#C8973E]/30"}`} />
@@ -817,14 +1365,13 @@ export default function Home() {
             Nikmati cita rasa autentik Timur Tengah dalam suasana yang elegan. Reservasi meja Anda sekarang untuk pengalaman tak terlupakan.
           </p>
 
-          <button onClick={() => startReservation()}
+          <button onClick={() => document.getElementById("pilihan-area")?.scrollIntoView({ behavior: "smooth" })}
             className="mt-9 bg-gradient-to-r from-[#C8973E] to-[#A67B2E] hover:from-[#D4A44A] hover:to-[#B8892E] text-white px-10 py-4 rounded-xl font-bold text-lg transition-all active:scale-[0.98] shadow-xl shadow-[#C8973E]/20 tracking-wide animate-fadeInUp"
             style={{ animationDelay: "0.5s" }}>
             Reservasi Sekarang
           </button>
         </div>
 
-        {/* Scroll indicator */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 animate-bounce z-10">
           <div className="w-6 h-10 border-2 border-[#C8973E]/30 rounded-full flex justify-center pt-2">
             <div className="w-1.5 h-3 bg-[#C8973E]/50 rounded-full" />
@@ -832,14 +1379,128 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ===== SECTION: AREA KAMI (data real dari Supabase) ===== */}
-      <div className="py-10 sm:py-20 px-4">
+      {/* ===== SECTION: AREA KAMI ===== */}
+      <div id="pilihan-area" className="py-10 sm:py-20 px-4">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-12">
+          <div className="text-center mb-8">
             <p className="text-[#C8973E] text-sm tracking-[0.3em] uppercase font-semibold">Pilihan Area</p>
             <h2 className="text-3xl font-bold text-[#5C3D1A] font-serif mt-2">Temukan Tempat Favorit Anda</h2>
             <p className="text-[#C8973E]/40 mt-2">━━ ✦ ━━</p>
-            <p className="text-[#8B7355] mt-3 max-w-lg mx-auto text-sm">Klik salah satu area untuk melihat suasananya lebih dekat sebelum reservasi</p>
+            <p className="text-[#8B7355] mt-3 max-w-lg mx-auto text-sm">Pilih tanggal dan jam dulu untuk melihat ketersediaan meja secara real-time</p>
+          </div>
+
+          {/* ===== DATE/TIME PICKER untuk cek ketersediaan ===== */}
+          <div className="max-w-2xl mx-auto mb-10">
+            <div className="bg-white border-2 border-[#C8973E]/20 rounded-2xl p-5 sm:p-6 shadow-md">
+              <p className="text-xs font-bold text-[#C8973E] mb-4 tracking-[0.15em] uppercase text-center">Cek Ketersediaan Meja</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-[#8B7355] mb-1.5">Tanggal</label>
+                  <input
+                    type="date"
+                    min={today}
+                    value={previewTanggal}
+                    onChange={(e) => setPreviewTanggal(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border-2 border-[#E8DCC8] focus:border-[#C8973E] bg-[#FEFCF8] outline-none text-[#5C3D1A] transition-all text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#8B7355] mb-1.5">Jam Mulai</label>
+                  <div className="flex gap-2">
+                    <select
+                      value={previewJam.split(":")[0] || ""}
+                      onChange={(e) => setPreviewJam(`${e.target.value}:${previewJam.split(":")[1] || "00"}`)}
+                      className="flex-1 px-3 py-3 rounded-xl border-2 border-[#E8DCC8] focus:border-[#C8973E] bg-[#FEFCF8] outline-none text-[#5C3D1A] transition-all text-sm"
+                    >
+                      <option value="">Jam</option>
+                      {Array.from({ length: 14 }, (_, i) => 7 + i).map((h) => (
+                        <option key={h} value={String(h).padStart(2, "0")}>{String(h).padStart(2, "0")}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={previewJam.split(":")[1] || ""}
+                      onChange={(e) => setPreviewJam(`${previewJam.split(":")[0] || "07"}:${e.target.value}`)}
+                      className="flex-1 px-3 py-3 rounded-xl border-2 border-[#E8DCC8] focus:border-[#C8973E] bg-[#FEFCF8] outline-none text-[#5C3D1A] transition-all text-sm"
+                    >
+                      <option value="">Mnt</option>
+                      {[0, 15, 30, 45].map((m) => (
+                        <option key={m} value={String(m).padStart(2, "0")}>{String(m).padStart(2, "0")}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#8B7355] mb-1.5">Jumlah Tamu</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="200"
+                    placeholder="Berapa orang?"
+                    value={previewTamu}
+                    onChange={(e) => setPreviewTamu(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border-2 border-[#E8DCC8] focus:border-[#C8973E] bg-[#FEFCF8] outline-none text-[#5C3D1A] placeholder-[#C8B89A] transition-all text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#8B7355] mb-1.5">Jam Selesai</label>
+                  <div className="flex items-center h-[50px] px-4 rounded-xl border-2 border-[#E8DCC8] bg-[#F5F0E6] text-sm">
+                    {previewJamSelesai ? (
+                      <span className="text-[#5C3D1A] font-semibold">{previewJamSelesai} <span className="text-[#B8A88A] font-normal">(2 jam)</span></span>
+                    ) : (
+                      <span className="text-[#C8B89A]">Otomatis</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Status info */}
+              {previewTanggal && previewJam && (
+                <div className="mt-4 pt-4 border-t border-[#E8DCC8]">
+                  {loadingSlots ? (
+                    <p className="text-sm text-[#B8A88A] text-center">Memuat ketersediaan...</p>
+                  ) : (() => {
+                    const pTamu = Number(previewTamu) || 0;
+                    const timeAvail = tables.filter((t) => getTableAvailability(t.Id, previewJam, previewJamSelesai, daySlots).status === "available");
+                    const fullyAvail = pTamu > 0 ? timeAvail.filter((t) => t.kapasitas >= pTamu).length : timeAvail.length;
+                    const tooSmall = pTamu > 0 ? timeAvail.filter((t) => t.kapasitas < pTamu).length : 0;
+                    const booked = tables.filter((t) => getTableAvailability(t.Id, previewJam, previewJamSelesai, daySlots).status === "booked").length;
+                    const held = tables.filter((t) => getTableAvailability(t.Id, previewJam, previewJamSelesai, daySlots).status === "on-hold").length;
+                    return (
+                      <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-3 h-3 rounded-full bg-emerald-500" />
+                          <span className="text-[#5C3D1A] font-semibold">{fullyAvail}</span>
+                          <span className="text-[#8B7355]">Tersedia</span>
+                        </span>
+                        {tooSmall > 0 && (
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-3 h-3 rounded-full bg-orange-300" />
+                            <span className="text-[#5C3D1A] font-semibold">{tooSmall}</span>
+                            <span className="text-[#8B7355]">Kapasitas kurang</span>
+                          </span>
+                        )}
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-3 h-3 rounded-full bg-red-400" />
+                          <span className="text-[#5C3D1A] font-semibold">{booked}</span>
+                          <span className="text-[#8B7355]">Terisi</span>
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-3 h-3 rounded-full bg-amber-400" />
+                          <span className="text-[#5C3D1A] font-semibold">{held}</span>
+                          <span className="text-[#8B7355]">Di-hold</span>
+                        </span>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {!previewTanggal && !previewJam && (
+                <p className="text-xs text-[#B8A88A] text-center mt-3 leading-relaxed">
+                  Anda tetap bisa melihat area tanpa memilih tanggal, tapi status ketersediaan meja tidak akan ditampilkan.
+                </p>
+              )}
+            </div>
           </div>
 
           {areasData.length === 0 ? (
@@ -871,6 +1532,25 @@ export default function Home() {
                     <div className="p-5">
                       <h3 className="font-bold text-lg text-[#5C3D1A] font-serif">{area.nama}</h3>
                       {area.deskripsi && <p className="text-[#8B7355] text-sm mt-2 leading-relaxed">{area.deskripsi}</p>}
+
+                      {/* Availability mini-summary per area */}
+                      {previewJam && previewJamSelesai && (
+                        (() => {
+                          const pTamu = Number(previewTamu) || 0;
+                          const timeAvail = areaTables.filter((t) => getTableAvailability(t.Id, previewJam, previewJamSelesai, daySlots).status === "available");
+                          const avail = pTamu > 0 ? timeAvail.filter((t) => t.kapasitas >= pTamu).length : timeAvail.length;
+                          const total = areaTables.length;
+                          return (
+                            <div className={`mt-3 flex items-center gap-2 text-xs font-semibold ${avail > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                              <span className={`w-2 h-2 rounded-full ${avail > 0 ? "bg-emerald-500" : "bg-red-400"}`} />
+                              {avail > 0
+                                ? `${avail} dari ${total} meja tersedia${pTamu > 0 ? ` (≥${pTamu} orang)` : ""}`
+                                : pTamu > 0 ? "Tidak ada meja yang cukup" : "Semua meja terisi pada jam ini"}
+                            </div>
+                          );
+                        })()
+                      )}
+
                       <button onClick={() => setSelectedAreaModal(area)}
                         className="mt-4 w-full py-3 rounded-xl border-2 border-[#C8973E] text-[#C8973E] font-bold hover:bg-[#C8973E] hover:text-white transition-all active:scale-[0.98] text-sm">
                         Lihat & Reservasi →
@@ -918,7 +1598,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ===== SECTION: JAM OPERASIONAL & OUTLET (digabung side-by-side) ===== */}
+      {/* ===== SECTION: JAM OPERASIONAL & OUTLET ===== */}
       <div className="py-20 px-4 bg-gradient-to-b from-[#2a1a0e] to-[#1a0f07] relative overflow-hidden">
         <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 10L50 25H30L40 10ZM40 70L30 55H50L40 70ZM10 40L25 30V50L10 40ZM70 40L55 50V30L70 40Z' fill='%23C8973E'/%3E%3C/svg%3E\")", backgroundSize: "80px 80px" }} />
         <div className="relative max-w-6xl mx-auto grid md:grid-cols-2 gap-14 items-start">
@@ -942,7 +1622,6 @@ export default function Home() {
               <p className="text-gray-400 text-sm max-w-xs">Untuk grup besar atau acara spesial, disarankan reservasi minimal 1 hari sebelumnya.</p>
             </div>
 
-            {/* Kontak cepat & sosial media */}
             <div className="mt-6 border-t border-[#C8973E]/15 pt-6 w-full flex flex-col items-center md:items-start gap-4">
               <div className="flex flex-col gap-3">
                 <a href="https://instagram.com/yassalamcatering" target="_blank" rel="noopener noreferrer"
@@ -995,7 +1674,7 @@ export default function Home() {
                         </svg>
                         WA {o.waLabel}
                       </a>
-                      <button onClick={() => { setOutlet(o.outletValue); startReservation(); }}
+                      <button onClick={() => { setOutlet(o.outletValue); document.getElementById("pilihan-area")?.scrollIntoView({ behavior: "smooth" }); }}
                         className="mt-4 bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white px-6 py-2.5 rounded-xl font-semibold text-sm hover:from-[#D4A44A] hover:to-[#B8892E] transition-all active:scale-[0.98] w-full">
                         Reservasi di {o.city}
                       </button>
@@ -1034,9 +1713,17 @@ export default function Home() {
             onClose={() => setSelectedAreaModal(null)}
             onSelectTable={(table) => {
               setSelectedTable(table);
+              // Pre-fill tanggal & jam dari preview ke form reservasi
+              if (previewTanggal) setTanggal(previewTanggal);
+              if (previewJam) setJam(previewJam);
+              if (previewTamu) setJumlahTamu(previewTamu);
               setSelectedAreaModal(null);
-              startReservation(areaAktif.slug);
+              startReservation();
             }}
+            previewJam={previewJam}
+            previewJamSelesai={previewJamSelesai}
+            daySlots={daySlots}
+            previewTamu={Number(previewTamu) || 0}
           />
         );
       })()}
