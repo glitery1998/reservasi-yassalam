@@ -96,7 +96,7 @@ export default function MenuFlipbook() {
   const [hasInteracted, setHasInteracted] = useState(false);
 
   return (
-    <div className="flex justify-center py-4 pb-10 relative">
+    <div className="flex justify-center pt-0 pb-10 relative">
       {/* @ts-ignore */}
       <HTMLFlipBook
         width={240}

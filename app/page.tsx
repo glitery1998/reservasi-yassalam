@@ -808,7 +808,7 @@ export default function Home() {
       </div>
 
       {/* ===== SECTION: AREA KAMI (data real dari Supabase) ===== */}
-      <div className="py-16 sm:py-20 px-4">
+      <div className="py-10 sm:py-20 px-4">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12">
             <p className="text-[#C8973E] text-sm tracking-[0.3em] uppercase font-semibold">Pilihan Area</p>
@@ -860,8 +860,8 @@ export default function Home() {
       </div>
 
      {/* ===== SECTION: DISCOVER / OUR STORY ===== */}
-      <div className="py-20 px-4 bg-[#FDF6EC]">
-        <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 items-center">
+      <div className="pt-4 pb-10 md:py-20 px-4 bg-[#FDF6EC]">
+        <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-6 md:gap-12 items-center">
           <div className="order-2 md:order-1">
             <p className="text-[#C8973E] text-sm tracking-[0.3em] uppercase font-semibold">Kisah Kami</p>
             <h2 className="text-3xl sm:text-4xl font-bold text-[#5C3D1A] font-serif mt-3 leading-snug">
