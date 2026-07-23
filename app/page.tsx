@@ -441,8 +441,8 @@ export default function Home() {
           <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 10L50 25H30L40 10ZM40 70L30 55H50L40 70ZM10 40L25 30V50L10 40ZM70 40L55 50V30L70 40Z' fill='%23C8973E'/%3E%3Ccircle cx='40' cy='40' r='8' fill='none' stroke='%23C8973E' stroke-width='1'/%3E%3C/svg%3E\")", backgroundSize: "80px 80px" }} />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#C8973E] to-transparent" />
           <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
-            <button onClick={backToHome} className="flex items-center gap-1.5 text-sm font-medium text-[#C8973E]/70 hover:text-[#C8973E] transition-colors">
-              <span aria-hidden>←</span> <span className="hidden sm:inline">Beranda</span>
+            <button onClick={backToHome} className="flex items-center gap-2 text-sm font-bold text-[#C8973E] bg-[#1a0f07]/60 hover:bg-[#1a0f07] border border-[#C8973E]/40 hover:border-[#C8973E] rounded-full px-4 py-2.5 sm:px-3 sm:py-1.5 transition-all active:scale-[0.97]">
+              <span aria-hidden className="text-base">←</span> <span>Beranda</span>
             </button>
             <div className="flex items-center gap-2.5">
               <Image src="/logo.PNG" alt="Yassalam" width={30} height={30} />
@@ -766,9 +766,9 @@ export default function Home() {
         {/* Back to splash button */}
         <button
           onClick={() => setShowWelcome(true)}
-          className="absolute top-6 left-4 sm:left-6 z-20 flex items-center gap-1.5 text-sm font-medium text-[#C8973E] bg-[#1a0f07] hover:bg-[#241608] border border-[#C8973E]/40 hover:border-[#C8973E] rounded-full px-4 py-2 transition-colors active:scale-[0.97]"
+          className="absolute top-4 left-4 sm:top-6 sm:left-6 z-20 flex items-center gap-2 text-sm font-bold text-[#C8973E] bg-[#1a0f07] hover:bg-[#241608] border border-[#C8973E]/50 hover:border-[#C8973E] rounded-full px-5 py-3 sm:px-4 sm:py-2 transition-colors active:scale-[0.97] shadow-lg"
         >
-          <span aria-hidden>←</span> <span className="hidden sm:inline">Beranda</span>
+          <span aria-hidden className="text-lg">←</span> <span>Beranda</span>
         </button>
 
         {/* Slide dots */}
@@ -779,8 +779,7 @@ export default function Home() {
         </div>
 
         <div className="relative text-center px-6 max-w-2xl z-10">
-          <p className="text-[#C8973E]/70 text-xs tracking-[0.5em] uppercase mb-4 animate-fadeInUp">Solo · Yogyakarta</p>
-          <Image src="/logo.PNG" alt="Yassalam" width={150} height={150} className="mx-auto drop-shadow-2xl animate-fadeInUp" style={{ animationDelay: "0.1s" }} />
+          <Image src="/logo.PNG" alt="Yassalam" width={150} height={150} className="mx-auto drop-shadow-2xl animate-fadeInUp" />
           <p className="text-[#C8973E]/40 mt-5 text-sm tracking-[0.5em] animate-fadeInUp" style={{ animationDelay: "0.2s" }}>━━━ ✦ ━━━</p>
           <p className="italic text-[#C8973E] mt-5 text-3xl font-serif animate-fadeInUp" style={{ animationDelay: "0.3s" }}>Selamat Datang di Yassalam</p>
           <p className="text-gray-400 mt-4 max-w-md mx-auto text-sm leading-relaxed animate-fadeInUp" style={{ animationDelay: "0.4s" }}>
