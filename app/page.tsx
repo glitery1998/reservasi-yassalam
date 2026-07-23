@@ -291,6 +291,33 @@ export default function Home() {
 
   const today = new Date().toISOString().split("T")[0];
 
+  // Handle tombol back HP: tutup modal/form alih-alih keluar browser
+  useEffect(() => {
+    const handlePopState = () => {
+      if (selectedAreaModal) {
+        setSelectedAreaModal(null);
+      } else if (showForm && sukses) {
+        backToHome();
+      } else if (showForm && step > 1) {
+        setStep((s) => s - 1);
+      } else if (showForm) {
+        backToHome();
+      } else if (showWelcome) {
+        setShowWelcome(false);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [selectedAreaModal, showForm, sukses, step, showWelcome]);
+
+  // Push history state saat overlay dibuka
+  useEffect(() => {
+    if (showForm || selectedAreaModal) {
+      window.history.pushState({ overlay: true }, "");
+    }
+  }, [showForm, selectedAreaModal]);
+
   useEffect(() => {
     if (!outlet) return;
     supabase.from("Tables").select("*").eq("outlet", outlet).order("nomor_meja")
@@ -359,15 +386,6 @@ export default function Home() {
     else setSukses(true);
   }
 
-  function startReservation(area?: string) {
-    setShowForm(true);
-    setPreselectedArea(area || "");
-    setStep(1);
-    setSukses(false);
-    setErrors([]);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
   function backToHome() {
     setShowForm(false);
     setSukses(false);
@@ -381,6 +399,15 @@ export default function Home() {
     setNamaTamu("");
     setNoWa("");
     setCatatan("");
+  }
+
+  function startReservation(area?: string) {
+    setShowForm(true);
+    setPreselectedArea(area || "");
+    setStep(1);
+    setSukses(false);
+    setErrors([]);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   const stepLabels = ["Waktu", "Meja", "Menu", "Konfirmasi"];
