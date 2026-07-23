@@ -197,10 +197,10 @@ function AreaModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-3xl overflow-hidden max-w-3xl w-full shadow-2xl animate-fadeInUp max-h-[90vh] grid md:grid-cols-2" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-3xl overflow-hidden overflow-y-auto max-w-3xl w-full shadow-2xl animate-fadeInUp max-h-[90vh] grid md:grid-cols-2" onClick={(e) => e.stopPropagation()}>
 
         {/* KOLOM KIRI: Foto — slideshow area, atau foto meja spesifik kalau sedang dipilih */}
-        <div className={`relative h-80 sm:h-96 md:h-auto shrink-0 bg-gradient-to-br ${gradient} overflow-hidden`}>
+        <div className={`relative h-48 sm:h-56 md:h-auto shrink-0 bg-gradient-to-br ${gradient} overflow-hidden sticky top-0 z-20`}>
           {displayedPhoto ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img key={displayedPhoto} src={displayedPhoto} alt={pickedTable ? (pickedTable.nama_meja || `Meja ${pickedTable.nomor_meja}`) : area.nama}
@@ -227,7 +227,7 @@ function AreaModal({
         </div>
 
         {/* KOLOM KANAN: Info & daftar meja */}
-        <div className="p-6 overflow-y-auto max-h-[90vh]">
+        <div className="p-6 md:overflow-y-auto md:max-h-[90vh]">
           <h3 className="font-bold text-2xl text-[#5C3D1A] font-serif">{area.nama}</h3>
           {area.deskripsi && <p className="text-[#8B7355] text-sm mt-2 leading-relaxed">{area.deskripsi}</p>}
 
@@ -249,13 +249,17 @@ function AreaModal({
             )}
           </div>
 
-          {pickedTable && (
+          </div>
+
+        {/* Tombol reservasi sticky di bawah */}
+        {pickedTable && (
+          <div className="md:col-span-2 sticky bottom-0 bg-white border-t border-[#E8DCC8] p-4">
             <button onClick={() => onSelectTable(pickedTable)}
-              className="mt-6 w-full py-4 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] hover:from-[#D4A44A] hover:to-[#B8892E] text-white font-bold transition-all active:scale-[0.98] shadow-lg shadow-[#C8973E]/20">
+              className="w-full py-4 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] hover:from-[#D4A44A] hover:to-[#B8892E] text-white font-bold transition-all active:scale-[0.98] shadow-lg shadow-[#C8973E]/20">
               Reservasi {pickedTable.nama_meja || `Meja ${pickedTable.nomor_meja}`} →
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
