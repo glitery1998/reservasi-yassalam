@@ -97,6 +97,7 @@ export default function MenuFlipbook() {
 
   return (
     <div className="flex justify-center py-4 pb-10 relative">
+      {/* @ts-ignore */}
       <HTMLFlipBook
         width={240}
         height={328}
