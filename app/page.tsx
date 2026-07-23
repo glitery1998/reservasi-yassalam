@@ -293,7 +293,8 @@ export default function Home() {
 
   // Handle tombol back HP: tutup modal/form alih-alih keluar browser
   useEffect(() => {
-    const handlePopState = () => {
+    const handlePopState = (e: PopStateEvent) => {
+      e.preventDefault();
       if (selectedAreaModal) {
         setSelectedAreaModal(null);
       } else if (showForm && sukses) {
@@ -302,8 +303,8 @@ export default function Home() {
         setStep((s) => s - 1);
       } else if (showForm) {
         backToHome();
-      } else if (showWelcome) {
-        setShowWelcome(false);
+      } else if (!showWelcome) {
+        setShowWelcome(true);
       }
     };
 
@@ -311,12 +312,10 @@ export default function Home() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [selectedAreaModal, showForm, sukses, step, showWelcome]);
 
-  // Push history state saat overlay/screen dibuka
+  // Push history state saat state berubah
   useEffect(() => {
-    if (showForm || selectedAreaModal || showWelcome) {
-      window.history.pushState({ overlay: true }, "");
-    }
-  }, [showForm, selectedAreaModal, showWelcome]);
+    window.history.pushState({ overlay: true }, "");
+  }, [showForm, selectedAreaModal, showWelcome, step]);
   useEffect(() => {
     if (!outlet) return;
     supabase.from("Tables").select("*").eq("outlet", outlet).order("nomor_meja")
