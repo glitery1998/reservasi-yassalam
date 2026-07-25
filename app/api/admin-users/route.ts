@@ -1,19 +1,25 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+export const dynamic = "force-dynamic";
 
-// Client dengan hak penuh — HANYA dipakai di server, tidak pernah dikirim ke browser
-const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+function getAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error("Supabase env vars tidak ditemukan");
+  }
+  return createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
 
 /**
  * Pastikan pemanggil benar-benar superadmin.
  * Tanpa ini, siapa pun bisa memanggil endpoint dan membuat akun admin.
  */
 async function requireSuperadmin(req: NextRequest) {
+  const admin = getAdmin();
   const authHeader = req.headers.get("Authorization") || "";
   const token = authHeader.replace("Bearer ", "").trim();
   if (!token) return { ok: false as const, error: "Token tidak ada", status: 401 };
@@ -38,6 +44,7 @@ async function requireSuperadmin(req: NextRequest) {
 
 /* ========== GET: daftar semua admin ========== */
 export async function GET(req: NextRequest) {
+  const admin = getAdmin();
   const auth = await requireSuperadmin(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -54,6 +61,7 @@ export async function GET(req: NextRequest) {
 
 /* ========== POST: buat admin baru ========== */
 export async function POST(req: NextRequest) {
+  const admin = getAdmin();
   const auth = await requireSuperadmin(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -99,6 +107,7 @@ export async function POST(req: NextRequest) {
 
 /* ========== PATCH: ubah admin ========== */
 export async function PATCH(req: NextRequest) {
+  const admin = getAdmin();
   const auth = await requireSuperadmin(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -144,6 +153,7 @@ export async function PATCH(req: NextRequest) {
 
 /* ========== DELETE: hapus admin ========== */
 export async function DELETE(req: NextRequest) {
+  const admin = getAdmin();
   const auth = await requireSuperadmin(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
