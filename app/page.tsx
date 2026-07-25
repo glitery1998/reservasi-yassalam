@@ -26,9 +26,6 @@ type BookingSlot = {
   Id: number; meja_id: number; tanggal: string; jam: string; jam_selesai: string;
   status: string; type: "reservation" | "hold";
 };
-type MenuPaket = {
-  Id: number; nama_paket: string; deskripsi: string; harga: number; outlet: string;
-};
 const areaVisuals = [
   { gradient: "from-amber-800 to-yellow-900", icon: "✦" },
   { gradient: "from-stone-700 to-stone-900", icon: "◈" },
@@ -287,7 +284,6 @@ export default function Home() {
   const [holdId, setHoldId] = useState<number | null>(null);
   const [holdExpiry, setHoldExpiry] = useState<Date | null>(null);
   const [countdown, setCountdown] = useState("");
-  const [reservationId, setReservationId] = useState<number | null>(null);
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [tables, setTables] = useState<Table[]>([]);
@@ -310,7 +306,6 @@ export default function Home() {
     }
     setHoldId(null);
     setHoldExpiry(null);
-    setReservationId(null);
     setShowForm(false);
     setSukses(false);
     setStep(1);
@@ -564,7 +559,6 @@ export default function Home() {
 
     setLoading(false);
     if (error) alert("Gagal: " + error.message);
-    else { setReservationId(data.Id); setShareToken(token); setSukses(true); }
   }
 
   function startReservation() {
