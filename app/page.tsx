@@ -280,8 +280,6 @@ export default function Home() {
   const [jam, setJam] = useState("");
   const [jumlahTamu, setJumlahTamu] = useState("");
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
-  const [selectedMenu, setSelectedMenu] = useState<MenuPaket | null>(null);
-  const [jumlahPorsi, setJumlahPorsi] = useState("");
   const [namaTamu, setNamaTamu] = useState("");
   const [noWa, setNoWa] = useState("");
   const [catatan, setCatatan] = useState("");
@@ -290,8 +288,9 @@ export default function Home() {
   const [holdExpiry, setHoldExpiry] = useState<Date | null>(null);
   const [countdown, setCountdown] = useState("");
   const [reservationId, setReservationId] = useState<number | null>(null);
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [tables, setTables] = useState<Table[]>([]);
-  const [menus, setMenus] = useState<MenuPaket[]>([]);
   const [areasData, setAreasData] = useState<AreaData[]>([]);
 
   // Meja yang tersedia untuk step 2
@@ -300,6 +299,7 @@ export default function Home() {
   const [availableGabungan, setAvailableGabungan] = useState<MejaGabungan[]>([]);
   const [selectedGabungan, setSelectedGabungan] = useState<MejaGabungan | null>(null);
   const [lightboxPhoto, setLightboxPhoto] = useState<{ url: string; nama: string } | null>(null);
+  const [showBackConfirm, setShowBackConfirm] = useState(false);
 
   const jamSelesai = hitungJamSelesai(jam);
   const today = new Date().toISOString().split("T")[0];
@@ -318,7 +318,7 @@ export default function Home() {
     setJam("");
     setJumlahTamu("");
     setSelectedTable(null);
-    setSelectedMenu(null);
+    setShareToken(null);
     setNamaTamu("");
     setNoWa("");
     setCatatan("");
@@ -353,24 +353,24 @@ export default function Home() {
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       e.preventDefault();
-      if (selectedAreaModal) setSelectedAreaModal(null);
+      window.history.pushState({ overlay: true }, "");
+      if (selectedAreaModal) { setSelectedAreaModal(null); return; }
       else if (showForm && sukses) backToHome();
+      else if (showForm && step === 3) setShowBackConfirm(true);
       else if (showForm && step > 1) setStep((s) => s - 1);
-      else if (showForm) backToHome();
+      else if (showForm) { setShowForm(false); }
       else if (!showWelcome) setShowWelcome(true);
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, [selectedAreaModal, showForm, sukses, step, showWelcome, backToHome]);
 
-  useEffect(() => { window.history.pushState({ overlay: true }, ""); }, [showForm, selectedAreaModal, showWelcome]);
-  useEffect(() => { if (showForm && step > 1) window.history.pushState({ overlay: true }, ""); }, [step, showForm]);
+  useEffect(() => { window.history.pushState({ overlay: true }, ""); }, [showForm, selectedAreaModal, showWelcome, step]);
 
   // Fetch data outlet
   useEffect(() => {
     if (!outlet) return;
     supabase.from("Tables").select("*").eq("outlet", outlet).order("nomor_meja").then(({ data }) => setTables(data || []));
-    supabase.from("MenuPaket").select("*").eq("outlet", outlet).eq("aktif", true).then(({ data }) => setMenus(data || []));
     supabase.from("Areas").select("*").eq("outlet", outlet).order("urutan").then(({ data }) => setAreasData(data || []));
   }, [outlet]);
 
@@ -447,7 +447,7 @@ export default function Home() {
       if (!selectedTable && !selectedGabungan) errs.push("Pilih salah satu meja yang tersedia");
     }
     if (s === 3) {
-      if (!selectedTable) errs.push("Meja belum dipilih");
+      if (!selectedTable && !selectedGabungan) errs.push("Meja belum dipilih");
     }
     return errs;
   }
@@ -474,6 +474,9 @@ export default function Home() {
       ? selectedGabungan.meja_ids
       : selectedTable ? [selectedTable.Id] : [];
     if (mejaIds.length === 0 || !tanggal || !jam) return false;
+
+    // Release hold lama dari session sebelumnya (kalau user kembali dan pilih meja lain)
+    await releaseHold();
 
     const computedEnd = hitungJamSelesai(jam);
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -506,10 +509,20 @@ export default function Home() {
 
   async function releaseHold() {
     if (holdId) {
-      await supabase.from("BookingHold").update({ status: "released" }).eq("Id", holdId);
+      // Ambil session_id dari hold pertama, lalu release semua hold dalam session tersebut
+      const { data: holdRow } = await supabase.from("BookingHold").select("session_id").eq("Id", holdId).single();
+      if (holdRow?.session_id) {
+        await supabase.from("BookingHold").update({ status: "released" }).eq("session_id", holdRow.session_id).eq("status", "active");
+      } else {
+        await supabase.from("BookingHold").update({ status: "released" }).eq("Id", holdId);
+      }
       setHoldId(null);
       setHoldExpiry(null);
     }
+  }
+
+  function generateShareToken() {
+    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   }
 
   // Step 3: Konfirmasi bayar → insert reservation
@@ -521,22 +534,23 @@ export default function Home() {
 
     const dpAmount = selectedGabungan?.dp_minimum || selectedTable?.dp_minimum || 0;
     const mejaId = selectedGabungan ? selectedGabungan.meja_ids[0] : selectedTable?.Id;
+    const token = generateShareToken();
 
     const { data, error } = await supabase.from("Reservation").insert({
       nama_tamu: namaTamu, no_whatsapp: noWa, outlet, tanggal, jam, jam_selesai: jamSelesai,
       jumlah_tamu: Number(jumlahTamu), catatan: catatan || null,
-      meja_id: mejaId, menu_paket_id: null,
+      meja_id: mejaId, menu_paket_id: null, share_token: token,
       dp_amount: dpAmount, dp_status: "sudah_bayar", status: "Confirmed",
     }).select().single();
 
-    // Kalau gabungan, hold/book semua meja component
+    // Kalau gabungan, hold/book semua meja component (token sama biar satu bill)
     if (selectedGabungan && data) {
       const extraMejaIds = selectedGabungan.meja_ids.slice(1);
       for (const mid of extraMejaIds) {
         await supabase.from("Reservation").insert({
           nama_tamu: namaTamu, no_whatsapp: noWa, outlet, tanggal, jam, jam_selesai: jamSelesai,
           jumlah_tamu: Number(jumlahTamu), catatan: `[Gabungan: ${selectedGabungan.nama}]`,
-          meja_id: mid, menu_paket_id: null,
+          meja_id: mid, menu_paket_id: null, share_token: token,
           dp_amount: 0, dp_status: "sudah_bayar", status: "Confirmed",
         });
       }
@@ -550,21 +564,7 @@ export default function Home() {
 
     setLoading(false);
     if (error) alert("Gagal: " + error.message);
-    else { setReservationId(data.Id); setSukses(true); }
-  }
-
-  // Simpan menu opsional ke reservation
-  async function handleSaveMenu() {
-    if (selectedMenu) {
-      if (!jumlahPorsi || Number(jumlahPorsi) < 1) {
-        setErrors(["Isi jumlah porsi"]); return;
-      }
-    }
-    if (selectedMenu && reservationId) {
-      await supabase.from("Reservation").update({ menu_paket_id: selectedMenu.Id }).eq("Id", reservationId);
-    }
-    // Navigate away atau tampilkan tiket
-    setErrors([]);
+    else { setReservationId(data.Id); setShareToken(token); setSukses(true); }
   }
 
   function startReservation() {
@@ -649,6 +649,13 @@ export default function Home() {
       pdf.save(`Tiket-Reservasi-Yassalam-${tanggal}.pdf`);
     }
 
+    const menuLink = shareToken ? `${typeof window !== "undefined" ? window.location.origin : ""}/pesan/${shareToken}` : "";
+    function copyMenuLink() {
+      navigator.clipboard.writeText(menuLink);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
+
     return (
       <div className="min-h-screen bg-[#FDF6EC] flex items-center justify-center px-4 py-8">
         <FloatingWA outlet={outlet} />
@@ -671,35 +678,21 @@ export default function Home() {
               ) : null}
             </div>
 
-            {/* Menu opsional */}
+            {/* Link Pesan Menu Bersama */}
             <div className="mt-6 bg-[#FEFCF8] border border-[#E8DCC8] rounded-2xl p-5 text-left">
-              <p className="text-xs font-bold text-[#C8973E] mb-3 tracking-[0.15em] uppercase">Mau pesan menu sekarang? (opsional)</p>
-              <div className="space-y-2">
-                <button onClick={() => { setSelectedMenu(null); setJumlahPorsi(""); }}
-                  className={`w-full p-3 rounded-xl border-2 text-left text-sm transition-all ${!selectedMenu ? "border-[#C8973E] bg-[#FDF6EC]" : "border-[#E8DCC8]"}`}>
-                  <p className="font-semibold text-[#5C3D1A]">Pesan di tempat nanti</p>
+              <p className="text-xs font-bold text-[#C8973E] mb-2 tracking-[0.15em] uppercase">Pesan Menu (opsional)</p>
+              <p className="text-[#8B7355] text-xs leading-relaxed mb-3">
+                Bagikan link ini ke teman/rombongan Anda — semua orang bisa pilih menu sendiri-sendiri lewat link yang sama, dan otomatis masuk ke satu tagihan meja Anda.
+              </p>
+              <div className="bg-white border border-[#E8DCC8] rounded-xl px-3 py-2.5 flex items-center gap-2">
+                <span className="text-xs text-[#5C3D1A] truncate flex-1 font-mono">{menuLink}</span>
+                <button onClick={copyMenuLink} className="text-xs font-bold text-[#C8973E] bg-[#FDF6EC] border border-[#C8973E]/30 rounded-lg px-3 py-1.5 hover:bg-[#C8973E] hover:text-white transition-all shrink-0">
+                  {copiedLink ? "✓ Disalin" : "Salin"}
                 </button>
-                {menus.map((m) => (
-                  <button key={m.Id} onClick={() => { setSelectedMenu(m); setJumlahPorsi(jumlahTamu); }}
-                    className={`w-full p-3 rounded-xl border-2 text-left text-sm transition-all ${selectedMenu?.Id === m.Id ? "border-[#C8973E] bg-[#FDF6EC]" : "border-[#E8DCC8]"}`}>
-                    <div className="flex justify-between">
-                      <div><p className="font-bold text-[#5C3D1A]">{m.nama_paket}</p><p className="text-xs text-[#B8A88A] mt-0.5">{m.deskripsi}</p></div>
-                      <p className="font-bold text-[#C8973E] shrink-0">{formatRupiah(m.harga)}<span className="text-[10px] text-[#B8A88A]">/porsi</span></p>
-                    </div>
-                  </button>
-                ))}
               </div>
-              {selectedMenu && (
-                <div className="mt-3 flex items-center gap-3">
-                  <input type="number" min="1" value={jumlahPorsi} onChange={(e) => setJumlahPorsi(e.target.value)} placeholder="Porsi" className="w-24 px-3 py-2 rounded-lg border-2 border-[#E8DCC8] text-sm text-center text-[#5C3D1A] outline-none focus:border-[#C8973E]" />
-                  <span className="text-sm text-[#8B7355]">× {formatRupiah(selectedMenu.harga)} = <span className="font-bold text-[#C8973E]">{formatRupiah(selectedMenu.harga * (Number(jumlahPorsi) || 0))}</span></span>
-                </div>
-              )}
-              {selectedMenu && (
-                <button onClick={handleSaveMenu} className="mt-3 w-full py-2.5 rounded-xl bg-[#C8973E] text-white font-semibold text-sm transition-all active:scale-[0.98]">
-                  Simpan Pilihan Menu
-                </button>
-              )}
+              <a href={menuLink} className="mt-3 w-full py-2.5 rounded-xl bg-[#C8973E] text-white font-semibold text-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                🍽 Pesan Menu Sekarang
+              </a>
             </div>
 
             <div className="flex flex-col gap-3 mt-6">
@@ -722,6 +715,43 @@ export default function Home() {
       <div className="min-h-screen bg-white">
         <FloatingWA outlet={outlet} />
 
+        {/* Konfirmasi Kembali dari Step 3 */}
+        {step === 3 && showBackConfirm && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-6 bg-black/60 backdrop-blur-sm" onClick={() => setShowBackConfirm(false)}>
+            <div className="bg-white rounded-3xl overflow-hidden max-w-sm w-full shadow-2xl animate-fadeInUp" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] px-6 py-5 text-center">
+                <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <span className="text-3xl">⚠️</span>
+                </div>
+                <h3 className="text-white font-bold text-lg font-serif">Yakin ingin kembali?</h3>
+              </div>
+              <div className="p-6 text-center">
+                <p className="text-[#5C3D1A] font-semibold text-sm">Hold meja Anda akan dilepas</p>
+                <p className="text-[#8B7355] text-sm mt-2 leading-relaxed">
+                  Meja <span className="font-bold text-[#C8973E]">{selectedGabungan ? selectedGabungan.nama : selectedTable?.nama_meja || `No. ${selectedTable?.nomor_meja}`}</span> yang sudah di-hold akan kembali tersedia untuk orang lain.
+                </p>
+                {countdown && (
+                  <div className="mt-4 inline-flex items-center gap-2 bg-[#FDF6EC] border border-[#C8973E]/20 rounded-full px-4 py-2">
+                    <span className="text-sm">⏱</span>
+                    <span className="text-xs text-[#8B7355]">Sisa waktu hold:</span>
+                    <span className="font-mono font-bold text-[#C8973E]">{countdown}</span>
+                  </div>
+                )}
+                <div className="flex gap-3 mt-6">
+                  <button onClick={() => setShowBackConfirm(false)}
+                    className="flex-1 py-3.5 rounded-xl border-2 border-[#C8973E] text-[#C8973E] font-bold text-sm transition-all active:scale-[0.98] hover:bg-[#FDF6EC]">
+                    Lanjut Bayar
+                  </button>
+                  <button onClick={() => { setShowBackConfirm(false); releaseHold(); setStep(2); }}
+                    className="flex-1 py-3.5 rounded-xl bg-[#8B7355] text-white font-bold text-sm transition-all active:scale-[0.98]">
+                    Ya, Kembali
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Lightbox foto meja */}
         {lightboxPhoto && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-6 bg-black/80 backdrop-blur-sm" onClick={() => setLightboxPhoto(null)}>
@@ -739,7 +769,7 @@ export default function Home() {
         <div className="sticky top-0 z-20 bg-gradient-to-b from-[#2a1a0e] to-[#1a0f07] relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#C8973E] to-transparent" />
           <div className="relative max-w-3xl mx-auto px-4 py-3.5 flex items-center justify-between">
-            <button onClick={() => { if (step > 1) { if (step === 3) releaseHold(); setStep(step - 1); } else backToHome(); }}
+            <button onClick={() => { if (step === 3) { setShowBackConfirm(true); } else if (step > 1) { setStep(step - 1); } else backToHome(); }}
               className="flex items-center gap-2 text-sm font-bold text-[#C8973E] bg-[#1a0f07]/60 border border-[#C8973E]/40 rounded-full px-4 py-2 transition-all active:scale-[0.97]">
               <span>←</span> <span>{step > 1 ? "Kembali" : "Beranda"}</span>
             </button>
@@ -869,7 +899,7 @@ export default function Home() {
                           <div className="grid grid-cols-2 gap-3">
                             {areaMeja.map((t) => (
                               <div key={t.Id} onClick={() => { setSelectedTable(t); setSelectedGabungan(null); }}
-  className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer ${selectedTable?.Id === t.Id ? "border-[#C8973E] bg-[#FDF6EC] shadow-md" : "border-[#E8DCC8] hover:border-[#C8973E]/50"}`}>
+  className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col ${selectedTable?.Id === t.Id ? "border-[#C8973E] bg-[#FDF6EC] shadow-md" : "border-[#E8DCC8] hover:border-[#C8973E]/50"}`}>
                                 {t.foto_url && (
   <div className="relative mb-3 group/photo">
     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -886,8 +916,8 @@ export default function Home() {
                                 {t.dp_minimum ? <p className="text-xs text-[#C8973E] mt-1 font-semibold">Uang muka {formatRupiah(t.dp_minimum)}</p> : null}
                                 <button
                                   onClick={(e) => { e.stopPropagation(); setSelectedTable(t); setSelectedGabungan(null); nextStep(); }}
-                                  className="w-full mt-3 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold transition-all active:scale-[0.98] shadow-md shadow-[#C8973E]/20">
-                                  Lanjut Booking →
+                                  className="w-full mt-auto pt-3 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold transition-all active:scale-[0.98] shadow-md shadow-[#C8973E]/20">
+                                  <span className="block text-center">Lanjut Booking →</span>
                                 </button>
                               </div>
                             ))}
@@ -1016,11 +1046,16 @@ export default function Home() {
                     Setelah transfer, tekan tombol di bawah untuk mengonfirmasi. Meja akan langsung terkunci untuk Anda.
                   </p>
                 </div>
-
-                <button onClick={handleConfirmPayment} disabled={loading}
-                  className={`w-full py-4 rounded-xl font-bold text-lg transition-all ${loading ? "bg-[#E8DCC8] text-[#B8A88A] cursor-not-allowed" : "bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white active:scale-[0.98] shadow-lg shadow-[#C8973E]/25"}`}>
-                  {loading ? "Memproses..." : "Saya Sudah Transfer ✦"}
-                </button>
+<div className="flex gap-3">
+                  <button onClick={() => setShowBackConfirm(true)}
+                    className="flex-1 py-4 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC] transition-all">
+                    ← Kembali
+                  </button>
+                  <button onClick={handleConfirmPayment} disabled={loading}
+                    className={`flex-1 py-4 rounded-xl font-bold text-lg transition-all ${loading ? "bg-[#E8DCC8] text-[#B8A88A] cursor-not-allowed" : "bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white active:scale-[0.98] shadow-lg shadow-[#C8973E]/25"}`}>
+                    {loading ? "Memproses..." : "Sudah Transfer ✦"}
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1117,8 +1152,12 @@ export default function Home() {
             <p className="text-[#C8973E] text-sm tracking-[0.3em] uppercase font-semibold">Kisah Kami</p>
             <h2 className="text-3xl sm:text-4xl font-bold text-[#5C3D1A] font-serif mt-3 leading-snug">Warisan Rasa Yang Disajikan Dengan Sepenuh Hati</h2>
             <p className="text-[#C8973E]/40 mt-4 mb-5">━━ ✦ ━━</p>
-            <p className="text-[#8B7355] leading-relaxed text-[15px]">Di balik setiap hidangan Yassalam, tersimpan sepenggal kisah keluarga yang diwariskan dengan penuh cinta dari generasi ke generasi.</p>
-            <p className="text-[#8B7355] leading-relaxed text-[15px] mt-4">Tiga hidangan istimewa Yassalam — Nasi Mandhi, Kabsah, dan Kabuli — hadir sebagai bukti nyata dedikasi tersebut, tersaji di Solo dan Yogyakarta.</p>
+            <p className="text-[#8B7355] leading-relaxed text-[15px]">
+              Di balik setiap hidangan Yassalam, tersimpan sepenggal kisah keluarga yang diwariskan dengan penuh cinta dari generasi ke generasi. Resep yang tersaji hari ini bukan sekadar bumbu dan rempah, melainkan warisan rasa dari Keluarga — dijaga keasliannya, dirawat dengan kesungguhan, dan disempurnakan dengan ketulusan yang sama seperti pertama kali diciptakan.
+            </p>
+            <p className="text-[#8B7355] leading-relaxed text-[15px] mt-4">
+              Tiga hidangan istimewa Yassalam — Nasi Mandhi, Kabsah, dan Kabuli — hadir sebagai bukti nyata dedikasi tersebut. Setiap suapan mengajak Anda menyelami kehangatan cita rasa Timur Tengah yang otentik, tersaji dengan sepenuh hati di dua kota tercinta: Solo dan Yogyakarta.
+            </p>
             <div className="mt-8 flex items-center gap-6">
               <div className="flex items-center gap-3"><p className="text-4xl font-bold text-[#C8973E] font-serif leading-none">8+</p><p className="text-xs text-[#8B7355] leading-tight">Tahun<br/>Pengalaman</p></div>
               <div className="h-10 w-px bg-[#C8973E]/20" />
