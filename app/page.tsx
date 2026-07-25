@@ -296,6 +296,7 @@ export default function Home() {
   const [selectedGabungan, setSelectedGabungan] = useState<MejaGabungan | null>(null);
   const [lightboxPhoto, setLightboxPhoto] = useState<{ url: string; nama: string } | null>(null);
   const [showBackConfirm, setShowBackConfirm] = useState(false);
+  const [showBigGroupModal, setShowBigGroupModal] = useState(false);
 
   const jamSelesai = hitungJamSelesai(jam);
   const today = new Date().toISOString().split("T")[0];
@@ -411,8 +412,8 @@ export default function Home() {
     const computedEnd = hitungJamSelesai(jam);
 
     const { data: resData } = await supabase
-      .from("Reservation").select("meja_id, jam, jam_selesai")
-      .eq("tanggal", tanggal).in("status", ["Confirmed", "Pending"]);
+      .from("reservation_slots").select("meja_id, jam, jam_selesai")
+      .eq("tanggal", tanggal);
 
     const { data: holdData } = await supabase
       .from("BookingHold").select("meja_id, jam, jam_selesai")
@@ -487,6 +488,17 @@ export default function Home() {
     if (errs.length > 0) return;
 
     if (step === 1) {
+      // Hitung kapasitas terbesar dari meja tunggal + gabungan
+      const maxTunggal = Math.max(...tables.map((t) => t.kapasitas), 0);
+      const gabunganData = availableGabungan.length > 0 ? availableGabungan : [];
+      const maxGabungan = gabunganData.length > 0 ? Math.max(...gabunganData.map((g) => g.kapasitas_total)) : 0;
+      const maxKapasitas = Math.max(maxTunggal, maxGabungan);
+
+      // Rombongan besar → arahkan ke WhatsApp
+      if (Number(jumlahTamu) > maxKapasitas) {
+        setShowBigGroupModal(true);
+        return;
+      }
       // Masuk step 2: cari meja tersedia
       await fetchAvailableTables();
       setStep(2);
@@ -498,10 +510,10 @@ export default function Home() {
     }
   }
 
-  async function createBookingHold() {
-    const mejaIds: number[] = selectedGabungan
+  async function createBookingHold(overrideMejaIds?: number[]) {
+    const mejaIds: number[] = overrideMejaIds || (selectedGabungan
       ? selectedGabungan.meja_ids
-      : selectedTable ? [selectedTable.Id] : [];
+      : selectedTable ? [selectedTable.Id] : []);
     if (mejaIds.length === 0 || !tanggal || !jam) return false;
 
     // Release hold lama dari session sebelumnya (kalau user kembali dan pilih meja lain)
@@ -565,15 +577,21 @@ export default function Home() {
     const mejaId = selectedGabungan ? selectedGabungan.meja_ids[0] : selectedTable?.Id;
     const token = generateShareToken();
 
-    const { data, error } = await supabase.from("Reservation").insert({
+    const { error } = await supabase.from("Reservation").insert({
       nama_tamu: namaTamu, no_whatsapp: noWa, outlet, tanggal, jam, jam_selesai: jamSelesai,
       jumlah_tamu: Number(jumlahTamu), catatan: catatan || null,
       meja_id: mejaId, menu_paket_id: null, share_token: token,
       dp_amount: dpAmount, dp_status: "sudah_bayar", status: "Confirmed",
-    }).select().single();
+    });
+
+    if (error) {
+      setLoading(false);
+      alert("Gagal menyimpan reservasi: " + error.message);
+      return;
+    }
 
     // Kalau gabungan, hold/book semua meja component (token sama biar satu bill)
-    if (selectedGabungan && data) {
+    if (selectedGabungan) {
       const extraMejaIds = selectedGabungan.meja_ids.slice(1);
       for (const mid of extraMejaIds) {
         await supabase.from("Reservation").insert({
@@ -591,14 +609,17 @@ export default function Home() {
       setHoldId(null); setHoldExpiry(null);
     }
 
+    setShareToken(token);
+    setSukses(true);
     setLoading(false);
-    if (error) alert("Gagal: " + error.message);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function startReservation() {
     setShowForm(true);
     setStep(1);
     setSukses(false);
+    setShareToken(null);
     setErrors([]);
     setSelectedTable(null);
     setAvailableTables([]);
@@ -779,6 +800,40 @@ export default function Home() {
             </div>
           </div>
         )}
+{/* Popup rombongan besar */}
+        {showBigGroupModal && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-6 bg-black/60 backdrop-blur-sm" onClick={() => setShowBigGroupModal(false)}>
+            <div className="bg-white rounded-3xl overflow-hidden max-w-sm w-full shadow-2xl animate-fadeInUp" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] px-6 py-6 text-center">
+                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <span className="text-4xl">👥</span>
+                </div>
+                <h3 className="text-white font-bold text-lg font-serif">Rombongan Besar</h3>
+                <p className="text-white/80 text-sm mt-1">{jumlahTamu} orang</p>
+              </div>
+              <div className="p-6 text-center">
+                <p className="text-[#5C3D1A] font-semibold text-sm">Reservasi untuk rombongan besar membutuhkan koordinasi khusus</p>
+                <p className="text-[#8B7355] text-sm mt-3 leading-relaxed">
+                  Untuk memastikan pengalaman terbaik Anda, tim kami akan membantu mengatur meja, menu, dan kebutuhan spesial lainnya secara langsung.
+                </p>
+                <div className="mt-6 space-y-3">
+                  
+                  <a  href={`https://wa.me/${outlet === "solo" ? "6281222666068" : "6281222666030"}?text=${encodeURIComponent(`Halo Yassalam, saya ingin reservasi untuk ${jumlahTamu} orang di outlet ${outlet === "solo" ? "Solo" : "Yogyakarta"} pada tanggal ${tanggal} jam ${jam}. Nama: ${namaTamu}, WA: ${noWa}`)}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 w-full py-4 rounded-xl bg-[#25D366] hover:bg-[#1DA851] text-white font-bold text-sm transition-all active:scale-[0.98] shadow-lg"
+                  >
+                    <span className="text-xl">📱</span>
+                    Hubungi Kami via WhatsApp
+                  </a>
+                  <button onClick={() => setShowBigGroupModal(false)}
+                    className="w-full py-3 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC] transition-all text-sm">
+                    Ubah Jumlah Tamu
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Lightbox foto meja */}
         {lightboxPhoto && (
@@ -943,7 +998,7 @@ export default function Home() {
                                 <p className="text-sm text-[#8B7355] mt-1">Muat {t.kapasitas} orang</p>
                                 {t.dp_minimum ? <p className="text-xs text-[#C8973E] mt-1 font-semibold">Uang muka {formatRupiah(t.dp_minimum)}</p> : null}
                                 <button
-                                  onClick={(e) => { e.stopPropagation(); setSelectedTable(t); setSelectedGabungan(null); nextStep(); }}
+                                  onClick={async (e) => { e.stopPropagation(); setSelectedTable(t); setSelectedGabungan(null); setErrors([]); const ok = await createBookingHold([t.Id]); if (ok) setStep(3); }}
                                   className="w-full mt-auto pt-3 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold transition-all active:scale-[0.98] shadow-md shadow-[#C8973E]/20">
                                   <span className="block text-center">Lanjut Booking →</span>
                                 </button>
@@ -989,7 +1044,7 @@ export default function Home() {
                               {g.dp_minimum ? <p className="text-xs text-[#C8973E] mt-2 font-semibold">Uang muka {formatRupiah(g.dp_minimum)}</p> : null}
                               {g.minimum_transaksi ? <p className="text-xs text-[#8B7355] mt-0.5">Min. transaksi {formatRupiah(g.minimum_transaksi)}</p> : null}
                               <button
-                                onClick={(e) => { e.stopPropagation(); setSelectedGabungan(g); setSelectedTable(null); nextStep(); }}
+                                onClick={async (e) => { e.stopPropagation(); setSelectedGabungan(g); setSelectedTable(null); setErrors([]); const ok = await createBookingHold(g.meja_ids); if (ok) setStep(3); }}
                                 className="w-full mt-3 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold transition-all active:scale-[0.98] shadow-md shadow-[#C8973E]/20">
                                 Lanjut Booking →
                               </button>

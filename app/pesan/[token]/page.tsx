@@ -5,7 +5,7 @@ import Image from "next/image";
 import { supabase } from "../../supabase";
 
 type ReservationRow = {
-  Id: number; nama_tamu: string; no_whatsapp: string; outlet: string; tanggal: string; jam: string; jam_selesai: string;
+  Id: number; nama_tamu: string; outlet: string; tanggal: string; jam: string; jam_selesai: string;
   meja_id: number | null; share_token: string | null; menu_finalized: boolean | null;
 };
 type TableInfo = { Id: number; nomor_meja: number; nama_meja: string | null; };
@@ -62,8 +62,9 @@ export default function PesanMenuPage() {
   const loadAll = useCallback(async () => {
     if (!token) return;
     setLoading(true);
-    const { data: resData } = await supabase.from("Reservation").select("*").eq("share_token", token);
-    if (!resData || resData.length === 0) { setNotFound(true); setLoading(false); return; }
+    const { data: rpcData } = await supabase.rpc("get_reservation_by_token", { p_token: token });
+    const resData = (rpcData || []) as ReservationRow[];
+    if (resData.length === 0) { setNotFound(true); setLoading(false); return; }
     setReservations(resData);
     const outlet = resData[0].outlet;
     const resIds = resData.map((r: ReservationRow) => r.Id);
@@ -107,16 +108,17 @@ export default function PesanMenuPage() {
 
   async function finalizeOrder() {
     if (!token || !primaryReservation) return;
-    const last4 = (primaryReservation.no_whatsapp || "").slice(-4);
-    if (waVerify.trim() !== last4) {
+    setWaError("");
+    setFinalizing(true);
+    const { data, error } = await supabase.rpc("finalize_order_by_token", {
+      p_token: token, p_wa_last4: waVerify.trim(),
+    });
+    setFinalizing(false);
+    if (error) { alert("Gagal mengirim pesanan: " + error.message); return; }
+    if (!(data as { ok?: boolean } | null)?.ok) {
       setWaError("4 digit tidak cocok. Coba tanya ke yang membuat reservasi ini.");
       return;
     }
-    setWaError("");
-    setFinalizing(true);
-    const { error } = await supabase.from("Reservation").update({ menu_finalized: true }).eq("share_token", token);
-    setFinalizing(false);
-    if (error) { alert("Gagal mengirim pesanan: " + error.message); return; }
     setReservations((prev) => prev.map((r) => ({ ...r, menu_finalized: true })));
     setShowFinalizeConfirm(false);
     setWaVerify("");
@@ -126,7 +128,7 @@ export default function PesanMenuPage() {
     if (!token) return;
     if (!confirm("Batalkan pengiriman menu? Pesanan akan bisa diedit lagi.")) return;
     setCancelingFinalize(true);
-    const { error } = await supabase.from("Reservation").update({ menu_finalized: false }).eq("share_token", token);
+    const { error } = await supabase.rpc("unfinalize_order_by_token", { p_token: token });
     setCancelingFinalize(false);
     if (error) { alert("Gagal membatalkan: " + error.message); return; }
     setReservations((prev) => prev.map((r) => ({ ...r, menu_finalized: false })));

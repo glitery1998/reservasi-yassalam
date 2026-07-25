@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { supabase } from "../supabase";
+import type { Session } from "@supabase/supabase-js";
 
 type Reservation = {
   Id: number; created_at: string; nama_tamu: string; no_whatsapp: string;
@@ -46,6 +47,10 @@ type MenuVarian = {
 type MenuAddon = {
   Id: number; menu_id: number; nama: string; harga_tambahan: number;
   urutan: number; aktif: boolean;
+};
+type AdminUser = {
+  id: string; email: string; nama: string | null;
+  role: string; outlet: string | null; aktif: boolean; created_at: string;
 };
 
 function AreaCardImage({ area, tables }: { area: Area; tables: TableData[] }) {
@@ -121,8 +126,97 @@ function compressImage(file: File, maxWidth = 1200, quality = 0.75): Promise<Blo
   });
 }
 
+/* ========== LOGIN SCREEN ========== */
+function LoginScreen({ onLogin }: { onLogin: () => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setError(""); setLoading(true);
+    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+    setLoading(false);
+    if (err) { setError(err.message); return; }
+    onLogin();
+  }
+
+  return (
+    <div className="min-h-screen bg-[#1a0f07] flex items-center justify-center px-6 relative overflow-hidden">
+      <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#C8973E] to-transparent" />
+      <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 10L50 25H30L40 10ZM40 70L30 55H50L40 70ZM10 40L25 30V50L10 40ZM70 40L55 50V30L70 40Z' fill='%23C8973E'/%3E%3C/svg%3E\")", backgroundSize: "80px 80px" }} />
+      <div className="relative w-full max-w-sm">
+        <div className="text-center mb-8">
+          <Image src="/logo.PNG" alt="Yassalam" width={80} height={80} className="mx-auto drop-shadow-2xl" />
+          <p className="text-[#C8973E]/40 mt-4 text-xs tracking-[0.4em]">━━ ✦ ━━</p>
+          <h1 className="text-2xl font-bold text-white font-serif mt-3">Admin Login</h1>
+          <p className="text-[#C8973E]/60 text-sm mt-1">Yassalam Arabian Resto</p>
+        </div>
+        <form onSubmit={handleLogin} className="bg-[#2a1a0e] border border-[#C8973E]/20 rounded-2xl p-6 space-y-4 shadow-2xl">
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-red-400 text-sm text-center">
+              {error}
+            </div>
+          )}
+          <div>
+            <label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Email</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="admin@yassalam.com"
+              className="w-full px-4 py-3 rounded-xl border border-[#C8973E]/30 bg-[#1a0f07] text-white text-sm placeholder-[#C8973E]/30 outline-none focus:border-[#C8973E] transition-all" />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Password</label>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••"
+              className="w-full px-4 py-3 rounded-xl border border-[#C8973E]/30 bg-[#1a0f07] text-white text-sm placeholder-[#C8973E]/30 outline-none focus:border-[#C8973E] transition-all" />
+          </div>
+          <button type="submit" disabled={loading}
+            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold text-sm shadow-lg shadow-[#C8973E]/20 disabled:opacity-50 transition-all active:scale-[0.98]">
+            {loading ? "Memverifikasi..." : "Masuk"}
+          </button>
+        </form>
+        <p className="text-center text-[#C8973E]/20 text-xs mt-6">© 2026 Yassalam Arabian Resto & Catering</p>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
-  const [tab, setTab] = useState<"reservasi" | "area" | "gabungan" | "menu">("reservasi");
+  /* ========== AUTH STATE ========== */
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [myRole, setMyRole] = useState<string | null>(null);
+  const [myOutlet, setMyOutlet] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState(false);
+  const isSuper = myRole === "superadmin";
+  const lockedOutlet = isSuper ? null : myOutlet;
+
+  const loadProfile = useCallback(async (userId: string) => {
+    const { data } = await supabase.from("AdminProfile")
+      .select("role, outlet, aktif").eq("id", userId).maybeSingle();
+    if (!data || !data.aktif) { setProfileError(true); setMyRole(null); setMyOutlet(null); return; }
+    setProfileError(false); setMyRole(data.role); setMyOutlet(data.outlet);
+  }, []);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
+      setSession(s);
+      if (s?.user) await loadProfile(s.user.id);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
+      setSession(s);
+      if (s?.user) await loadProfile(s.user.id);
+      else { setMyRole(null); setMyOutlet(null); }
+    });
+    return () => subscription.unsubscribe();
+  }, [loadProfile]);
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setSession(null);
+  }
+
+  const [tab, setTab] = useState<"reservasi" | "area" | "gabungan" | "menu" | "admin">("reservasi");
   const [drillArea, setDrillArea] = useState<Area | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
@@ -184,6 +278,18 @@ export default function AdminDashboard() {
   const [miPunyaVarian, setMiPunyaVarian] = useState(false);
   const [uploadingMenuItem, setUploadingMenuItem] = useState(false);
 
+  // ===== KELOLA ADMIN =====
+  const [adminList, setAdminList] = useState<AdminUser[]>([]);
+  const [loadingAdmin, setLoadingAdmin] = useState(false);
+  const [showAdminForm, setShowAdminForm] = useState(false);
+  const [editAdmin, setEditAdmin] = useState<AdminUser | null>(null);
+  const [auNama, setAuNama] = useState("");
+  const [auEmail, setAuEmail] = useState("");
+  const [auPassword, setAuPassword] = useState("");
+  const [auRole, setAuRole] = useState("admin_outlet");
+  const [auOutlet, setAuOutlet] = useState("solo");
+  const [savingAdmin, setSavingAdmin] = useState(false);
+
   const [manageMenuItem, setManageMenuItem] = useState<MenuItem | null>(null);
   const [menuVarianList, setMenuVarianList] = useState<MenuVarian[]>([]);
   const [menuAddonList, setMenuAddonList] = useState<MenuAddon[]>([]);
@@ -207,6 +313,16 @@ export default function AdminDashboard() {
   const fetchMenuItems = useCallback(async () => { const { data } = await supabase.from("MenuPaket").select("*").order("outlet").order("urutan"); setMenuItemList(data || []); }, []);
   const fetchVarian = useCallback(async (menuId: number) => { const { data } = await supabase.from("MenuVarian").select("*").eq("menu_id", menuId).order("urutan"); setMenuVarianList(data || []); }, []);
   const fetchAddon = useCallback(async (menuId: number) => { const { data } = await supabase.from("MenuAddon").select("*").eq("menu_id", menuId).order("urutan"); setMenuAddonList(data || []); }, []);
+
+  const fetchAdminList = useCallback(async () => {
+    setLoadingAdmin(true);
+    const { data: { session: s } } = await supabase.auth.getSession();
+    const res = await fetch("/api/admin-users", { headers: { Authorization: `Bearer ${s?.access_token}` } });
+    const json = await res.json();
+    setLoadingAdmin(false);
+    if (!res.ok) { alert("Gagal memuat: " + json.error); return; }
+    setAdminList(json.data || []);
+  }, []);
 
   const fetchCutoffSetting = useCallback(async () => {
     const { data } = await supabase.from("AppSettings").select("value").eq("key", "menu_cutoff_hours").single();
@@ -235,8 +351,9 @@ export default function AdminDashboard() {
     if (tab === "area") { void fetchAreas(); void fetchTables(); }
     if (tab === "gabungan") { void fetchGabungan(); void fetchTables(); }
     if (tab === "menu") { void fetchMenuKategori(); void fetchMenuItems(); }
+    if (tab === "admin") { void fetchAdminList(); }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [tab, fetchReservations, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting]);
+  }, [tab, fetchReservations, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList]);
 
   async function updateStatus(id: number, s: string) { await supabase.from("Reservation").update({ status: s }).eq("Id", id); fetchReservations(); }
   function formatRupiah(n: number) { return "Rp " + n.toLocaleString("id-ID"); }
@@ -251,7 +368,7 @@ export default function AdminDashboard() {
 
   function openAreaForm(area?: Area) {
     if (area) { setEditArea(area); setAOutlet(area.outlet); setANama(area.nama); setASlug(area.slug); setADesc(area.deskripsi || ""); setAUrutan(String(area.urutan)); }
-    else { setEditArea(null); setAOutlet("solo"); setANama(""); setASlug(""); setADesc(""); setAUrutan("0"); }
+    else { setEditArea(null); setAOutlet(lockedOutlet || "solo"); setANama(""); setASlug(""); setADesc(""); setAUrutan("0"); }
     setShowAreaForm(true);
   }
   async function saveArea() {
@@ -283,7 +400,7 @@ export default function AdminDashboard() {
 
   function openGabunganForm(g?: MejaGabungan) {
     if (g) { setEditGabungan(g); setGOutlet(g.outlet); setGNama(g.nama); setGDesc(g.deskripsi || ""); setGMejaIds(g.meja_ids || []); setGKapMin(g.kapasitas_minimum ? String(g.kapasitas_minimum) : ""); setGDp(g.dp_minimum ? String(g.dp_minimum) : ""); setGMinTrx(g.minimum_transaksi ? String(g.minimum_transaksi) : ""); }
-    else { setEditGabungan(null); setGOutlet("solo"); setGNama(""); setGDesc(""); setGMejaIds([]); setGKapMin(""); setGDp(""); setGMinTrx(""); }
+    else { setEditGabungan(null); setGOutlet(lockedOutlet || "solo"); setGNama(""); setGDesc(""); setGMejaIds([]); setGKapMin(""); setGDp(""); setGMinTrx(""); }
     setShowGabunganForm(true);
   }
   function toggleMejaInGabungan(id: number) { setGMejaIds((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id]); }
@@ -328,7 +445,7 @@ export default function AdminDashboard() {
   // ===== MENU KATEGORI =====
   function openKategoriForm(k?: MenuKategori) {
     if (k) { setEditKategori(k); setKOutlet(k.outlet); setKNama(k.nama); setKUrutan(String(k.urutan)); }
-    else { setEditKategori(null); setKOutlet("solo"); setKNama(""); setKUrutan("0"); }
+    else { setEditKategori(null); setKOutlet(lockedOutlet || "solo"); setKNama(""); setKUrutan("0"); }
     setShowKategoriForm(true);
   }
   async function saveKategori() {
@@ -390,12 +507,78 @@ export default function AdminDashboard() {
   }
   async function deleteAddon(id: number) { if (!manageMenuItem) return; await supabase.from("MenuAddon").delete().eq("Id", id); fetchAddon(manageMenuItem.Id); }
 
+  // ===== FUNGSI KELOLA ADMIN =====
+  async function authFetch(url: string, init?: RequestInit) {
+    const { data: { session: s } } = await supabase.auth.getSession();
+    return fetch(url, {
+      ...init,
+      headers: { ...(init?.headers || {}), "Content-Type": "application/json", Authorization: `Bearer ${s?.access_token}` },
+    });
+  }
+
+  function openAdminForm(a?: AdminUser) {
+    if (a) { setEditAdmin(a); setAuNama(a.nama || ""); setAuEmail(a.email); setAuRole(a.role); setAuOutlet(a.outlet || "solo"); }
+    else { setEditAdmin(null); setAuNama(""); setAuEmail(""); setAuRole("admin_outlet"); setAuOutlet("solo"); }
+    setAuPassword("");
+    setShowAdminForm(true);
+  }
+
+  async function saveAdmin() {
+    if (!auNama.trim()) { alert("Isi nama"); return; }
+    if (!editAdmin && (!auEmail.trim() || !auPassword)) { alert("Isi email dan password"); return; }
+    setSavingAdmin(true);
+    const body = editAdmin
+      ? { id: editAdmin.id, nama: auNama, role: auRole, outlet: auOutlet, ...(auPassword ? { password: auPassword } : {}) }
+      : { nama: auNama, email: auEmail, password: auPassword, role: auRole, outlet: auOutlet };
+    const res = await authFetch("/api/admin-users", { method: editAdmin ? "PATCH" : "POST", body: JSON.stringify(body) });
+    const json = await res.json();
+    setSavingAdmin(false);
+    if (!res.ok) { alert("Gagal: " + json.error); return; }
+    setShowAdminForm(false); fetchAdminList();
+  }
+
+  async function toggleAdminAktif(a: AdminUser) {
+    const res = await authFetch("/api/admin-users", { method: "PATCH", body: JSON.stringify({ id: a.id, aktif: !a.aktif }) });
+    const json = await res.json();
+    if (!res.ok) { alert("Gagal: " + json.error); return; }
+    fetchAdminList();
+  }
+
+  async function deleteAdmin(a: AdminUser) {
+    if (!confirm(`Hapus admin ${a.nama || a.email}? Akun loginnya akan ikut terhapus permanen.`)) return;
+    const res = await authFetch(`/api/admin-users?id=${a.id}`, { method: "DELETE" });
+    const json = await res.json();
+    if (!res.ok) { alert("Gagal: " + json.error); return; }
+    fetchAdminList();
+  }
+
   const stats = { total: reservations.length, pending: reservations.filter((r) => r.status === "Pending").length, confirmed: reservations.filter((r) => r.status === "Confirmed").length, completed: reservations.filter((r) => r.status === "Completed").length, cancelled: reservations.filter((r) => r.status === "Cancelled").length };
   const statusStyle: Record<string, string> = { Pending: "bg-[#C8973E]/15 text-[#C8973E] border-[#C8973E]/30", Confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200", Completed: "bg-blue-50 text-blue-700 border-blue-200", Cancelled: "bg-red-50 text-red-600 border-red-200" };
 
   const inputClass = "w-full px-4 py-3 rounded-xl border-2 border-[#E8DCC8] focus:border-[#C8973E] bg-[#FEFCF8] outline-none text-[#5C3D1A] text-sm placeholder-[#C8B89A] transition-all";
   const labelClass = "block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase";
   const filterClass = "px-3 py-2 rounded-xl border-2 border-[#E8DCC8] bg-[#FEFCF8] text-sm text-[#5C3D1A] outline-none focus:border-[#C8973E]";
+
+  /* ========== AUTH GATE ========== */
+  if (authLoading) return (
+    <div className="min-h-screen bg-[#1a0f07] flex items-center justify-center">
+      <div className="text-center">
+        <Image src="/logo.PNG" alt="Yassalam" width={60} height={60} className="mx-auto animate-pulse" />
+        <p className="text-[#C8973E]/50 text-sm mt-4">Memuat...</p>
+      </div>
+    </div>
+  );
+  if (!session) return <LoginScreen onLogin={() => supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s))} />;
+  if (profileError) return (
+    <div className="min-h-screen bg-[#1a0f07] flex items-center justify-center px-6">
+      <div className="text-center max-w-sm">
+        <p className="text-5xl mb-4">🔒</p>
+        <h1 className="text-xl font-bold text-white font-serif">Akses Ditolak</h1>
+        <p className="text-[#C8973E]/60 text-sm mt-3">Akun <span className="text-[#C8973E]">{session.user.email}</span> belum terdaftar sebagai admin, atau sudah dinonaktifkan.</p>
+        <button onClick={handleLogout} className="mt-6 px-6 py-3 rounded-xl border border-[#C8973E]/40 text-[#C8973E] text-sm font-semibold hover:bg-[#C8973E]/10">Logout</button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-[#FDF6EC]">
@@ -411,7 +594,16 @@ export default function AdminDashboard() {
               <h1 className="text-xl font-bold text-white font-serif">Dashboard Admin</h1>
             </div>
           </div>
-          <Link href="/" className="px-5 py-2.5 rounded-xl border border-[#C8973E]/40 text-[#C8973E] text-sm font-semibold hover:bg-[#C8973E]/10 transition-all">← Website</Link>
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:block text-right">
+              <p className="text-[#C8973E]/50 text-xs">{session.user.email}</p>
+              <p className="text-[10px] font-bold tracking-wider uppercase text-[#C8973E]">
+                {isSuper ? "★ Super Admin" : `Admin ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}`}
+              </p>
+            </div>
+            <Link href="/" className="px-4 py-2 rounded-xl border border-[#C8973E]/40 text-[#C8973E] text-sm font-semibold hover:bg-[#C8973E]/10 transition-all">← Website</Link>
+            <button onClick={handleLogout} className="px-4 py-2 rounded-xl border border-red-400/40 text-red-400 text-sm font-semibold hover:bg-red-400/10 transition-all">Logout</button>
+          </div>
         </div>
       </div>
 
@@ -423,6 +615,7 @@ export default function AdminDashboard() {
             { key: "area", label: "Area & Meja", icon: "🏛" },
             { key: "gabungan", label: "Meja Gabungan", icon: "🔗" },
             { key: "menu", label: "Menu", icon: "🍽" },
+            ...(isSuper ? [{ key: "admin", label: "Kelola Admin", icon: "👤" }] : []),
           ].map((t) => (
             <button key={t.key} onClick={() => { setTab(t.key as typeof tab); setDrillArea(null); setDrillKategori(null); }}
               className={`flex-1 py-3.5 rounded-xl text-sm font-bold transition-all ${tab === t.key ? "bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white shadow-lg shadow-[#C8973E]/20" : "text-[#8B7355] hover:text-[#C8973E]"}`}>
@@ -452,9 +645,15 @@ export default function AdminDashboard() {
           </div>
           <div className="bg-white border-2 border-[#E8DCC8] rounded-2xl p-5 mb-4 flex flex-wrap gap-3 items-center">
             <span className="text-[#C8973E] text-xs font-bold tracking-wider uppercase mr-2">Filter:</span>
-            <select value={filterOutlet} onChange={(e) => setFilterOutlet(e.target.value)} className={filterClass}>
-              <option value="">Semua Outlet</option><option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
-            </select>
+            {isSuper ? (
+              <select value={filterOutlet} onChange={(e) => setFilterOutlet(e.target.value)} className={filterClass}>
+                <option value="">Semua Outlet</option><option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
+              </select>
+            ) : (
+              <span className="px-3 py-2 rounded-xl bg-[#C8973E]/10 border-2 border-[#C8973E]/20 text-sm font-bold text-[#C8973E] capitalize">
+                📍 {myOutlet === "solo" ? "Solo" : "Yogyakarta"}
+              </span>
+            )}
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className={filterClass}>
               <option value="">Semua Status</option><option value="Pending">Pending</option><option value="Confirmed">Confirmed</option><option value="Completed">Completed</option><option value="Cancelled">Cancelled</option>
             </select>
@@ -464,7 +663,7 @@ export default function AdminDashboard() {
             {(filterOutlet || filterStatus || filterDate) && <button onClick={() => { setFilterOutlet(""); setFilterStatus(""); setFilterDate(""); }} className="text-sm text-[#C8973E] hover:underline">✕ Reset</button>}
           </div>
 
-          <div className="bg-[#FDF6EC] border-2 border-[#C8973E]/15 rounded-2xl p-5 mb-6 flex flex-wrap items-center gap-3">
+          <div className={`bg-[#FDF6EC] border-2 border-[#C8973E]/15 rounded-2xl p-5 mb-6 flex-wrap items-center gap-3 ${isSuper ? "flex" : "hidden"}`}>
             <span className="text-[#C8973E] text-xs font-bold tracking-wider uppercase">⚙ Batas Waktu Pesan Menu:</span>
             <input type="number" min="0" value={cutoffSetting} onChange={(e) => setCutoffSetting(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E8DCC8] bg-white text-sm text-[#5C3D1A] outline-none focus:border-[#C8973E] text-center" />
             <span className="text-sm text-[#8B7355]">jam sebelum jam reservasi</span>
@@ -577,7 +776,7 @@ export default function AdminDashboard() {
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
               <div className="bg-white border-2 border-[#C8973E]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl">
                 <div><h3 className="text-xl font-bold text-[#5C3D1A] font-serif">{editArea ? "Edit Area" : "Area Baru"}</h3><div className="w-12 h-0.5 bg-[#C8973E] mt-2" /></div>
-                <div><label className={labelClass}>Outlet</label><select value={aOutlet} onChange={(e) => setAOutlet(e.target.value)} className={inputClass}><option value="solo">Solo</option><option value="jogja">Yogyakarta</option></select></div>
+                <div><label className={labelClass}>Outlet</label><select value={aOutlet} onChange={(e) => setAOutlet(e.target.value)} disabled={!isSuper} className={inputClass + (!isSuper ? " opacity-60 cursor-not-allowed" : "")}><option value="solo">Solo</option><option value="jogja">Yogyakarta</option></select></div>
                 <div><label className={labelClass}>Nama Area</label><input value={aNama} onChange={(e) => setANama(e.target.value)} placeholder="Contoh: VIP Room" className={inputClass} /></div>
                 <div><label className={labelClass}>Slug</label><input value={aSlug} onChange={(e) => setASlug(e.target.value)} placeholder="Contoh: vip" className={inputClass} /></div>
                 <div><label className={labelClass}>Deskripsi</label><textarea value={aDesc} onChange={(e) => setADesc(e.target.value)} rows={2} className={inputClass + " resize-none"} /></div>
@@ -701,7 +900,7 @@ export default function AdminDashboard() {
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
               <div className="bg-white border-2 border-[#C8973E]/20 rounded-3xl p-8 max-w-lg w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
                 <div><h3 className="text-xl font-bold text-[#5C3D1A] font-serif">{editGabungan ? "Edit Gabungan" : "Gabungan Baru"}</h3><div className="w-12 h-0.5 bg-[#C8973E] mt-2" /></div>
-                <div><label className={labelClass}>Outlet</label><select value={gOutlet} onChange={(e) => { setGOutlet(e.target.value); setGMejaIds([]); }} className={inputClass}><option value="solo">Solo</option><option value="jogja">Yogyakarta</option></select></div>
+                <div><label className={labelClass}>Outlet</label><select value={gOutlet} onChange={(e) => { setGOutlet(e.target.value); setGMejaIds([]); }} disabled={!isSuper} className={inputClass + (!isSuper ? " opacity-60 cursor-not-allowed" : "")}><option value="solo">Solo</option><option value="jogja">Yogyakarta</option></select></div>
                 <div><label className={labelClass}>Nama Gabungan</label><input value={gNama} onChange={(e) => setGNama(e.target.value)} placeholder="Contoh: Gabungan Meja 1 + 2" className={inputClass} /></div>
                 <div><label className={labelClass}>Deskripsi <span className="normal-case font-normal text-[#B8A88A]">(opsional)</span></label><textarea value={gDesc} onChange={(e) => setGDesc(e.target.value)} rows={2} className={inputClass + " resize-none"} placeholder="Cocok untuk acara keluarga" /></div>
                 <div>
@@ -775,7 +974,7 @@ export default function AdminDashboard() {
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
               <div className="bg-white border-2 border-[#C8973E]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl">
                 <div><h3 className="text-xl font-bold text-[#5C3D1A] font-serif">{editKategori ? "Edit Kategori" : "Kategori Baru"}</h3><div className="w-12 h-0.5 bg-[#C8973E] mt-2" /></div>
-                <div><label className={labelClass}>Outlet</label><select value={kOutlet} onChange={(e) => setKOutlet(e.target.value)} className={inputClass}><option value="solo">Solo</option><option value="jogja">Yogyakarta</option></select></div>
+                <div><label className={labelClass}>Outlet</label><select value={kOutlet} onChange={(e) => setKOutlet(e.target.value)} disabled={!isSuper} className={inputClass + (!isSuper ? " opacity-60 cursor-not-allowed" : "")}><option value="solo">Solo</option><option value="jogja">Yogyakarta</option></select></div>
                 <div><label className={labelClass}>Nama Kategori</label><input value={kNama} onChange={(e) => setKNama(e.target.value)} placeholder="Contoh: Makanan Utama" className={inputClass} /></div>
                 <div><label className={labelClass}>Urutan</label><input type="number" value={kUrutan} onChange={(e) => setKUrutan(e.target.value)} className={inputClass} /></div>
                 <div className="flex gap-3 pt-3">
@@ -933,6 +1132,84 @@ export default function AdminDashboard() {
               <p className="text-[#8B7355] col-span-full text-center py-10">Belum ada menu. Klik &quot;+ Tambah Menu&quot;.</p>
             )}
           </div>
+        </>)}
+
+        {/* ========== TAB KELOLA ADMIN ========== */}
+        {tab === "admin" && isSuper && (<>
+          <div className="flex justify-between items-center mb-8">
+            <div>
+              <h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Kelola Admin</h2>
+              <p className="text-[#8B7355] text-sm mt-1">Setiap staf punya akun sendiri. Beberapa orang boleh pegang outlet yang sama.</p>
+            </div>
+            <button onClick={() => openAdminForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold shadow-lg shadow-[#C8973E]/20 active:scale-[0.98]">+ Tambah Admin</button>
+          </div>
+
+          {showAdminForm && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+              <div className="bg-white border-2 border-[#C8973E]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div><h3 className="text-xl font-bold text-[#5C3D1A] font-serif">{editAdmin ? "Edit Admin" : "Admin Baru"}</h3><div className="w-12 h-0.5 bg-[#C8973E] mt-2" /></div>
+                <div><label className={labelClass}>Nama Lengkap</label><input value={auNama} onChange={(e) => setAuNama(e.target.value)} placeholder="Contoh: Budi Santoso" className={inputClass} /></div>
+                <div>
+                  <label className={labelClass}>Email</label>
+                  <input type="email" value={auEmail} onChange={(e) => setAuEmail(e.target.value)} disabled={!!editAdmin} placeholder="budi@yassalam.com" className={inputClass + (editAdmin ? " opacity-60 cursor-not-allowed" : "")} />
+                  {editAdmin && <p className="text-[10px] text-[#B8A88A] mt-1.5">Email tidak bisa diubah</p>}
+                </div>
+                <div>
+                  <label className={labelClass}>{editAdmin ? "Password Baru (opsional)" : "Password"}</label>
+                  <input type="text" value={auPassword} onChange={(e) => setAuPassword(e.target.value)} placeholder={editAdmin ? "Kosongkan jika tidak diubah" : "Minimal 6 karakter"} className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>Role</label>
+                  <select value={auRole} onChange={(e) => setAuRole(e.target.value)} className={inputClass}>
+                    <option value="admin_outlet">Admin Outlet</option>
+                    <option value="superadmin">Super Admin</option>
+                  </select>
+                </div>
+                {auRole === "admin_outlet" && (
+                  <div>
+                    <label className={labelClass}>Outlet</label>
+                    <select value={auOutlet} onChange={(e) => setAuOutlet(e.target.value)} className={inputClass}>
+                      <option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
+                    </select>
+                  </div>
+                )}
+                <p className="text-xs text-[#B8A88A]">Super Admin bisa mengakses semua outlet dan mengelola admin lain.</p>
+                <div className="flex gap-3 pt-3">
+                  <button onClick={() => setShowAdminForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC]">Batal</button>
+                  <button onClick={saveAdmin} disabled={savingAdmin} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold disabled:opacity-50">{savingAdmin ? "Menyimpan..." : "Simpan"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {loadingAdmin ? <p className="text-center text-[#B8A88A] py-16">Memuat data admin...</p> : adminList.length === 0 ? <p className="text-center text-[#B8A88A] py-16">Belum ada admin terdaftar.</p> : (
+            <div className="space-y-3">
+              {adminList.map((a) => (
+                <div key={a.id} className={`bg-white border-2 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${a.aktif ? "border-[#E8DCC8] hover:border-[#C8973E]/30" : "border-gray-200 opacity-60"}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-[#5C3D1A] text-lg font-serif">{a.nama || "(tanpa nama)"}</h3>
+                      {a.role === "superadmin" ? (
+                        <span className="bg-[#C8973E]/15 text-[#C8973E] border-2 border-[#C8973E]/30 text-[10px] px-2.5 py-0.5 rounded-full font-bold tracking-wider uppercase">★ Super Admin</span>
+                      ) : (
+                        <span className="bg-[#FDF6EC] text-[#8B7355] border-2 border-[#E8DCC8] text-[10px] px-2.5 py-0.5 rounded-full font-bold tracking-wider uppercase">{a.outlet === "solo" ? "Solo" : "Yogyakarta"}</span>
+                      )}
+                      {!a.aktif && <span className="bg-gray-50 text-gray-400 border-2 border-gray-200 text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase">Nonaktif</span>}
+                      {a.id === session.user.id && <span className="text-[10px] text-[#C8973E] font-bold">(Anda)</span>}
+                    </div>
+                    <p className="text-sm text-[#8B7355] mt-1 truncate">📧 {a.email}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => openAdminForm(a)} className="px-4 py-2 rounded-xl border-2 border-[#C8973E]/30 text-[#C8973E] text-sm font-bold hover:bg-[#C8973E]/5">Edit</button>
+                    {a.id !== session.user.id && (<>
+                      <button onClick={() => toggleAdminAktif(a)} className={`px-4 py-2 rounded-xl border-2 text-sm font-bold ${a.aktif ? "border-[#E8DCC8] text-[#8B7355] hover:bg-[#FDF6EC]" : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"}`}>{a.aktif ? "Nonaktifkan" : "Aktifkan"}</button>
+                      <button onClick={() => deleteAdmin(a)} className="px-3 py-2 rounded-xl border-2 border-red-200 text-red-400 text-sm hover:bg-red-50">🗑</button>
+                    </>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </>)}
       </div>
 
