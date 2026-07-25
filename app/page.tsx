@@ -344,41 +344,54 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [holdExpiry, backToHome]);
 
-  // Handle back button HP — pakai ref agar handler selalu punya state terbaru
+  // === BACK BUTTON HP ===
   const navStateRef = useRef({ selectedAreaModal, showForm, sukses, step, showWelcome, showBackConfirm });
   navStateRef.current = { selectedAreaModal, showForm, sukses, step, showWelcome, showBackConfirm };
 
   const backToHomeRef = useRef(backToHome);
   backToHomeRef.current = backToHome;
 
-  // Handle back button HP
+  const isBackRef = useRef(false);
+
+  // Push history saat navigasi MAJU (bukan saat back)
   useEffect(() => {
-    let cooldown = false;
+    if (isBackRef.current) { isBackRef.current = false; return; }
+    if (!showWelcome) window.history.pushState(null, "");
+  }, [showWelcome]);
 
+  useEffect(() => {
+    if (isBackRef.current) { isBackRef.current = false; return; }
+    if (showForm) window.history.pushState(null, "");
+  }, [showForm]);
+
+  useEffect(() => {
+    if (isBackRef.current) { isBackRef.current = false; return; }
+    if (showForm && step > 1) window.history.pushState(null, "");
+  }, [step, showForm]);
+
+  useEffect(() => {
+    if (isBackRef.current) { isBackRef.current = false; return; }
+    if (selectedAreaModal) window.history.pushState(null, "");
+  }, [selectedAreaModal]);
+
+  useEffect(() => {
+    if (isBackRef.current) { isBackRef.current = false; return; }
+    if (showBackConfirm) window.history.pushState(null, "");
+  }, [showBackConfirm]);
+
+  // Popstate: hanya handle back, TIDAK push ulang
+  useEffect(() => {
     const handlePopState = () => {
-      if (cooldown) return;
-      cooldown = true;
-
+      isBackRef.current = true;
       const s = navStateRef.current;
-
-      if (s.selectedAreaModal) { setSelectedAreaModal(null); }
-      else if (s.showBackConfirm) { setShowBackConfirm(false); }
+      if (s.showBackConfirm) { setShowBackConfirm(false); }
+      else if (s.selectedAreaModal) { setSelectedAreaModal(null); }
       else if (s.showForm && s.sukses) { backToHomeRef.current(); }
       else if (s.showForm && s.step === 3) { setShowBackConfirm(true); }
       else if (s.showForm && s.step > 1) { setStep((prev) => prev - 1); }
       else if (s.showForm) { setShowForm(false); }
       else if (!s.showWelcome) { setShowWelcome(true); }
-      else { cooldown = false; return; }
-
-      // Tunggu browser selesai proses, baru push kembali
-      requestAnimationFrame(() => {
-        window.history.pushState({ page: "overlay" }, "");
-        cooldown = false;
-      });
     };
-
-    window.history.replaceState({ page: "base" }, "");
-    window.history.pushState({ page: "overlay" }, "");
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
