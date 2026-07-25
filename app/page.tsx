@@ -351,27 +351,34 @@ export default function Home() {
   const backToHomeRef = useRef(backToHome);
   backToHomeRef.current = backToHome;
 
-  // History init — hanya sekali saat mount
+  // Handle back button HP
   useEffect(() => {
-    window.history.replaceState({ page: "base" }, "");
-    window.history.pushState({ page: "overlay" }, "");
-  }, []);
+    let cooldown = false;
 
-  // Popstate listener — pakai ref, tidak bergantung pada backToHome
-  useEffect(() => {
     const handlePopState = () => {
-      window.history.pushState({ page: "overlay" }, "");
+      if (cooldown) return;
+      cooldown = true;
 
       const s = navStateRef.current;
-      if (s.selectedAreaModal) { setSelectedAreaModal(null); return; }
-      if (s.showBackConfirm) { setShowBackConfirm(false); return; }
-      if (s.showForm && s.sukses) { backToHomeRef.current(); return; }
-      if (s.showForm && s.step === 3) { setShowBackConfirm(true); return; }
-      if (s.showForm && s.step > 1) { setStep((prev) => prev - 1); return; }
-      if (s.showForm) { setShowForm(false); return; }
-      if (!s.showWelcome) { setShowWelcome(true); return; }
+
+      if (s.selectedAreaModal) { setSelectedAreaModal(null); }
+      else if (s.showBackConfirm) { setShowBackConfirm(false); }
+      else if (s.showForm && s.sukses) { backToHomeRef.current(); }
+      else if (s.showForm && s.step === 3) { setShowBackConfirm(true); }
+      else if (s.showForm && s.step > 1) { setStep((prev) => prev - 1); }
+      else if (s.showForm) { setShowForm(false); }
+      else if (!s.showWelcome) { setShowWelcome(true); }
+      else { cooldown = false; return; }
+
+      // Tunggu browser selesai proses, baru push kembali
+      requestAnimationFrame(() => {
+        window.history.pushState({ page: "overlay" }, "");
+        cooldown = false;
+      });
     };
 
+    window.history.replaceState({ page: "base" }, "");
+    window.history.pushState({ page: "overlay" }, "");
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
