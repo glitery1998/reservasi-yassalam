@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 import { supabase } from "./supabase";
 import dynamic from "next/dynamic";
@@ -344,23 +344,32 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [holdExpiry, backToHome]);
 
-  // Handle back button HP
+  // Handle back button HP — pakai ref agar handler selalu punya state terbaru
+  const navStateRef = useRef({ selectedAreaModal, showForm, sukses, step, showWelcome, showBackConfirm });
+  navStateRef.current = { selectedAreaModal, showForm, sukses, step, showWelcome, showBackConfirm };
+
   useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      e.preventDefault();
-      window.history.pushState({ overlay: true }, "");
-      if (selectedAreaModal) { setSelectedAreaModal(null); return; }
-      else if (showForm && sukses) backToHome();
-      else if (showForm && step === 3) setShowBackConfirm(true);
-      else if (showForm && step > 1) setStep((s) => s - 1);
-      else if (showForm) { setShowForm(false); }
-      else if (!showWelcome) setShowWelcome(true);
+    // Push 2 entry awal agar ada "ruang" untuk popstate
+    window.history.replaceState({ page: "base" }, "");
+    window.history.pushState({ page: "overlay" }, "");
+
+    const handlePopState = () => {
+      // Langsung push lagi agar selalu ada entry untuk di-pop berikutnya
+      window.history.pushState({ page: "overlay" }, "");
+
+      const s = navStateRef.current;
+      if (s.selectedAreaModal) { setSelectedAreaModal(null); return; }
+      if (s.showBackConfirm) { setShowBackConfirm(false); return; }
+      if (s.showForm && s.sukses) { backToHome(); return; }
+      if (s.showForm && s.step === 3) { setShowBackConfirm(true); return; }
+      if (s.showForm && s.step > 1) { setStep((prev) => prev - 1); return; }
+      if (s.showForm) { setShowForm(false); return; }
+      if (!s.showWelcome) { setShowWelcome(true); return; }
     };
+
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [selectedAreaModal, showForm, sukses, step, showWelcome, backToHome]);
-
-  useEffect(() => { window.history.pushState({ overlay: true }, ""); }, [showForm, selectedAreaModal, showWelcome, step]);
+  }, [backToHome]);
 
   // Fetch data outlet
   useEffect(() => {
