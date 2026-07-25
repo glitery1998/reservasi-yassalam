@@ -348,19 +348,24 @@ export default function Home() {
   const navStateRef = useRef({ selectedAreaModal, showForm, sukses, step, showWelcome, showBackConfirm });
   navStateRef.current = { selectedAreaModal, showForm, sukses, step, showWelcome, showBackConfirm };
 
+  const backToHomeRef = useRef(backToHome);
+  backToHomeRef.current = backToHome;
+
+  // History init — hanya sekali saat mount
   useEffect(() => {
-    // Push 2 entry awal agar ada "ruang" untuk popstate
     window.history.replaceState({ page: "base" }, "");
     window.history.pushState({ page: "overlay" }, "");
+  }, []);
 
+  // Popstate listener — pakai ref, tidak bergantung pada backToHome
+  useEffect(() => {
     const handlePopState = () => {
-      // Langsung push lagi agar selalu ada entry untuk di-pop berikutnya
       window.history.pushState({ page: "overlay" }, "");
 
       const s = navStateRef.current;
       if (s.selectedAreaModal) { setSelectedAreaModal(null); return; }
       if (s.showBackConfirm) { setShowBackConfirm(false); return; }
-      if (s.showForm && s.sukses) { backToHome(); return; }
+      if (s.showForm && s.sukses) { backToHomeRef.current(); return; }
       if (s.showForm && s.step === 3) { setShowBackConfirm(true); return; }
       if (s.showForm && s.step > 1) { setStep((prev) => prev - 1); return; }
       if (s.showForm) { setShowForm(false); return; }
@@ -369,7 +374,7 @@ export default function Home() {
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [backToHome]);
+  }, []);
 
   // Fetch data outlet
   useEffect(() => {
