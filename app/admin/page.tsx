@@ -550,6 +550,16 @@ export default function AdminDashboard() {
     source.start(0);
   }
 
+  // ===== SOUND: klik otomatis di SEMUA tombol dashboard =====
+  useEffect(() => {
+    function handleGlobalClick(e: MouseEvent) {
+      const target = (e.target as HTMLElement)?.closest("button");
+      if (target && !target.disabled) playClick();
+    }
+    document.addEventListener("click", handleGlobalClick, true);
+    return () => document.removeEventListener("click", handleGlobalClick, true);
+  }, []);
+
   useEffect(() => {
     if (tab !== "reservasi") return;
     const resCh = supabase
