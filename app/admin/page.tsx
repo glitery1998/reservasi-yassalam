@@ -11,6 +11,7 @@ type Reservation = {
   catatan: string | null; status: string; meja_id: number | null;
   menu_paket_id: number | null; dp_amount: number | null;
   share_token: string | null; menu_finalized: boolean | null;
+  checked_in_at: string | null;
 };
 type ReservationMenuItemT = {
   Id: number; reservation_id: number; menu_id: number; varian_id: number | null; addon_ids: number[];
@@ -221,15 +222,33 @@ export default function AdminDashboard() {
     setSession(null);
   }
 
-  const [tab, setTab] = useState<"reservasi" | "kalender" | "area" | "gabungan" | "menu" | "admin">("reservasi");
+  const [tab, setTab] = useState<"reservasi" | "kalender" | "area" | "gabungan" | "menu" | "laporan" | "admin">("reservasi");
+  const [kalSubTab, setKalSubTab] = useState<"harian" | "cari">("harian");
   const [drillArea, setDrillArea] = useState<Area | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
   const [tables, setTables] = useState<TableData[]>([]);
   const [gabunganList, setGabunganList] = useState<MejaGabungan[]>([]);
   const [filterOutlet, setFilterOutlet] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDate, setFilterDate] = useState("");
+  const [showReservasiForm, setShowReservasiForm] = useState(false);
+  const [editingReservasiId, setEditingReservasiId] = useState<number | null>(null);
+  const [editingOriginalShareToken, setEditingOriginalShareToken] = useState<string | null>(null);
+  const [rNama, setRNama] = useState("");
+  const [rWhatsapp, setRWhatsapp] = useState("");
+  const [rOutlet, setROutlet] = useState("solo");
+  const [rTanggal, setRTanggal] = useState("");
+  const [rJam, setRJam] = useState("");
+  const [rJamSelesai, setRJamSelesai] = useState("");
+  const [rJumlahTamu, setRJumlahTamu] = useState("2");
+  const [rMejaId, setRMejaId] = useState("");
+  const [rCatatan, setRCatatan] = useState("");
+  const [rDpAmount, setRDpAmount] = useState("");
+  const [rStatus, setRStatus] = useState("Confirmed");
+  const [rAktifkanMenu, setRAktifkanMenu] = useState(false);
+  const [savingReservasi, setSavingReservasi] = useState(false);
   const [cutoffSetting, setCutoffSetting] = useState("4");
   const [savingCutoff, setSavingCutoff] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
@@ -309,7 +328,9 @@ export default function AdminDashboard() {
 
   const fetchReservations = useCallback(async () => {
     setLoading(true);
-    let q = supabase.from("Reservation").select("*").order("created_at", { ascending: false });
+    let q = supabase.from("Reservation").select("*")
+      .order("tanggal", { ascending: true })
+      .order("jam", { ascending: true });
     if (filterOutlet) q = q.eq("outlet", filterOutlet);
     if (filterStatus) q = q.eq("status", filterStatus);
     if (filterDate) q = q.eq("tanggal", filterDate);
@@ -324,6 +345,20 @@ export default function AdminDashboard() {
   const [kalReservations, setKalReservations] = useState<Reservation[]>([]);
   const [kalHolds, setKalHolds] = useState<BookingHold[]>([]);
   const [loadingKalender, setLoadingKalender] = useState(false);
+  const [showCariMeja, setShowCariMeja] = useState(false);
+  const [cariJumlahTamu, setCariJumlahTamu] = useState("2");
+  const [cariJamMulai, setCariJamMulai] = useState("");
+  const [cariDariTanggal, setCariDariTanggal] = useState(() => new Date().toISOString().split("T")[0]);
+  const [cariSampaiTanggal, setCariSampaiTanggal] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 13);
+    return d.toISOString().split("T")[0];
+  });
+  const [cariMatriks, setCariMatriks] = useState<{
+    dates: string[];
+    mejaRows: { table: TableData; avail: boolean[] }[];
+    gabunganRows: { gabungan: MejaGabungan; avail: boolean[] }[];
+  } | null>(null);
+  const [loadingCariMulti, setLoadingCariMulti] = useState(false);
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -354,10 +389,91 @@ export default function AdminDashboard() {
   }
 
   const fetchGabungan = useCallback(async () => { const { data } = await supabase.from("MejaGabungan").select("*").order("outlet").order("nama"); setGabunganList(data || []); }, []);
+
+  async function cariMejaMultiTanggal() {
+    if (!cariJamMulai) { alert("Isi jam mulai"); return; }
+    if (cariDariTanggal > cariSampaiTanggal) { alert("Tanggal \"Sampai\" harus setelah \"Dari\""); return; }
+    setLoadingCariMulti(true);
+    const outletAktif = lockedOutlet || kalOutlet;
+    const tamu = Number(cariJumlahTamu) || 1;
+    const [jh, jm] = cariJamMulai.split(":").map(Number);
+    const startMin = jh * 60 + jm;
+    const endMin = startMin + 120;
+
+    const { data: resData } = await supabase.from("Reservation").select("meja_id, tanggal, jam, jam_selesai")
+      .eq("outlet", outletAktif).gte("tanggal", cariDariTanggal).lte("tanggal", cariSampaiTanggal)
+      .in("status", ["Pending", "Confirmed"]);
+    const { data: holdData } = await supabase.from("BookingHold").select("meja_id, tanggal, jam, jam_selesai")
+      .gte("tanggal", cariDariTanggal).lte("tanggal", cariSampaiTanggal)
+      .not("status", "in", "(completed,cancelled,expired,released)");
+
+    const resRows = (resData || []) as { meja_id: number | null; tanggal: string; jam: string; jam_selesai: string }[];
+    const holdRows = (holdData || []) as { meja_id: number; tanggal: string; jam: string; jam_selesai: string }[];
+
+    const dates: string[] = [];
+    const dari = new Date(cariDariTanggal + "T00:00:00");
+    const sampai = new Date(cariSampaiTanggal + "T00:00:00");
+    for (let d = new Date(dari); d <= sampai; d.setDate(d.getDate() + 1)) {
+      dates.push(d.toISOString().split("T")[0]);
+    }
+
+    const bookedByDate: Record<string, Set<number>> = {};
+    dates.forEach((tgl) => { bookedByDate[tgl] = new Set<number>(); });
+    resRows.forEach((r) => {
+      if (r.meja_id == null || !bookedByDate[r.tanggal]) return;
+      const rStart = timeToMinutes(r.jam);
+      const rEnd = r.jam_selesai ? timeToMinutes(r.jam_selesai) : rStart + 120;
+      if (startMin < rEnd && endMin > rStart) bookedByDate[r.tanggal].add(r.meja_id);
+    });
+    holdRows.forEach((h) => {
+      if (!bookedByDate[h.tanggal]) return;
+      const hStart = timeToMinutes(h.jam);
+      const hEnd = h.jam_selesai ? timeToMinutes(h.jam_selesai) : hStart + 120;
+      if (startMin < hEnd && endMin > hStart) bookedByDate[h.tanggal].add(h.meja_id);
+    });
+
+    const outletTables = tables.filter((t) => t.outlet === outletAktif && t.kapasitas >= tamu && (!t.kapasitas_minimum || tamu >= t.kapasitas_minimum));
+    const outletGabungan = gabunganList.filter((g) => g.outlet === outletAktif && g.aktif && g.kapasitas_total >= tamu && (!g.kapasitas_minimum || tamu >= g.kapasitas_minimum));
+
+    const mejaRows = outletTables.map((t) => ({ table: t, avail: dates.map((tgl) => !bookedByDate[tgl].has(t.Id)) }));
+    const gabunganRows = outletGabungan.map((g) => ({ gabungan: g, avail: dates.map((tgl) => g.meja_ids.every((id) => !bookedByDate[tgl].has(id))) }));
+
+    setCariMatriks({ dates, mejaRows, gabunganRows });
+    setLoadingCariMulti(false);
+  }
   const fetchMenuKategori = useCallback(async () => { const { data } = await supabase.from("MenuKategori").select("*").order("outlet").order("urutan"); setMenuKategoriList(data || []); }, []);
   const fetchMenuItems = useCallback(async () => { const { data } = await supabase.from("MenuPaket").select("*").order("outlet").order("urutan"); setMenuItemList(data || []); }, []);
   const fetchVarian = useCallback(async (menuId: number) => { const { data } = await supabase.from("MenuVarian").select("*").eq("menu_id", menuId).order("urutan"); setMenuVarianList(data || []); }, []);
   const fetchAddon = useCallback(async (menuId: number) => { const { data } = await supabase.from("MenuAddon").select("*").eq("menu_id", menuId).order("urutan"); setMenuAddonList(data || []); }, []);
+
+  // ===== LAPORAN =====
+  const [lapDari, setLapDari] = useState(() => {
+    const d = new Date(); d.setDate(1);
+    return d.toISOString().split("T")[0];
+  });
+  const [lapSampai, setLapSampai] = useState(() => new Date().toISOString().split("T")[0]);
+  const [lapOutlet, setLapOutlet] = useState("");
+  const [lapReservasi, setLapReservasi] = useState<Reservation[]>([]);
+  const [lapOrders, setLapOrders] = useState<ReservationMenuItemT[]>([]);
+  const [loadingLaporan, setLoadingLaporan] = useState(false);
+
+  const fetchLaporan = useCallback(async () => {
+    setLoadingLaporan(true);
+    const outletAktif = lockedOutlet || lapOutlet;
+    let q = supabase.from("Reservation").select("*").gte("tanggal", lapDari).lte("tanggal", lapSampai);
+    if (outletAktif) q = q.eq("outlet", outletAktif);
+    const { data: resData } = await q;
+    setLapReservasi(resData || []);
+
+    const resIds = (resData || []).map((r) => r.Id);
+    if (resIds.length > 0) {
+      const { data: orderData } = await supabase.from("ReservationMenuItem").select("*").in("reservation_id", resIds);
+      setLapOrders(orderData || []);
+    } else {
+      setLapOrders([]);
+    }
+    setLoadingLaporan(false);
+  }, [lapDari, lapSampai, lapOutlet, lockedOutlet]);
 
   const fetchAdminList = useCallback(async () => {
     setLoadingAdmin(true);
@@ -393,13 +509,14 @@ export default function AdminDashboard() {
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
     if (tab === "reservasi") { void fetchReservations(); void fetchAllMenuLookups(); void fetchTables(); void fetchCutoffSetting(); }
-    if (tab === "kalender") { void fetchKalenderData(); void fetchTables(); void fetchAreas(); }
+    if (tab === "kalender") { void fetchKalenderData(); void fetchTables(); void fetchAreas(); void fetchGabungan(); }
     if (tab === "area") { void fetchAreas(); void fetchTables(); }
     if (tab === "gabungan") { void fetchGabungan(); void fetchTables(); }
     if (tab === "menu") { void fetchMenuKategori(); void fetchMenuItems(); }
+    if (tab === "laporan") { void fetchLaporan(); }
     if (tab === "admin") { void fetchAdminList(); }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [tab, fetchReservations, fetchKalenderData, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList]);
+  }, [tab, fetchReservations, fetchKalenderData, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList, fetchLaporan]);
 
   // ===== REALTIME: reservasi baru otomatis muncul + notifikasi =====
   const notifAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -467,6 +584,32 @@ export default function AdminDashboard() {
       .subscribe();
     return () => { supabase.removeChannel(resCh); };
   }, [tab, fetchReservations]);
+
+  // ===== AUTO-COMPLETE: reservasi Confirmed otomatis jadi Completed atau No-Show setelah lewat jam selesai =====
+  useEffect(() => {
+    if (tab !== "reservasi") return;
+    const interval = setInterval(async () => {
+      const nowT = new Date();
+      const kandidat = reservationsRef.current.filter((r) => {
+        if (r.status !== "Confirmed") return false;
+        const end = new Date(`${r.tanggal}T${(r.jam_selesai || "23:59:00").slice(0, 8)}`);
+        return nowT >= end;
+      });
+      if (kandidat.length === 0) return;
+
+      await Promise.all(kandidat.map(async (r) => {
+        let sudahHadir = !!r.checked_in_at;
+        if (!sudahHadir) {
+          const { data: pesanan } = await supabase.from("ReservationMenuItem").select("Id").eq("reservation_id", r.Id).limit(1);
+          sudahHadir = (pesanan || []).length > 0;
+        }
+        await supabase.from("Reservation").update({ status: sudahHadir ? "Completed" : "No-Show" }).eq("Id", r.Id);
+      }));
+      fetchReservations();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [tab, fetchReservations]);
+
 // ===== REALTIME: kalender ketersediaan meja =====
   useEffect(() => {
     if (tab !== "kalender") return;
@@ -515,13 +658,118 @@ export default function AdminDashboard() {
   }, [tab]);
 
   async function updateStatus(id: number, s: string) { await supabase.from("Reservation").update({ status: s }).eq("Id", id); fetchReservations(); }
+  async function tandaiHadir(id: number) { await supabase.from("Reservation").update({ checked_in_at: new Date().toISOString() }).eq("Id", id); fetchReservations(); }
+
+  function openReservasiForm(existing?: Reservation) {
+    if (existing) {
+      setEditingReservasiId(existing.Id);
+      setEditingOriginalShareToken(existing.share_token);
+      setRNama(existing.nama_tamu); setRWhatsapp(existing.no_whatsapp); setROutlet(existing.outlet);
+      setRTanggal(existing.tanggal); setRJam(formatJam(existing.jam)); setRJamSelesai(formatJam(existing.jam_selesai));
+      setRJumlahTamu(String(existing.jumlah_tamu)); setRMejaId(existing.meja_id ? String(existing.meja_id) : "");
+      setRCatatan(existing.catatan || ""); setRDpAmount(existing.dp_amount ? String(existing.dp_amount) : "");
+      setRStatus(existing.status); setRAktifkanMenu(!!existing.share_token);
+    } else {
+      setEditingReservasiId(null);
+      setEditingOriginalShareToken(null);
+      setRNama(""); setRWhatsapp(""); setROutlet(lockedOutlet || "solo");
+      setRTanggal(filterDate || new Date().toISOString().split("T")[0]);
+      setRJam(""); setRJamSelesai(""); setRJumlahTamu("2"); setRMejaId("");
+      setRCatatan(""); setRDpAmount(""); setRStatus("Confirmed"); setRAktifkanMenu(false);
+    }
+    setShowReservasiForm(true);
+  } 
+
+  async function saveReservasiManual() {
+    if (!rNama.trim()) { alert("Isi nama tamu"); return; }
+    if (!rWhatsapp.trim()) { alert("Isi nomor WhatsApp"); return; }
+    if (!rTanggal) { alert("Isi tanggal"); return; }
+    if (!rJam) { alert("Isi jam mulai"); return; }
+
+    const todayStr = new Date().toISOString().split("T")[0];
+    if (rTanggal === todayStr) {
+      const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+      const [jh, jm] = rJam.split(":").map(Number);
+      if (jh * 60 + jm < nowMin) {
+        alert("Jam mulai sudah lewat untuk hari ini. Pilih jam yang belum lewat.");
+        return;
+      }
+    }
+
+    const jamSelesaiFinal = rJamSelesai || (() => {
+      const [h, m] = rJam.split(":").map(Number);
+      const totalMin = h * 60 + m + 120;
+      const hh = String(Math.floor(totalMin / 60) % 24).padStart(2, "0");
+      const mm = String(totalMin % 60).padStart(2, "0");
+      return `${hh}:${mm}`;
+    })();
+
+    const mejaTerpilih = tables.find((t) => t.Id === Number(rMejaId));
+    if (mejaTerpilih && Number(rJumlahTamu) > mejaTerpilih.kapasitas) {
+      if (!confirm(`Jumlah tamu (${rJumlahTamu}) melebihi kapasitas ${mejaTerpilih.nama_meja || `Meja ${mejaTerpilih.nomor_meja}`} (maks ${mejaTerpilih.kapasitas} orang). Tetap lanjutkan?`)) return;
+    }
+
+    if (rMejaId) {
+      const { data: existing } = await supabase.from("Reservation").select("Id, jam, jam_selesai, nama_tamu")
+        .eq("meja_id", Number(rMejaId)).eq("tanggal", rTanggal).in("status", ["Pending", "Confirmed"]);
+      const startMin = timeToMinutes(rJam);
+      const endMin = timeToMinutes(jamSelesaiFinal);
+      const bentrok = (existing || []).filter((e) => e.Id !== editingReservasiId).find((e) => {
+        const eStart = timeToMinutes(e.jam);
+        const eEnd = e.jam_selesai ? timeToMinutes(e.jam_selesai) : eStart + 120;
+        return startMin < eEnd && endMin > eStart;
+      });
+      if (bentrok) {
+        if (!confirm(`Meja ini sudah dibooking oleh "${bentrok.nama_tamu}" pada jam yang bentrok. Tetap lanjutkan?`)) return;
+      }
+    }
+
+    setSavingReservasi(true);
+    const shareTokenFinal = rAktifkanMenu ? (editingOriginalShareToken || crypto.randomUUID()) : null;
+    const p = {
+      nama_tamu: rNama, no_whatsapp: rWhatsapp, outlet: rOutlet, tanggal: rTanggal,
+      jam: rJam, jam_selesai: jamSelesaiFinal, jumlah_tamu: Number(rJumlahTamu) || 1,
+      catatan: rCatatan || null, status: rStatus, meja_id: rMejaId ? Number(rMejaId) : null,
+      dp_amount: rDpAmount ? Number(rDpAmount) : null,
+      share_token: shareTokenFinal,
+    };
+    const { error } = editingReservasiId
+      ? await supabase.from("Reservation").update(p).eq("Id", editingReservasiId)
+      : await supabase.from("Reservation").insert({ ...p, menu_finalized: false });
+    setSavingReservasi(false);
+    if (error) { alert("Gagal simpan: " + error.message); return; }
+    setShowReservasiForm(false);
+    setEditingReservasiId(null);
+    fetchReservations();
+  }
   function formatRupiah(n: number) { return "Rp " + n.toLocaleString("id-ID"); }
   function formatJam(jam: string) { return (jam || "").slice(0, 5); }
+  function getWaktuInfo(r: Reservation): { label: string; tone: "upcoming" | "active" | "overdue" } {
+    const nowT = new Date();
+    const start = new Date(`${r.tanggal}T${(r.jam || "00:00:00").slice(0, 8)}`);
+    const end = new Date(`${r.tanggal}T${(r.jam_selesai || "23:59:00").slice(0, 8)}`);
+    if (nowT < start) {
+      const diffMin = Math.round((start.getTime() - nowT.getTime()) / 60000);
+      if (diffMin < 60) return { label: `${diffMin} menit lagi`, tone: "upcoming" };
+      const diffHour = Math.floor(diffMin / 60);
+      const sisaMin = diffMin % 60;
+      return { label: `${diffHour} jam${sisaMin > 0 ? ` ${sisaMin} menit` : ""} lagi`, tone: "upcoming" };
+    }
+    if (nowT >= start && nowT < end) return { label: "Sedang berlangsung", tone: "active" };
+    return { label: "Waktu terlewat", tone: "overdue" };
+  }
+  function normalizeWhatsapp(nomor: string) {
+    let n = (nomor || "").replace(/[^0-9]/g, "");
+    if (n.startsWith("0")) n = "62" + n.slice(1);
+    else if (n.startsWith("620")) n = "62" + n.slice(3);
+    else if (!n.startsWith("62")) n = "62" + n;
+    return n;
+  }
   function sendMenuLinkWA(r: Reservation) {
     if (!r.share_token) { alert("Reservasi ini belum punya link menu."); return; }
     const link = `${window.location.origin}/pesan/${r.share_token}`;
     const msg = `Halo ${r.nama_tamu}, ini link untuk pesan menu reservasi Anda di Yassalam:\n${link}\n\nBisa dibagikan ke teman/rombongan Anda juga ya 🙏`;
-    window.open(`https://wa.me/${r.no_whatsapp}?text=${encodeURIComponent(msg)}`, "_blank");
+    window.open(`https://wa.me/${normalizeWhatsapp(r.no_whatsapp)}?text=${encodeURIComponent(msg)}`, "_blank");
   }
   function totalKapasitas(a: Area) { return tables.filter((t) => t.outlet === a.outlet && t.posisi === a.slug).reduce((sum, t) => sum + t.kapasitas, 0); }
 
@@ -711,8 +959,8 @@ export default function AdminDashboard() {
     fetchAdminList();
   }
 
-  const stats = { total: reservations.length, pending: reservations.filter((r) => r.status === "Pending").length, confirmed: reservations.filter((r) => r.status === "Confirmed").length, completed: reservations.filter((r) => r.status === "Completed").length, cancelled: reservations.filter((r) => r.status === "Cancelled").length };
-  const statusStyle: Record<string, string> = { Pending: "bg-amber-50 text-amber-700 border-amber-200", Confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200", Completed: "bg-blue-50 text-blue-700 border-blue-200", Cancelled: "bg-red-50 text-red-600 border-red-200" };
+  const stats = { total: reservations.length, pending: reservations.filter((r) => r.status === "Pending").length, confirmed: reservations.filter((r) => r.status === "Confirmed").length, completed: reservations.filter((r) => r.status === "Completed").length, noshow: reservations.filter((r) => r.status === "No-Show").length, cancelled: reservations.filter((r) => r.status === "Cancelled").length };
+  const statusStyle: Record<string, string> = { Pending: "bg-amber-50 text-amber-700 border-amber-200", Confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200", Completed: "bg-blue-50 text-blue-700 border-blue-200", Cancelled: "bg-red-50 text-red-600 border-red-200", "No-Show": "bg-orange-50 text-orange-700 border-orange-300" };
 
   const inputClass = "w-full px-4 py-3 rounded-xl border-2 border-[#E5DDD4] focus:border-[#5C1420] bg-[#FEFCF8] outline-none text-[#3D2E1E] text-sm placeholder-[#C4B9AB] transition-all";
   const labelClass = "block text-[10px] font-bold text-[#5C1420] mb-2 tracking-[0.2em] uppercase";
@@ -745,6 +993,7 @@ export default function AdminDashboard() {
     { key: "area", label: "Area & Meja", icon: "🏛" },
     { key: "gabungan", label: "Gabungan", icon: "🔗" },
     { key: "menu", label: "Menu", icon: "🍽" },
+    { key: "laporan", label: "Laporan", icon: "📈" },
     ...(isSuper ? [{ key: "admin", label: "Kelola Admin", icon: "👤" }] : []),
   ];
 
@@ -801,12 +1050,16 @@ export default function AdminDashboard() {
 
         {/* ========== TAB RESERVASI ========== */}
         {tab === "reservasi" && (<>
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5 sm:gap-3 mb-6">
+          <div className="flex justify-end mb-4">
+            <button onClick={() => openReservasiForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-lg shadow-[#5C1420]/20 active:scale-[0.98] transition-all">+ Reservasi Baru</button>
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5 sm:gap-3 mb-6">
             {[
               { label: "Total", value: stats.total, color: "text-[#3D2E1E]", icon: "📊" },
               { label: "Pending", value: stats.pending, color: "text-amber-600", icon: "⏳" },
               { label: "Confirmed", value: stats.confirmed, color: "text-emerald-600", icon: "✅" },
               { label: "Completed", value: stats.completed, color: "text-blue-600", icon: "🎉" },
+              { label: "No-Show", value: stats.noshow, color: "text-orange-600", icon: "👻" },
               { label: "Cancelled", value: stats.cancelled, color: "text-red-500", icon: "✕" },
             ].map((s) => (
               <div key={s.label} className="bg-white border border-[#E5DDD4] rounded-xl p-3 sm:p-4">
@@ -819,6 +1072,7 @@ export default function AdminDashboard() {
           <div className="bg-white border border-[#E5DDD4] rounded-xl p-4 mb-4 space-y-2.5">
             <span className="text-[#5C1420] text-xs font-bold tracking-wider uppercase">Filter</span>
             <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3 items-center">
+            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="🔍 Cari nama / no. HP..." className={filterClass + " col-span-2 sm:w-56"} />
             {isSuper ? (
               <select value={filterOutlet} onChange={(e) => setFilterOutlet(e.target.value)} className={filterClass}>
                 <option value="">Semua Outlet</option><option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
@@ -834,7 +1088,7 @@ export default function AdminDashboard() {
             <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className={filterClass} />
             <button onClick={() => setFilterDate(new Date().toISOString().split("T")[0])}
               className="px-3 py-2 rounded-xl border border-[#5C1420]/30 text-[#5C1420] text-sm font-bold hover:bg-[#5C1420]/5">📅 Hari Ini</button>
-            {(filterOutlet || filterStatus || filterDate) && <button onClick={() => { setFilterOutlet(""); setFilterStatus(""); setFilterDate(""); }} className="text-sm text-[#5C1420] hover:underline col-span-2 sm:col-span-1">✕ Reset</button>}
+            {(filterOutlet || filterStatus || filterDate || searchQuery) && <button onClick={() => { setFilterOutlet(""); setFilterStatus(""); setFilterDate(""); setSearchQuery(""); }} className="text-sm text-[#5C1420] hover:underline col-span-2 sm:col-span-1">✕ Reset</button>}
             </div>
           </div>
 
@@ -847,46 +1101,221 @@ export default function AdminDashboard() {
               {savingCutoff ? "Menyimpan..." : "Simpan"}
             </button>
           </div>
-          {loading ? <p className="text-center text-[#B5A999] py-16">Memuat data...</p> : reservations.length === 0 ? <p className="text-center text-[#B5A999] py-16">Tidak ada reservasi</p> : (
-            <div className="space-y-4">
-              {reservations.map((r) => (
-                <div key={r.Id} className="bg-white border-2 border-[#E5DDD4] rounded-2xl p-6 hover:border-[#5C1420]/30 hover:shadow-lg hover:shadow-[#5C1420]/5 transition-all">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <h3 className="font-bold text-[#3D2E1E] text-xl font-serif">{r.nama_tamu}</h3>
-                        <span className={`text-[10px] px-3 py-1 rounded-full border-2 font-bold tracking-wider uppercase ${statusStyle[r.status] || ""}`}>{r.status}</span>
-                      </div>
-                      <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm items-center">
-                        <span className="text-[#9A8B7A]">📍 <span className="capitalize text-[#3D2E1E]">{r.outlet}</span></span>
-                        <span className="text-[#9A8B7A]">📅 <span className="text-[#3D2E1E]">{r.tanggal}</span></span>
-                        <span className="text-[#9A8B7A]">🕐 <span className="text-[#3D2E1E]">{formatJam(r.jam)}</span></span>
-                        <span className="text-[#9A8B7A]">👥 <span className="text-[#3D2E1E]">{r.jumlah_tamu} orang</span></span>
-                        {r.meja_id && <span className="text-[#9A8B7A]">🪑 <span className="text-[#5C1420] font-semibold">{getMejaLabel(r.meja_id)}</span></span>}
-                        {r.share_token && reservations.filter((x) => x.share_token === r.share_token).length > 1 && (
-                          <span className="bg-[#5C1420]/10 text-[#5C1420] text-[10px] px-2 py-0.5 rounded-full font-bold border border-[#5C1420]/20">🔗 Gabungan {reservations.filter((x) => x.share_token === r.share_token).length} meja</span>
-                        )}
-                      </div>
-                      <div className="text-sm text-[#9A8B7A]">📱 <span className="text-[#3D2E1E]">{r.no_whatsapp}</span>{r.dp_amount ? <span className="ml-5 text-[#5C1420] font-semibold">💰 {formatRupiah(r.dp_amount)}</span> : null}</div>
-                      {r.catatan && <p className="text-sm text-[#9A8B7A] italic border-l-2 border-[#5C1420]/30 pl-3 mt-1">📝 {r.catatan}</p>}
+          {showReservasiForm && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+              <div className="bg-white border-2 border-[#5C1420]/20 rounded-3xl p-8 max-w-lg w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div><h3 className="text-xl font-bold text-[#3D2E1E] font-serif">{editingReservasiId ? "Edit Reservasi" : "Reservasi Baru"}</h3><p className="text-[#9A8B7A] text-xs mt-1">{editingReservasiId ? "Ubah detail reservasi yang sudah ada" : "Untuk tamu walk-in atau yang telepon langsung"}</p><div className="w-12 h-0.5 bg-[#5C1420] mt-2" /></div>
+
+                <div><label className={labelClass}>Outlet</label>
+                  <select value={rOutlet} onChange={(e) => { setROutlet(e.target.value); setRMejaId(""); }} disabled={!isSuper} className={inputClass + (!isSuper ? " opacity-60 cursor-not-allowed" : "")}>
+                    <option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
+                  </select>
+                </div>
+                <div><label className={labelClass}>Nama Tamu</label><input value={rNama} onChange={(e) => setRNama(e.target.value)} placeholder="Nama tamu" className={inputClass} /></div>
+                <div><label className={labelClass}>No. WhatsApp</label><input value={rWhatsapp} onChange={(e) => setRWhatsapp(e.target.value)} placeholder="08123456789" className={inputClass} /></div>
+                <div><label className={labelClass}>Tanggal</label><input type="date" value={rTanggal} onChange={(e) => setRTanggal(e.target.value)} className={inputClass} /></div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelClass}>Jam Mulai</label>
+                    <div className="flex gap-2">
+                      {(() => {
+                        const isToday = rTanggal === new Date().toISOString().split("T")[0];
+                        const nowH = new Date().getHours();
+                        const nowM = new Date().getMinutes();
+                        const selectedH = Number(rJam.split(":")[0] || -1);
+                        return (<>
+                          <select value={rJam.split(":")[0] || ""} onChange={(e) => {
+                            const hh = e.target.value;
+                            const mm = rJam.split(":")[1] || "00";
+                            const val = hh ? `${hh}:${mm}` : "";
+                            setRJam(val);
+                            if (val) {
+                              const totalMin = Number(hh) * 60 + Number(mm) + 120;
+                              const eh = String(Math.floor(totalMin / 60) % 24).padStart(2, "0");
+                              const em = String(totalMin % 60).padStart(2, "0");
+                              setRJamSelesai(`${eh}:${em}`);
+                            }
+                          }} className={inputClass + " !w-auto flex-1"}>
+                            <option value="">Jam</option>
+                            {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h, i) => (
+                              <option key={h} value={h} disabled={isToday && i < nowH}>{h}</option>
+                            ))}
+                          </select>
+                          <select value={rJam.split(":")[1] || ""} onChange={(e) => {
+                            const mm = e.target.value;
+                            const hh = rJam.split(":")[0] || "00";
+                            const val = mm ? `${hh}:${mm}` : "";
+                            setRJam(val);
+                            if (val) {
+                              const totalMin = Number(hh) * 60 + Number(mm) + 120;
+                              const eh = String(Math.floor(totalMin / 60) % 24).padStart(2, "0");
+                              const em = String(totalMin % 60).padStart(2, "0");
+                              setRJamSelesai(`${eh}:${em}`);
+                            }
+                          }} className={inputClass + " !w-auto flex-1"}>
+                            <option value="">Menit</option>
+                            {["00", "15", "30", "45"].map((m) => (
+                              <option key={m} value={m} disabled={isToday && selectedH === nowH && Number(m) < nowM}>{m}</option>
+                            ))}
+                          </select>
+                        </>);
+                      })()}
                     </div>
-                    <div className="flex flex-wrap gap-2 sm:flex-col">
+                  </div>
+                  <div>
+                    <label className={labelClass}>Jam Selesai</label>
+                    <div className="flex gap-2">
+                      <select value={rJamSelesai.split(":")[0] || ""} onChange={(e) => {
+                        const hh = e.target.value;
+                        const mm = rJamSelesai.split(":")[1] || "00";
+                        setRJamSelesai(hh ? `${hh}:${mm}` : "");
+                      }} className={inputClass + " !w-auto flex-1"}>
+                        <option value="">Jam</option>
+                        {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                      <select value={rJamSelesai.split(":")[1] || ""} onChange={(e) => {
+                        const mm = e.target.value;
+                        const hh = rJamSelesai.split(":")[0] || "00";
+                        setRJamSelesai(mm ? `${hh}:${mm}` : "");
+                      }} className={inputClass + " !w-auto flex-1"}>
+                        <option value="">Menit</option>
+                        {["00", "15", "30", "45"].map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-[#B5A999] -mt-3">Otomatis terisi 2 jam dari jam mulai — bisa diubah manual kalau perlu.</p>
+                <div><label className={labelClass}>Jumlah Tamu</label><input type="number" min="1" value={rJumlahTamu} onChange={(e) => { setRJumlahTamu(e.target.value); setRMejaId(""); }} className={inputClass} /></div>
+                <div>
+                  <label className={labelClass}>Pilih Meja <span className="normal-case font-normal text-[#B5A999]">(opsional)</span></label>
+                  {(() => {
+                    const jumlahNum = Number(rJumlahTamu) || 1;
+                    const mejaOutlet = tables.filter((t) => t.outlet === rOutlet);
+                    const mejaCocok = mejaOutlet.filter((t) => t.kapasitas >= jumlahNum);
+                    const daftarMeja = mejaCocok.length > 0 ? mejaCocok : mejaOutlet;
+                    return (
+                      <>
+                        <select value={rMejaId} onChange={(e) => setRMejaId(e.target.value)} className={inputClass}>
+                          <option value="">Belum ditentukan</option>
+                          {daftarMeja.map((t) => (
+                            <option key={t.Id} value={t.Id}>{t.nama_meja || `Meja ${t.nomor_meja}`} · {t.kapasitas} orang{t.kapasitas < jumlahNum ? " (kurang muat)" : ""}</option>
+                          ))}
+                        </select>
+                        {mejaCocok.length === 0 && (
+                          <p className="text-xs text-amber-600 mt-1.5">Tidak ada meja dengan kapasitas cukup untuk {jumlahNum} orang. Semua meja ditampilkan, pertimbangkan meja gabungan.</p>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+                <div><label className={labelClass}>Status</label>
+                  <select value={rStatus} onChange={(e) => setRStatus(e.target.value)} className={inputClass}>
+                    <option value="Confirmed">Confirmed</option>
+                    <option value="Pending">Pending</option>
+                  </select>
+                </div>
+                <div><label className={labelClass}>DP (Rp) <span className="normal-case font-normal text-[#B5A999]">(opsional)</span></label><input type="number" value={rDpAmount} onChange={(e) => setRDpAmount(e.target.value)} placeholder="0" className={inputClass} /></div>
+                <div><label className={labelClass}>Catatan <span className="normal-case font-normal text-[#B5A999]">(opsional)</span></label><textarea value={rCatatan} onChange={(e) => setRCatatan(e.target.value)} rows={2} className={inputClass + " resize-none"} /></div>
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input type="checkbox" checked={rAktifkanMenu} onChange={(e) => setRAktifkanMenu(e.target.checked)} className="w-4 h-4 accent-[#5C1420]" />
+                  <span className="text-sm text-[#3D2E1E]">Aktifkan link pesan menu untuk reservasi ini</span>
+                </label>
+                <div className="flex gap-3 pt-3">
+                  <button onClick={() => { setShowReservasiForm(false); setEditingReservasiId(null); }} className="flex-1 py-3.5 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Batal</button>
+                  <button onClick={saveReservasiManual} disabled={savingReservasi} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold disabled:opacity-50">{savingReservasi ? "Menyimpan..." : "Simpan"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(() => {
+            const q = searchQuery.trim().toLowerCase();
+            const filteredReservations = q
+              ? reservations.filter((r) => r.nama_tamu.toLowerCase().includes(q) || r.no_whatsapp.includes(q))
+              : reservations;
+            return loading ? <p className="text-center text-[#B5A999] py-16">Memuat data...</p> : filteredReservations.length === 0 ? (
+              <p className="text-center text-[#B5A999] py-16">{q ? `Tidak ada reservasi dengan kata kunci "${searchQuery}"` : "Tidak ada reservasi"}</p>
+            ) : (
+            <div className="space-y-4">
+              {filteredReservations.map((r) => (
+                <div key={r.Id} className="bg-white border border-[#E5DDD4] rounded-2xl overflow-hidden hover:shadow-lg hover:shadow-[#5C1420]/5 transition-all">
+                  <div className="flex flex-col lg:flex-row">
+                    <div className="flex-1 p-6">
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-bold text-[#3D2E1E] text-xl font-serif">{r.nama_tamu}</h3>
+                            {r.share_token && reservations.filter((x) => x.share_token === r.share_token).length > 1 && (
+                              <span className="bg-[#5C1420]/10 text-[#5C1420] text-[10px] px-2 py-0.5 rounded-full font-bold border border-[#5C1420]/20">Gabungan {reservations.filter((x) => x.share_token === r.share_token).length} meja</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-[#9A8B7A] tracking-wide uppercase mt-1 capitalize">{r.outlet} · {r.tanggal}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`text-[10px] px-3 py-1 rounded-full border-2 font-bold tracking-wider uppercase ${statusStyle[r.status] || ""}`}>{r.status}</span>
+                          {r.status === "Confirmed" && (() => {
+                            const info = getWaktuInfo(r);
+                            const toneClass = info.tone === "active" ? "text-emerald-600" : info.tone === "overdue" ? "text-[#B5A999]" : "text-[#5C1420]";
+                            return <span className={`text-[10px] font-bold ${toneClass}`}>{info.label}</span>;
+                          })()}
+                          {r.status === "Confirmed" && r.checked_in_at && (
+                            <span className="text-[10px] font-bold text-emerald-600">✓ Sudah Hadir</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3 py-4 mt-4 border-y border-[#F0EAE0]">
+                        <div>
+                          <p className="text-[9px] text-[#B5A999] font-bold uppercase tracking-wider mb-0.5">Jam</p>
+                          <p className="text-sm font-semibold text-[#3D2E1E]">{formatJam(r.jam)} – {formatJam(r.jam_selesai)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] text-[#B5A999] font-bold uppercase tracking-wider mb-0.5">Tamu</p>
+                          <p className="text-sm font-semibold text-[#3D2E1E]">{r.jumlah_tamu} orang</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] text-[#B5A999] font-bold uppercase tracking-wider mb-0.5">Meja</p>
+                          <p className="text-sm font-semibold text-[#5C1420]">{r.meja_id ? getMejaLabel(r.meja_id) : "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] text-[#B5A999] font-bold uppercase tracking-wider mb-0.5">DP</p>
+                          <p className="text-sm font-semibold text-[#3D2E1E]">{r.dp_amount ? formatRupiah(r.dp_amount) : "Belum bayar"}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-sm mt-3">
+                        <span className="text-[#9A8B7A]">Kontak</span>
+                        <span className="text-[#3D2E1E] font-medium">{r.no_whatsapp}</span>
+                      </div>
+                      {r.catatan && <p className="text-sm text-[#9A8B7A] italic border-l-2 border-[#5C1420]/30 pl-3 mt-3">&ldquo;{r.catatan}&rdquo;</p>}
+                    </div>
+
+                    <div className="lg:w-56 shrink-0 bg-[#FBF8F3] border-t lg:border-t-0 lg:border-l border-[#E5DDD4] p-5 flex flex-row flex-wrap lg:flex-col gap-2">
+                      <button onClick={() => openReservasiForm(r)} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/5">Edit</button>
                       {r.status === "Pending" && (<>
-                        <button onClick={() => updateStatus(r.Id, "Confirmed")} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-lg shadow-[#5C1420]/20 active:scale-[0.98] transition-all">✓ Konfirmasi</button>
-                        <button onClick={() => updateStatus(r.Id, "Cancelled")} className="px-5 py-2.5 rounded-xl border-2 border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50">✕ Tolak</button>
+                        <button onClick={() => updateStatus(r.Id, "Confirmed")} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 active:scale-[0.98] transition-all">Konfirmasi</button>
+                        <button onClick={() => updateStatus(r.Id, "Cancelled")} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl border-2 border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50">Tolak</button>
                       </>)}
-                      {r.status === "Confirmed" && <button onClick={() => updateStatus(r.Id, "Completed")} className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold active:scale-[0.98]">✓ Selesai</button>}
-                      {r.status === "Cancelled" && <button onClick={() => updateStatus(r.Id, "Pending")} className="px-5 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/5">↩ Kembalikan</button>}
+                      {r.status === "Confirmed" && !r.checked_in_at && (
+                        <button onClick={() => tandaiHadir(r.Id)} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold active:scale-[0.98]">✓ Tandai Hadir</button>
+                      )}
+                      {r.status === "Confirmed" && (
+                        <button onClick={() => { if (confirm(`Batalkan reservasi ${r.nama_tamu}?`)) updateStatus(r.Id, "Cancelled"); }} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl border-2 border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50">Batalkan</button>
+                      )}
+                      {r.status === "No-Show" && (
+                        <button onClick={() => updateStatus(r.Id, "Confirmed")} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/5">Kembalikan</button>
+                      )}
+                      {r.status === "Cancelled" && <button onClick={() => updateStatus(r.Id, "Pending")} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/5">Kembalikan</button>}
                       {r.share_token && (
-                        <button onClick={() => sendMenuLinkWA(r)} className="px-5 py-2.5 rounded-xl border-2 border-[#25D366] text-[#1DA851] text-sm font-bold hover:bg-[#25D366]/10 flex items-center justify-center gap-1.5">
-                          <span>📲</span> Kirim Link Menu
+                        <button onClick={() => sendMenuLinkWA(r)} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl border-2 border-[#25D366] text-[#1DA851] text-sm font-bold hover:bg-[#25D366]/10">
+                          Kirim Link Menu
                         </button>
                       )}
                     </div>
                   </div>
 
                   {/* TOMBOL & PANEL PESANAN MENU */}
-                  <div className="mt-3 pt-3 border-t border-[#E5DDD4]">
+                  <div className="px-6 pb-5 pt-3 border-t border-[#E5DDD4]">
                     <button onClick={() => toggleExpandOrders(r)}
                       className="flex items-center gap-2 text-sm font-bold text-[#5C1420] hover:text-[#3D0D14] transition-colors">
                       <span>{expandedKeys.has(orderKey(r)) ? "▼" : "▶"}</span>
@@ -938,14 +1367,120 @@ export default function AdminDashboard() {
                 </div>
               ))}
             </div>
-          )}
+            );
+          })()}
         </>)}
 {/* ========== TAB KALENDER ========== */}
         {tab === "kalender" && (<>
           <div className="mb-6">
             <h2 className="text-xl font-bold text-[#3D2E1E]">Kalender Ketersediaan Meja</h2>
-            <p className="text-[#9A8B7A] text-sm mt-1">Lihat jadwal booking meja per tanggal. Arahkan mouse ke blok untuk detail.</p>
+            <p className="text-[#9A8B7A] text-sm mt-1">Lihat jadwal booking meja per tanggal, atau cari ketersediaan lintas tanggal.</p>
           </div>
+
+          <div className="flex gap-2 mb-5 border-b border-[#E5DDD4]">
+            <button onClick={() => setKalSubTab("harian")} className={`px-4 py-2.5 text-sm font-bold border-b-2 transition-all ${kalSubTab === "harian" ? "border-[#5C1420] text-[#5C1420]" : "border-transparent text-[#9A8B7A] hover:text-[#5C1420]"}`}>📅 Kalender Harian</button>
+            <button onClick={() => setKalSubTab("cari")} className={`px-4 py-2.5 text-sm font-bold border-b-2 transition-all ${kalSubTab === "cari" ? "border-[#5C1420] text-[#5C1420]" : "border-transparent text-[#9A8B7A] hover:text-[#5C1420]"}`}>🔍 Cari Meja</button>
+          </div>
+
+          {kalSubTab === "cari" && (
+            <div className="bg-white border border-[#E5DDD4] rounded-xl p-6">
+              <h3 className="text-lg font-bold text-[#3D2E1E] font-serif mb-1">Cari Meja Tersedia</h3>
+              <p className="text-[#9A8B7A] text-sm mb-5">Cari tanggal mana saja yang punya meja kosong sesuai kapasitas & jam, tanpa perlu geser tanggal satu-satu.</p>
+
+              <div className="flex flex-wrap gap-3 items-end mb-2">
+                {isSuper && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Outlet</label>
+                    <select value={kalOutlet} onChange={(e) => setKalOutlet(e.target.value)} className={filterClass}>
+                      <option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Jumlah Tamu</label>
+                  <input type="number" min="1" value={cariJumlahTamu} onChange={(e) => setCariJumlahTamu(e.target.value)} className={filterClass + " w-28"} />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Jam Mulai</label>
+                  <div className="flex gap-1.5">
+                    <select value={cariJamMulai.split(":")[0] || ""} onChange={(e) => {
+                      const hh = e.target.value; const mm = cariJamMulai.split(":")[1] || "00";
+                      setCariJamMulai(hh ? `${hh}:${mm}` : "");
+                    }} className={filterClass + " !w-auto"}>
+                      <option value="">Jam</option>
+                      {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                    <select value={cariJamMulai.split(":")[1] || ""} onChange={(e) => {
+                      const mm = e.target.value; const hh = cariJamMulai.split(":")[0] || "00";
+                      setCariJamMulai(mm ? `${hh}:${mm}` : "");
+                    }} className={filterClass + " !w-auto"}>
+                      <option value="">Menit</option>
+                      {["00", "15", "30", "45"].map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Dari Tanggal</label>
+                  <input type="date" value={cariDariTanggal} onChange={(e) => setCariDariTanggal(e.target.value)} className={filterClass} />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Sampai Tanggal</label>
+                  <input type="date" value={cariSampaiTanggal} onChange={(e) => setCariSampaiTanggal(e.target.value)} className={filterClass} />
+                </div>
+                <button onClick={cariMejaMultiTanggal} disabled={loadingCariMulti} className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 disabled:opacity-50">
+                  {loadingCariMulti ? "Mencari..." : "Cari"}
+                </button>
+              </div>
+{cariMatriks && (
+                <div className="mt-6 overflow-x-auto">
+                  <table className="border-collapse text-sm" style={{ minWidth: `${160 + cariMatriks.dates.length * 70}px` }}>
+                    <thead>
+                      <tr className="bg-[#F9F6F2]">
+                        <th className="text-left px-3 py-2 text-[10px] text-[#9A8B7A] font-bold uppercase border-b border-[#E5DDD4]" style={{ width: "160px", minWidth: "160px" }}>Meja / Gabungan</th>
+                        {cariMatriks.dates.map((tgl) => {
+                          const d = new Date(tgl + "T00:00:00");
+                          const label = d.toLocaleDateString("id-ID", { day: "2-digit", month: "2-digit" });
+                          return <th key={tgl} className="text-center px-2 py-2 text-[10px] text-[#9A8B7A] font-semibold border-l border-b border-[#E5DDD4]" style={{ minWidth: "60px" }}>{label}</th>;
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cariMatriks.mejaRows.length === 0 && cariMatriks.gabunganRows.length === 0 && (
+                        <tr><td colSpan={cariMatriks.dates.length + 1} className="text-center text-sm text-[#B5A999] py-6">Tidak ada meja/gabungan dengan kapasitas cukup untuk {cariJumlahTamu} orang.</td></tr>
+                      )}
+                      {cariMatriks.mejaRows.map((row) => (
+                        <tr key={`m${row.table.Id}`} className="hover:bg-[#FEFCF8]">
+                          <td className="px-3 py-2 border-b border-[#E5DDD4]">
+                            <p className="font-semibold text-[#3D2E1E]">{row.table.nama_meja || `Meja ${row.table.nomor_meja}`}</p>
+                            <p className="text-[10px] text-[#9A8B7A]">{row.table.kapasitas} orang</p>
+                          </td>
+                          {row.avail.map((ok, i) => (
+                            <td key={i} className="text-center border-l border-b border-[#E5DDD4]">
+                              {ok ? <span className="text-emerald-600 font-bold">✓</span> : <span className="text-[#D8CFC2]">✕</span>}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                      {cariMatriks.gabunganRows.map((row) => (
+                        <tr key={`g${row.gabungan.Id}`} className="hover:bg-[#FEFCF8] bg-sky-50/40">
+                          <td className="px-3 py-2 border-b border-[#E5DDD4]">
+                            <p className="font-semibold text-[#3D2E1E]">{row.gabungan.nama} <span className="text-[9px] text-sky-700 font-bold">GABUNGAN</span></p>
+                            <p className="text-[10px] text-[#9A8B7A]">{row.gabungan.kapasitas_total} orang</p>
+                          </td>
+                          {row.avail.map((ok, i) => (
+                            <td key={i} className="text-center border-l border-b border-[#E5DDD4]">
+                              {ok ? <span className="text-emerald-600 font-bold">✓</span> : <span className="text-[#D8CFC2]">✕</span>}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+          {kalSubTab === "harian" && (<>
 
           <div className="bg-white border border-[#E5DDD4] rounded-xl p-4 mb-6">
             <div className="flex flex-wrap gap-3 items-center">
@@ -990,7 +1525,7 @@ export default function AdminDashboard() {
           ) : (() => {
             const outletTables = tables.filter((t) => t.outlet === (lockedOutlet || kalOutlet));
             const outletAreas = areas.filter((a) => a.outlet === (lockedOutlet || kalOutlet));
-            const jamSlots = ["07","08","09","10","11","12","13","14","15","16","17","18","19","20","21"];
+            const jamSlots = ["07","08","09","10","11","12","13","14","15","16","17","18","19","20","21","22","23"];
 
             if (outletTables.length === 0) return <p className="text-center text-[#B5A999] py-10">Belum ada meja terdaftar.</p>;
 
@@ -1087,7 +1622,6 @@ export default function AdminDashboard() {
                                   const bParsedEnd = booking.jam_selesai ? timeToMinutes(booking.jam_selesai) : 0;
                                   const bEnd = bParsedEnd > bStart ? bParsedEnd : bStart + 120;
                                   const isFirst = bStart >= cellStart && bStart < cellEnd;
-                                  const isLast = bEnd > cellStart && bEnd <= cellEnd;
                                   const isPending = booking.status === "Pending";
                                   const bgColor = isPending ? "bg-amber-400" : "bg-[#5C1420]";
 
@@ -1116,6 +1650,7 @@ export default function AdminDashboard() {
               </div>
             );
           })()}
+          </>)}
         </>)}
         {tab === "area" && !drillArea && (<>
           <div className="flex justify-between items-center mb-8">
@@ -1483,6 +2018,134 @@ export default function AdminDashboard() {
             )}
           </div>
         </>)}
+
+        {/* ========== TAB LAPORAN ========== */}
+        {tab === "laporan" && (() => {
+          const totalBooking = lapReservasi.length;
+          const totalCompleted = lapReservasi.filter((r) => r.status === "Completed").length;
+          const totalNoShow = lapReservasi.filter((r) => r.status === "No-Show").length;
+          const totalCancelled = lapReservasi.filter((r) => r.status === "Cancelled").length;
+          const totalDp = lapReservasi.reduce((s, r) => s + (r.dp_amount || 0), 0);
+          const totalMenu = lapOrders.reduce((s, o) => s + o.subtotal, 0);
+          const totalOmset = totalDp + totalMenu;
+          const completionRate = totalBooking > 0 ? Math.round((totalCompleted / totalBooking) * 100) : 0;
+          const noShowRate = totalBooking > 0 ? Math.round((totalNoShow / totalBooking) * 100) : 0;
+
+          const perJam: Record<string, number> = {};
+          lapReservasi.forEach((r) => {
+            const jamAwal = formatJam(r.jam).slice(0, 2);
+            perJam[jamAwal] = (perJam[jamAwal] || 0) + 1;
+          });
+          const jamTeratas = Object.entries(perJam).sort((a, b) => b[1] - a[1]).slice(0, 6);
+          const maxJamCount = Math.max(...jamTeratas.map(([, c]) => c), 1);
+
+          const perOutlet: Record<string, number> = {};
+          lapReservasi.forEach((r) => { perOutlet[r.outlet] = (perOutlet[r.outlet] || 0) + 1; });
+
+          return (
+            <>
+              <div className="flex justify-between items-center mb-6 flex-wrap gap-3">
+                <div><h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Laporan &amp; Analitik</h2><p className="text-[#9A8B7A] text-sm mt-1">Ringkasan performa reservasi pada periode yang dipilih</p></div>
+              </div>
+
+              <div className="bg-white border border-[#E5DDD4] rounded-xl p-4 mb-6 flex flex-wrap gap-3 items-center">
+                <div>
+                  <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Dari</label>
+                  <input type="date" value={lapDari} onChange={(e) => setLapDari(e.target.value)} className={filterClass} />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Sampai</label>
+                  <input type="date" value={lapSampai} onChange={(e) => setLapSampai(e.target.value)} className={filterClass} />
+                </div>
+                {isSuper && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Outlet</label>
+                    <select value={lapOutlet} onChange={(e) => setLapOutlet(e.target.value)} className={filterClass}>
+                      <option value="">Semua Outlet</option><option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
+                    </select>
+                  </div>
+                )}
+                <button onClick={fetchLaporan} className="self-end px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20">Terapkan</button>
+              </div>
+
+              {loadingLaporan ? <p className="text-center text-[#B5A999] py-16">Memuat laporan...</p> : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                    <div className="bg-white border border-[#E5DDD4] rounded-xl p-4">
+                      <p className="text-2xl font-bold text-[#3D2E1E]">{totalBooking}</p>
+                      <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider mt-0.5">Total Booking</p>
+                    </div>
+                    <div className="bg-white border border-[#E5DDD4] rounded-xl p-4">
+                      <p className="text-2xl font-bold text-emerald-600">{completionRate}%</p>
+                      <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider mt-0.5">Completion Rate</p>
+                    </div>
+                    <div className="bg-white border border-[#E5DDD4] rounded-xl p-4">
+                      <p className="text-2xl font-bold text-orange-600">{noShowRate}%</p>
+                      <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider mt-0.5">No-Show Rate</p>
+                    </div>
+                    <div className="bg-white border border-[#E5DDD4] rounded-xl p-4">
+                      <p className="text-2xl font-bold text-red-500">{totalCancelled}</p>
+                      <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider mt-0.5">Dibatalkan</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                    <div className="bg-white border-2 border-[#5C1420]/20 rounded-xl p-5">
+                      <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Total Omset</p>
+                      <p className="text-2xl font-bold text-[#5C1420] mt-1">{formatRupiah(totalOmset)}</p>
+                    </div>
+                    <div className="bg-white border border-[#E5DDD4] rounded-xl p-5">
+                      <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Dari DP</p>
+                      <p className="text-xl font-bold text-[#3D2E1E] mt-1">{formatRupiah(totalDp)}</p>
+                    </div>
+                    <div className="bg-white border border-[#E5DDD4] rounded-xl p-5">
+                      <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Dari Pesanan Menu</p>
+                      <p className="text-xl font-bold text-[#3D2E1E] mt-1">{formatRupiah(totalMenu)}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="bg-white border border-[#E5DDD4] rounded-xl p-5">
+                      <p className="text-sm font-bold text-[#3D2E1E] mb-4">Jam Favorit</p>
+                      {jamTeratas.length === 0 ? <p className="text-sm text-[#B5A999]">Belum ada data.</p> : (
+                        <div className="space-y-2.5">
+                          {jamTeratas.map(([jam, count]) => (
+                            <div key={jam} className="flex items-center gap-3">
+                              <span className="text-xs text-[#9A8B7A] w-10 shrink-0">{jam}:00</span>
+                              <div className="flex-1 bg-[#F9F6F2] rounded-full h-5 overflow-hidden">
+                                <div className="bg-[#5C1420] h-full rounded-full flex items-center justify-end pr-2" style={{ width: `${(count / maxJamCount) * 100}%` }}>
+                                  <span className="text-white text-[10px] font-bold">{count}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-white border border-[#E5DDD4] rounded-xl p-5">
+                      <p className="text-sm font-bold text-[#3D2E1E] mb-4">Booking per Outlet</p>
+                      {Object.keys(perOutlet).length === 0 ? <p className="text-sm text-[#B5A999]">Belum ada data.</p> : (
+                        <div className="space-y-2.5">
+                          {Object.entries(perOutlet).map(([outlet, count]) => (
+                            <div key={outlet} className="flex items-center gap-3">
+                              <span className="text-xs text-[#9A8B7A] w-16 shrink-0 capitalize">{outlet}</span>
+                              <div className="flex-1 bg-[#F9F6F2] rounded-full h-5 overflow-hidden">
+                                <div className="bg-[#5C1420] h-full rounded-full flex items-center justify-end pr-2" style={{ width: `${(count / totalBooking) * 100}%` }}>
+                                  <span className="text-white text-[10px] font-bold">{count}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
+          );
+        })()}
 
         {/* ========== TAB KELOLA ADMIN ========== */}
         {tab === "admin" && isSuper && (<>
