@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { supabase } from "../supabase";
@@ -7,7 +7,7 @@ import type { Session } from "@supabase/supabase-js";
 
 type Reservation = {
   Id: number; created_at: string; nama_tamu: string; no_whatsapp: string;
-  outlet: string; tanggal: string; jam: string; jumlah_tamu: number;
+  outlet: string; tanggal: string; jam: string; jam_selesai: string; jumlah_tamu: number;
   catatan: string | null; status: string; meja_id: number | null;
   menu_paket_id: number | null; dp_amount: number | null;
   share_token: string | null; menu_finalized: boolean | null;
@@ -25,6 +25,11 @@ type TableData = {
   kapasitas: number; posisi: string; status: string;
   foto_url: string | null; dp_minimum: number | null;
   kapasitas_minimum: number | null; minimum_transaksi: number | null;
+};
+type BookingHold = {
+  Id: number; created_at: string; meja_id: number; tanggal: string;
+  jam: string; jam_selesai: string; session_id: string;
+  expires_at: string; status: string;
 };
 type MejaGabungan = {
   Id: number; created_at: string; outlet: string; nama: string;
@@ -62,9 +67,9 @@ function AreaCardImage({ area, tables }: { area: Area; tables: TableData[] }) {
     return () => clearInterval(t);
   }, [photos.length]);
   if (photos.length === 0) return (
-    <div className="w-full h-full bg-gradient-to-br from-[#E8DCC8] to-[#D4C4A8] flex flex-col items-center justify-center gap-2">
-      <span className="text-3xl text-[#C8973E]/30">📷</span>
-      <span className="text-xs text-[#8B7355]">Belum ada foto</span>
+    <div className="w-full h-full bg-gradient-to-br from-[#E5DDD4] to-[#D4C4A8] flex flex-col items-center justify-center gap-2">
+      <span className="text-3xl text-[#5C1420]/30">📷</span>
+      <span className="text-xs text-[#9A8B7A]">Belum ada foto</span>
     </div>
   );
   return <>
@@ -91,9 +96,9 @@ function GabunganCardImage({ gabungan, tables }: { gabungan: MejaGabungan; table
     return () => clearInterval(t);
   }, [photos.length]);
   if (photos.length === 0) return (
-    <div className="w-full h-full bg-gradient-to-br from-[#E8DCC8] to-[#D4C4A8] flex flex-col items-center justify-center gap-1">
-      <span className="text-2xl text-[#C8973E]/30">📷</span>
-      <span className="text-[10px] text-[#8B7355]">Belum ada foto meja</span>
+    <div className="w-full h-full bg-gradient-to-br from-[#E5DDD4] to-[#D4C4A8] flex flex-col items-center justify-center gap-1">
+      <span className="text-2xl text-[#5C1420]/30">📷</span>
+      <span className="text-[10px] text-[#9A8B7A]">Belum ada foto meja</span>
     </div>
   );
   return <>
@@ -143,38 +148,38 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#1a0f07] flex items-center justify-center px-6 relative overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#C8973E] to-transparent" />
+    <div className="min-h-screen bg-[#5C1420] flex items-center justify-center px-6 relative overflow-hidden">
+      <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#5C1420] to-transparent" />
       <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 10L50 25H30L40 10ZM40 70L30 55H50L40 70ZM10 40L25 30V50L10 40ZM70 40L55 50V30L70 40Z' fill='%23C8973E'/%3E%3C/svg%3E\")", backgroundSize: "80px 80px" }} />
       <div className="relative w-full max-w-sm">
         <div className="text-center mb-8">
           <Image src="/logo.PNG" alt="Yassalam" width={80} height={80} className="mx-auto drop-shadow-2xl" />
-          <p className="text-[#C8973E]/40 mt-4 text-xs tracking-[0.4em]">━━ ✦ ━━</p>
+          <p className="text-[#5C1420]/40 mt-4 text-xs tracking-[0.4em]">━━ ✦ ━━</p>
           <h1 className="text-2xl font-bold text-white font-serif mt-3">Admin Login</h1>
-          <p className="text-[#C8973E]/60 text-sm mt-1">Yassalam Arabian Resto</p>
+          <p className="text-[#5C1420]/60 text-sm mt-1">Yassalam Arabian Resto</p>
         </div>
-        <form onSubmit={handleLogin} className="bg-[#2a1a0e] border border-[#C8973E]/20 rounded-2xl p-6 space-y-4 shadow-2xl">
+        <form onSubmit={handleLogin} className="bg-[#3D0D14] border border-[#5C1420]/20 rounded-2xl p-6 space-y-4 shadow-2xl">
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-red-400 text-sm text-center">
               {error}
             </div>
           )}
           <div>
-            <label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Email</label>
+            <label className="block text-[10px] font-bold text-[#5C1420] mb-2 tracking-[0.2em] uppercase">Email</label>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="admin@yassalam.com"
-              className="w-full px-4 py-3 rounded-xl border border-[#C8973E]/30 bg-[#1a0f07] text-white text-sm placeholder-[#C8973E]/30 outline-none focus:border-[#C8973E] transition-all" />
+              className="w-full px-4 py-3 rounded-xl border border-[#5C1420]/30 bg-[#5C1420] text-white text-sm placeholder-[#5C1420]/30 outline-none focus:border-[#5C1420] transition-all" />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Password</label>
+            <label className="block text-[10px] font-bold text-[#5C1420] mb-2 tracking-[0.2em] uppercase">Password</label>
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••"
-              className="w-full px-4 py-3 rounded-xl border border-[#C8973E]/30 bg-[#1a0f07] text-white text-sm placeholder-[#C8973E]/30 outline-none focus:border-[#C8973E] transition-all" />
+              className="w-full px-4 py-3 rounded-xl border border-[#5C1420]/30 bg-[#5C1420] text-white text-sm placeholder-[#5C1420]/30 outline-none focus:border-[#5C1420] transition-all" />
           </div>
           <button type="submit" disabled={loading}
-            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold text-sm shadow-lg shadow-[#C8973E]/20 disabled:opacity-50 transition-all active:scale-[0.98]">
+            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold text-sm shadow-lg shadow-[#5C1420]/20 disabled:opacity-50 transition-all active:scale-[0.98]">
             {loading ? "Memverifikasi..." : "Masuk"}
           </button>
         </form>
-        <p className="text-center text-[#C8973E]/20 text-xs mt-6">© 2026 Yassalam Arabian Resto & Catering</p>
+        <p className="text-center text-[#5C1420]/20 text-xs mt-6">© 2026 Yassalam Arabian Resto & Catering</p>
       </div>
     </div>
   );
@@ -216,7 +221,7 @@ export default function AdminDashboard() {
     setSession(null);
   }
 
-  const [tab, setTab] = useState<"reservasi" | "area" | "gabungan" | "menu" | "admin">("reservasi");
+  const [tab, setTab] = useState<"reservasi" | "kalender" | "area" | "gabungan" | "menu" | "admin">("reservasi");
   const [drillArea, setDrillArea] = useState<Area | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
@@ -230,6 +235,10 @@ export default function AdminDashboard() {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [loadingOrderKeys, setLoadingOrderKeys] = useState<Set<string>>(new Set());
   const [ordersCache, setOrdersCache] = useState<Record<string, ReservationMenuItemT[]>>({});
+  const reservationsRef = useRef<Reservation[]>([]);
+  reservationsRef.current = reservations;
+  const expandedKeysRef = useRef<Set<string>>(new Set());
+  expandedKeysRef.current = expandedKeys;
   const [allMenuItems, setAllMenuItems] = useState<MenuItem[]>([]);
   const [allVarianAdmin, setAllVarianAdmin] = useState<MenuVarian[]>([]);
   const [allAddonAdmin, setAllAddonAdmin] = useState<MenuAddon[]>([]);
@@ -308,6 +317,42 @@ export default function AdminDashboard() {
   }, [filterOutlet, filterStatus, filterDate]);
   const fetchAreas = useCallback(async () => { const { data } = await supabase.from("Areas").select("*").order("outlet").order("urutan"); setAreas(data || []); }, []);
   const fetchTables = useCallback(async () => { const { data } = await supabase.from("Tables").select("*").order("outlet").order("nomor_meja"); setTables(data || []); }, []);
+
+  // ===== KALENDER KETERSEDIAAN MEJA =====
+  const [kalTanggal, setKalTanggal] = useState(new Date().toISOString().split("T")[0]);
+  const [kalOutlet, setKalOutlet] = useState("solo");
+  const [kalReservations, setKalReservations] = useState<Reservation[]>([]);
+  const [kalHolds, setKalHolds] = useState<BookingHold[]>([]);
+  const [loadingKalender, setLoadingKalender] = useState(false);
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const fetchKalenderData = useCallback(async () => {
+    setLoadingKalender(true);
+    const outletAktif = lockedOutlet || kalOutlet;
+    const { data } = await supabase.from("Reservation").select("*")
+      .eq("tanggal", kalTanggal).eq("outlet", outletAktif)
+      .in("status", ["Pending", "Confirmed"]);
+    setKalReservations(data || []);
+
+    const { data: holdData } = await supabase.from("BookingHold").select("*")
+      .eq("tanggal", kalTanggal)
+      .not("status", "in", "(completed,cancelled,expired,released)")
+      .gt("expires_at", new Date().toISOString());
+    setKalHolds(holdData || []);
+
+    setLoadingKalender(false);
+  }, [kalTanggal, kalOutlet, lockedOutlet]);
+
+  function timeToMinutes(t: string) {
+    const [h, m] = (t || "0:0").split(":").map(Number);
+    return h * 60 + m;
+  }
+
   const fetchGabungan = useCallback(async () => { const { data } = await supabase.from("MejaGabungan").select("*").order("outlet").order("nama"); setGabunganList(data || []); }, []);
   const fetchMenuKategori = useCallback(async () => { const { data } = await supabase.from("MenuKategori").select("*").order("outlet").order("urutan"); setMenuKategoriList(data || []); }, []);
   const fetchMenuItems = useCallback(async () => { const { data } = await supabase.from("MenuPaket").select("*").order("outlet").order("urutan"); setMenuItemList(data || []); }, []);
@@ -348,12 +393,126 @@ export default function AdminDashboard() {
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
     if (tab === "reservasi") { void fetchReservations(); void fetchAllMenuLookups(); void fetchTables(); void fetchCutoffSetting(); }
+    if (tab === "kalender") { void fetchKalenderData(); void fetchTables(); void fetchAreas(); }
     if (tab === "area") { void fetchAreas(); void fetchTables(); }
     if (tab === "gabungan") { void fetchGabungan(); void fetchTables(); }
     if (tab === "menu") { void fetchMenuKategori(); void fetchMenuItems(); }
     if (tab === "admin") { void fetchAdminList(); }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [tab, fetchReservations, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList]);
+  }, [tab, fetchReservations, fetchKalenderData, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList]);
+
+  // ===== REALTIME: reservasi baru otomatis muncul + notifikasi =====
+  const notifAudioRef = useRef<HTMLAudioElement | null>(null);
+  const clickBufferRef = useRef<AudioBuffer | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    notifAudioRef.current = new Audio("/notif.mp3");
+    notifAudioRef.current.volume = 0.7;
+    // Preload click sound ke memory pakai Web Audio API — zero delay
+    const ctx = new AudioContext();
+    audioCtxRef.current = ctx;
+    fetch("/click.mp3")
+      .then((r) => r.arrayBuffer())
+      .then((buf) => ctx.decodeAudioData(buf))
+      .then((decoded) => { clickBufferRef.current = decoded; })
+      .catch(() => {});
+    return () => { ctx.close(); };
+  }, []);
+
+  function playClick() {
+    const ctx = audioCtxRef.current;
+    const buffer = clickBufferRef.current;
+    if (!ctx || !buffer) return;
+    if (ctx.state === "suspended") ctx.resume();
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.3;
+    source.connect(gain).connect(ctx.destination);
+    source.start(0);
+  }
+
+  useEffect(() => {
+    if (tab !== "reservasi") return;
+    const resCh = supabase
+      .channel("admin-reservation-updates")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "Reservation" },
+        (payload) => {
+          const newRes = payload.new as { nama_tamu?: string; outlet?: string; tanggal?: string; jam?: string };
+          fetchReservations();
+          // Bunyikan suara
+          notifAudioRef.current?.play().catch(() => {});
+          // Tampilkan notifikasi browser (kalau diizinkan)
+          if (Notification.permission === "granted") {
+            new Notification("Reservasi Baru!", {
+              body: `${newRes.nama_tamu || "Tamu"} — ${newRes.outlet || ""} ${newRes.tanggal || ""} ${newRes.jam || ""}`,
+              icon: "/logo.PNG",
+            });
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "Reservation" },
+        () => { fetchReservations(); }
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "Reservation" },
+        () => { fetchReservations(); }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(resCh); };
+  }, [tab, fetchReservations]);
+// ===== REALTIME: kalender ketersediaan meja =====
+  useEffect(() => {
+    if (tab !== "kalender") return;
+    const kalCh = supabase
+      .channel("admin-kalender-updates")
+      .on("postgres_changes", { event: "*", schema: "public", table: "Reservation" }, () => { fetchKalenderData(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "BookingHold" }, () => { fetchKalenderData(); })
+      .subscribe();
+    return () => { supabase.removeChannel(kalCh); };
+  }, [tab, fetchKalenderData]);
+  // Minta izin notifikasi browser saat pertama kali
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // ===== REALTIME: update pesanan menu otomatis tanpa refresh =====
+  useEffect(() => {
+    if (tab !== "reservasi") return;
+    const channel = supabase
+      .channel("admin-order-updates")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "ReservationMenuItem" },
+        async (payload) => {
+          const newRow = payload.new as { reservation_id?: number } | null;
+          const oldRow = payload.old as { reservation_id?: number } | null;
+          const resId = newRow?.reservation_id ?? oldRow?.reservation_id;
+          if (!resId) return;
+          const r = reservationsRef.current.find((res) => res.Id === resId);
+          if (!r) return;
+          const key = orderKey(r);
+          if (!expandedKeysRef.current.has(key)) return;
+          let resIds = [r.Id];
+          if (r.share_token) {
+            const { data: groupRes } = await supabase.from("Reservation").select("Id").eq("share_token", r.share_token);
+            resIds = (groupRes || []).map((x: { Id: number }) => x.Id);
+          }
+          const { data: orderData } = await supabase.from("ReservationMenuItem").select("*").in("reservation_id", resIds).order("created_at");
+          setOrdersCache((prev) => ({ ...prev, [key]: orderData || [] }));
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [tab]);
 
   async function updateStatus(id: number, s: string) { await supabase.from("Reservation").update({ status: s }).eq("Id", id); fetchReservations(); }
   function formatRupiah(n: number) { return "Rp " + n.toLocaleString("id-ID"); }
@@ -553,104 +712,119 @@ export default function AdminDashboard() {
   }
 
   const stats = { total: reservations.length, pending: reservations.filter((r) => r.status === "Pending").length, confirmed: reservations.filter((r) => r.status === "Confirmed").length, completed: reservations.filter((r) => r.status === "Completed").length, cancelled: reservations.filter((r) => r.status === "Cancelled").length };
-  const statusStyle: Record<string, string> = { Pending: "bg-[#C8973E]/15 text-[#C8973E] border-[#C8973E]/30", Confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200", Completed: "bg-blue-50 text-blue-700 border-blue-200", Cancelled: "bg-red-50 text-red-600 border-red-200" };
+  const statusStyle: Record<string, string> = { Pending: "bg-amber-50 text-amber-700 border-amber-200", Confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200", Completed: "bg-blue-50 text-blue-700 border-blue-200", Cancelled: "bg-red-50 text-red-600 border-red-200" };
 
-  const inputClass = "w-full px-4 py-3 rounded-xl border-2 border-[#E8DCC8] focus:border-[#C8973E] bg-[#FEFCF8] outline-none text-[#5C3D1A] text-sm placeholder-[#C8B89A] transition-all";
-  const labelClass = "block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase";
-  const filterClass = "px-3 py-2 rounded-xl border-2 border-[#E8DCC8] bg-[#FEFCF8] text-sm text-[#5C3D1A] outline-none focus:border-[#C8973E]";
+  const inputClass = "w-full px-4 py-3 rounded-xl border-2 border-[#E5DDD4] focus:border-[#5C1420] bg-[#FEFCF8] outline-none text-[#3D2E1E] text-sm placeholder-[#C4B9AB] transition-all";
+  const labelClass = "block text-[10px] font-bold text-[#5C1420] mb-2 tracking-[0.2em] uppercase";
+  const filterClass = "px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-[#FEFCF8] text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420]";
 
   /* ========== AUTH GATE ========== */
   if (authLoading) return (
-    <div className="min-h-screen bg-[#1a0f07] flex items-center justify-center">
+    <div className="min-h-screen bg-[#5C1420] flex items-center justify-center">
       <div className="text-center">
         <Image src="/logo.PNG" alt="Yassalam" width={60} height={60} className="mx-auto animate-pulse" />
-        <p className="text-[#C8973E]/50 text-sm mt-4">Memuat...</p>
+        <p className="text-[#5C1420]/50 text-sm mt-4">Memuat...</p>
       </div>
     </div>
   );
   if (!session) return <LoginScreen onLogin={() => supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s))} />;
   if (profileError) return (
-    <div className="min-h-screen bg-[#1a0f07] flex items-center justify-center px-6">
+    <div className="min-h-screen bg-[#5C1420] flex items-center justify-center px-6">
       <div className="text-center max-w-sm">
         <p className="text-5xl mb-4">🔒</p>
         <h1 className="text-xl font-bold text-white font-serif">Akses Ditolak</h1>
-        <p className="text-[#C8973E]/60 text-sm mt-3">Akun <span className="text-[#C8973E]">{session.user.email}</span> belum terdaftar sebagai admin, atau sudah dinonaktifkan.</p>
-        <button onClick={handleLogout} className="mt-6 px-6 py-3 rounded-xl border border-[#C8973E]/40 text-[#C8973E] text-sm font-semibold hover:bg-[#C8973E]/10">Logout</button>
+        <p className="text-[#5C1420]/60 text-sm mt-3">Akun <span className="text-[#5C1420]">{session.user.email}</span> belum terdaftar sebagai admin, atau sudah dinonaktifkan.</p>
+        <button onClick={handleLogout} className="mt-6 px-6 py-3 rounded-xl border border-[#5C1420]/40 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/10">Logout</button>
       </div>
     </div>
   );
 
-  return (
-    <div className="min-h-screen bg-[#FDF6EC]">
-      {/* HEADER */}
-      <div className="bg-gradient-to-b from-[#2a1a0e] to-[#1a0f07] relative overflow-hidden">
-        <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#C8973E] to-transparent" />
-        <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 10L50 25H30L40 10ZM40 70L30 55H50L40 70ZM10 40L25 30V50L10 40ZM70 40L55 50V30L70 40Z' fill='%23C8973E'/%3E%3C/svg%3E\")", backgroundSize: "80px 80px" }} />
-        <div className="relative max-w-6xl mx-auto px-6 py-5 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <Image src="/logo.PNG" alt="Yassalam" width={40} height={40} />
-            <div>
-              <p className="text-[#C8973E] text-[10px] tracking-[0.4em] uppercase font-semibold">Yassalam Arabian Resto</p>
-              <h1 className="text-xl font-bold text-white font-serif">Dashboard Admin</h1>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:block text-right">
-              <p className="text-[#C8973E]/50 text-xs">{session.user.email}</p>
-              <p className="text-[10px] font-bold tracking-wider uppercase text-[#C8973E]">
-                {isSuper ? "★ Super Admin" : `Admin ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}`}
-              </p>
-            </div>
-            <Link href="/" className="px-4 py-2 rounded-xl border border-[#C8973E]/40 text-[#C8973E] text-sm font-semibold hover:bg-[#C8973E]/10 transition-all">← Website</Link>
-            <button onClick={handleLogout} className="px-4 py-2 rounded-xl border border-red-400/40 text-red-400 text-sm font-semibold hover:bg-red-400/10 transition-all">Logout</button>
-          </div>
-        </div>
-      </div>
+  const sidebarItems = [
+    { key: "reservasi", label: "Reservasi", icon: "📋" },
+    { key: "kalender", label: "Kalender", icon: "📅" },
+    { key: "area", label: "Area & Meja", icon: "🏛" },
+    { key: "gabungan", label: "Gabungan", icon: "🔗" },
+    { key: "menu", label: "Menu", icon: "🍽" },
+    ...(isSuper ? [{ key: "admin", label: "Kelola Admin", icon: "👤" }] : []),
+  ];
 
-      {/* TABS */}
-      <div className="max-w-6xl mx-auto px-6 pt-6">
-        <div className="flex bg-white rounded-2xl p-1.5 border border-[#E8DCC8] shadow-sm">
-          {[
-            { key: "reservasi", label: "Reservasi", icon: "📋" },
-            { key: "area", label: "Area & Meja", icon: "🏛" },
-            { key: "gabungan", label: "Meja Gabungan", icon: "🔗" },
-            { key: "menu", label: "Menu", icon: "🍽" },
-            ...(isSuper ? [{ key: "admin", label: "Kelola Admin", icon: "👤" }] : []),
-          ].map((t) => (
-            <button key={t.key} onClick={() => { setTab(t.key as typeof tab); setDrillArea(null); setDrillKategori(null); }}
-              className={`flex-1 py-3.5 rounded-xl text-sm font-bold transition-all ${tab === t.key ? "bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white shadow-lg shadow-[#C8973E]/20" : "text-[#8B7355] hover:text-[#C8973E]"}`}>
-              {t.icon} {t.label}
+  return (
+    <div className="min-h-screen bg-[#F9F6F2] md:flex">
+      {/* SIDEBAR — desktop: fixed left column, mobile: top bar with scrollable nav */}
+      <aside className="md:w-[220px] md:shrink-0 bg-[#5C1420] md:h-screen md:sticky md:top-0 md:flex md:flex-col md:overflow-y-auto">
+        {/* Logo bar */}
+        <div className="flex items-center justify-between px-4 py-3.5 md:py-5 md:px-5">
+          <div className="flex items-center gap-2.5">
+            <Image src="/logo.PNG" alt="Yassalam" width={32} height={32} className="rounded-md" />
+            <div className="hidden md:block">
+              <p className="text-white text-xs font-bold tracking-wide">YASSALAM</p>
+              <p className="text-white/60 text-[10px]">Dashboard Admin</p>
+            </div>
+          </div>
+          <button onClick={handleLogout} className="md:hidden text-white/60 hover:text-white text-xs border border-white/20 rounded-lg px-3 py-1.5">Logout</button>
+        </div>
+
+        {/* Nav items — horizontal scroll on mobile, vertical on desktop */}
+        <nav className="flex md:flex-col gap-1 px-3 pb-3 md:px-3 md:pb-0 md:flex-1 overflow-x-auto scrollbar-none">
+          {sidebarItems.map((item) => (
+            <button key={item.key} onClick={() => { playClick(); setTab(item.key as typeof tab); setDrillArea(null); setDrillKategori(null); }}
+              className={`shrink-0 flex items-center gap-2.5 whitespace-nowrap px-3.5 py-2.5 rounded-lg text-sm transition-all ${tab === item.key ? "bg-white/15 text-white font-bold shadow-sm" : "text-white/85 hover:text-white hover:bg-white/10 font-medium"}`}>
+              <span>{item.icon}</span> {item.label}
+              {item.key === "reservasi" && stats.total > 0 && (
+                <span className="ml-auto text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-bold">{stats.total}</span>
+              )}
             </button>
           ))}
-        </div>
-      </div>
+        </nav>
 
-      <div className="max-w-6xl mx-auto px-6 py-6">
+        {/* Bottom section — desktop only */}
+        <div className="hidden md:block p-4 mt-auto border-t border-white/10">
+          <div className="flex items-center gap-2.5 mb-3">
+            <div className="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center text-xs font-bold text-white shrink-0">
+              {(session.user.email || "A").charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-[11px] font-medium truncate">{session.user.email}</p>
+              <p className="text-white/60 text-[10px]">{isSuper ? "★ Super Admin" : `Admin ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}`}</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Link href="/" className="flex-1 text-center py-2 rounded-lg border border-white/25 text-white/80 text-xs font-semibold hover:bg-white/5 transition-all">← Website</Link>
+            <button onClick={handleLogout} className="flex-1 py-2 rounded-lg border border-white/25 text-white/80 text-xs font-semibold hover:bg-white/5 transition-all">Logout</button>
+          </div>
+        </div>
+      </aside>
+
+      {/* MAIN CONTENT */}
+      <main className="flex-1 min-w-0">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 sm:py-6">
 
         {/* ========== TAB RESERVASI ========== */}
         {tab === "reservasi" && (<>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5 sm:gap-3 mb-6">
             {[
-              { label: "Total", value: stats.total, bg: "bg-white border-[#C8973E]/20", text: "text-[#C8973E]" },
-              { label: "Pending", value: stats.pending, bg: "bg-[#C8973E]/5 border-[#C8973E]/20", text: "text-[#C8973E]" },
-              { label: "Confirmed", value: stats.confirmed, bg: "bg-emerald-50 border-emerald-200", text: "text-emerald-600" },
-              { label: "Completed", value: stats.completed, bg: "bg-blue-50 border-blue-200", text: "text-blue-600" },
-              { label: "Cancelled", value: stats.cancelled, bg: "bg-red-50 border-red-200", text: "text-red-500" },
+              { label: "Total", value: stats.total, color: "text-[#3D2E1E]", icon: "📊" },
+              { label: "Pending", value: stats.pending, color: "text-amber-600", icon: "⏳" },
+              { label: "Confirmed", value: stats.confirmed, color: "text-emerald-600", icon: "✅" },
+              { label: "Completed", value: stats.completed, color: "text-blue-600", icon: "🎉" },
+              { label: "Cancelled", value: stats.cancelled, color: "text-red-500", icon: "✕" },
             ].map((s) => (
-              <div key={s.label} className={`${s.bg} border-2 rounded-2xl p-5 text-center`}>
-                <p className={`text-3xl font-bold font-serif ${s.text}`}>{s.value}</p>
-                <p className="text-xs mt-2 text-[#8B7355] tracking-wider uppercase">{s.label}</p>
+              <div key={s.label} className="bg-white border border-[#E5DDD4] rounded-xl p-3 sm:p-4">
+                <span className="text-sm">{s.icon}</span>
+                <p className={`text-xl sm:text-2xl font-bold mt-1 ${s.color}`}>{s.value}</p>
+                <p className="text-[10px] sm:text-xs text-[#9A8B7A] tracking-wider uppercase mt-0.5">{s.label}</p>
               </div>
             ))}
           </div>
-          <div className="bg-white border-2 border-[#E8DCC8] rounded-2xl p-5 mb-4 flex flex-wrap gap-3 items-center">
-            <span className="text-[#C8973E] text-xs font-bold tracking-wider uppercase mr-2">Filter:</span>
+          <div className="bg-white border border-[#E5DDD4] rounded-xl p-4 mb-4 space-y-2.5">
+            <span className="text-[#5C1420] text-xs font-bold tracking-wider uppercase">Filter</span>
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3 items-center">
             {isSuper ? (
               <select value={filterOutlet} onChange={(e) => setFilterOutlet(e.target.value)} className={filterClass}>
                 <option value="">Semua Outlet</option><option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
               </select>
             ) : (
-              <span className="px-3 py-2 rounded-xl bg-[#C8973E]/10 border-2 border-[#C8973E]/20 text-sm font-bold text-[#C8973E] capitalize">
+              <span className="px-3 py-2 rounded-xl bg-[#5C1420]/10 border border-[#5C1420]/20 text-sm font-bold text-[#5C1420] capitalize">
                 📍 {myOutlet === "solo" ? "Solo" : "Yogyakarta"}
               </span>
             )}
@@ -659,49 +833,50 @@ export default function AdminDashboard() {
             </select>
             <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className={filterClass} />
             <button onClick={() => setFilterDate(new Date().toISOString().split("T")[0])}
-              className="px-3 py-2 rounded-xl border-2 border-[#C8973E]/30 text-[#C8973E] text-sm font-bold hover:bg-[#C8973E]/5">📅 Hari Ini</button>
-            {(filterOutlet || filterStatus || filterDate) && <button onClick={() => { setFilterOutlet(""); setFilterStatus(""); setFilterDate(""); }} className="text-sm text-[#C8973E] hover:underline">✕ Reset</button>}
+              className="px-3 py-2 rounded-xl border border-[#5C1420]/30 text-[#5C1420] text-sm font-bold hover:bg-[#5C1420]/5">📅 Hari Ini</button>
+            {(filterOutlet || filterStatus || filterDate) && <button onClick={() => { setFilterOutlet(""); setFilterStatus(""); setFilterDate(""); }} className="text-sm text-[#5C1420] hover:underline col-span-2 sm:col-span-1">✕ Reset</button>}
+            </div>
           </div>
 
-          <div className={`bg-[#FDF6EC] border-2 border-[#C8973E]/15 rounded-2xl p-5 mb-6 flex-wrap items-center gap-3 ${isSuper ? "flex" : "hidden"}`}>
-            <span className="text-[#C8973E] text-xs font-bold tracking-wider uppercase">⚙ Batas Waktu Pesan Menu:</span>
-            <input type="number" min="0" value={cutoffSetting} onChange={(e) => setCutoffSetting(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E8DCC8] bg-white text-sm text-[#5C3D1A] outline-none focus:border-[#C8973E] text-center" />
-            <span className="text-sm text-[#8B7355]">jam sebelum jam reservasi</span>
+          <div className={`bg-[#F9F6F2] border-2 border-[#5C1420]/15 rounded-2xl p-5 mb-6 flex-wrap items-center gap-3 ${isSuper ? "flex" : "hidden"}`}>
+            <span className="text-[#5C1420] text-xs font-bold tracking-wider uppercase">⚙ Batas Waktu Pesan Menu:</span>
+            <input type="number" min="0" value={cutoffSetting} onChange={(e) => setCutoffSetting(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] text-center" />
+            <span className="text-sm text-[#9A8B7A]">jam sebelum jam reservasi</span>
             <button onClick={saveCutoffSetting} disabled={savingCutoff}
-              className="ml-auto px-5 py-2 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold shadow-md shadow-[#C8973E]/20 disabled:opacity-50">
+              className="ml-auto px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 disabled:opacity-50">
               {savingCutoff ? "Menyimpan..." : "Simpan"}
             </button>
           </div>
-          {loading ? <p className="text-center text-[#B8A88A] py-16">Memuat data...</p> : reservations.length === 0 ? <p className="text-center text-[#B8A88A] py-16">Tidak ada reservasi</p> : (
+          {loading ? <p className="text-center text-[#B5A999] py-16">Memuat data...</p> : reservations.length === 0 ? <p className="text-center text-[#B5A999] py-16">Tidak ada reservasi</p> : (
             <div className="space-y-4">
               {reservations.map((r) => (
-                <div key={r.Id} className="bg-white border-2 border-[#E8DCC8] rounded-2xl p-6 hover:border-[#C8973E]/30 hover:shadow-lg hover:shadow-[#C8973E]/5 transition-all">
+                <div key={r.Id} className="bg-white border-2 border-[#E5DDD4] rounded-2xl p-6 hover:border-[#5C1420]/30 hover:shadow-lg hover:shadow-[#5C1420]/5 transition-all">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex-1 space-y-2">
                       <div className="flex items-center gap-3 flex-wrap">
-                        <h3 className="font-bold text-[#5C3D1A] text-xl font-serif">{r.nama_tamu}</h3>
+                        <h3 className="font-bold text-[#3D2E1E] text-xl font-serif">{r.nama_tamu}</h3>
                         <span className={`text-[10px] px-3 py-1 rounded-full border-2 font-bold tracking-wider uppercase ${statusStyle[r.status] || ""}`}>{r.status}</span>
                       </div>
                       <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm items-center">
-                        <span className="text-[#8B7355]">📍 <span className="capitalize text-[#5C3D1A]">{r.outlet}</span></span>
-                        <span className="text-[#8B7355]">📅 <span className="text-[#5C3D1A]">{r.tanggal}</span></span>
-                        <span className="text-[#8B7355]">🕐 <span className="text-[#5C3D1A]">{formatJam(r.jam)}</span></span>
-                        <span className="text-[#8B7355]">👥 <span className="text-[#5C3D1A]">{r.jumlah_tamu} orang</span></span>
-                        {r.meja_id && <span className="text-[#8B7355]">🪑 <span className="text-[#C8973E] font-semibold">{getMejaLabel(r.meja_id)}</span></span>}
+                        <span className="text-[#9A8B7A]">📍 <span className="capitalize text-[#3D2E1E]">{r.outlet}</span></span>
+                        <span className="text-[#9A8B7A]">📅 <span className="text-[#3D2E1E]">{r.tanggal}</span></span>
+                        <span className="text-[#9A8B7A]">🕐 <span className="text-[#3D2E1E]">{formatJam(r.jam)}</span></span>
+                        <span className="text-[#9A8B7A]">👥 <span className="text-[#3D2E1E]">{r.jumlah_tamu} orang</span></span>
+                        {r.meja_id && <span className="text-[#9A8B7A]">🪑 <span className="text-[#5C1420] font-semibold">{getMejaLabel(r.meja_id)}</span></span>}
                         {r.share_token && reservations.filter((x) => x.share_token === r.share_token).length > 1 && (
-                          <span className="bg-[#C8973E]/10 text-[#C8973E] text-[10px] px-2 py-0.5 rounded-full font-bold border border-[#C8973E]/20">🔗 Gabungan {reservations.filter((x) => x.share_token === r.share_token).length} meja</span>
+                          <span className="bg-[#5C1420]/10 text-[#5C1420] text-[10px] px-2 py-0.5 rounded-full font-bold border border-[#5C1420]/20">🔗 Gabungan {reservations.filter((x) => x.share_token === r.share_token).length} meja</span>
                         )}
                       </div>
-                      <div className="text-sm text-[#8B7355]">📱 <span className="text-[#5C3D1A]">{r.no_whatsapp}</span>{r.dp_amount ? <span className="ml-5 text-[#C8973E] font-semibold">💰 {formatRupiah(r.dp_amount)}</span> : null}</div>
-                      {r.catatan && <p className="text-sm text-[#8B7355] italic border-l-2 border-[#C8973E]/30 pl-3 mt-1">📝 {r.catatan}</p>}
+                      <div className="text-sm text-[#9A8B7A]">📱 <span className="text-[#3D2E1E]">{r.no_whatsapp}</span>{r.dp_amount ? <span className="ml-5 text-[#5C1420] font-semibold">💰 {formatRupiah(r.dp_amount)}</span> : null}</div>
+                      {r.catatan && <p className="text-sm text-[#9A8B7A] italic border-l-2 border-[#5C1420]/30 pl-3 mt-1">📝 {r.catatan}</p>}
                     </div>
                     <div className="flex flex-wrap gap-2 sm:flex-col">
                       {r.status === "Pending" && (<>
-                        <button onClick={() => updateStatus(r.Id, "Confirmed")} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold shadow-lg shadow-[#C8973E]/20 active:scale-[0.98] transition-all">✓ Konfirmasi</button>
+                        <button onClick={() => updateStatus(r.Id, "Confirmed")} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-lg shadow-[#5C1420]/20 active:scale-[0.98] transition-all">✓ Konfirmasi</button>
                         <button onClick={() => updateStatus(r.Id, "Cancelled")} className="px-5 py-2.5 rounded-xl border-2 border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50">✕ Tolak</button>
                       </>)}
                       {r.status === "Confirmed" && <button onClick={() => updateStatus(r.Id, "Completed")} className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold active:scale-[0.98]">✓ Selesai</button>}
-                      {r.status === "Cancelled" && <button onClick={() => updateStatus(r.Id, "Pending")} className="px-5 py-2.5 rounded-xl border-2 border-[#C8973E]/30 text-[#C8973E] text-sm font-semibold hover:bg-[#C8973E]/5">↩ Kembalikan</button>}
+                      {r.status === "Cancelled" && <button onClick={() => updateStatus(r.Id, "Pending")} className="px-5 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/5">↩ Kembalikan</button>}
                       {r.share_token && (
                         <button onClick={() => sendMenuLinkWA(r)} className="px-5 py-2.5 rounded-xl border-2 border-[#25D366] text-[#1DA851] text-sm font-bold hover:bg-[#25D366]/10 flex items-center justify-center gap-1.5">
                           <span>📲</span> Kirim Link Menu
@@ -711,36 +886,36 @@ export default function AdminDashboard() {
                   </div>
 
                   {/* TOMBOL & PANEL PESANAN MENU */}
-                  <div className="mt-3 pt-3 border-t border-[#E8DCC8]">
+                  <div className="mt-3 pt-3 border-t border-[#E5DDD4]">
                     <button onClick={() => toggleExpandOrders(r)}
-                      className="flex items-center gap-2 text-sm font-bold text-[#C8973E] hover:text-[#A67B2E] transition-colors">
+                      className="flex items-center gap-2 text-sm font-bold text-[#5C1420] hover:text-[#3D0D14] transition-colors">
                       <span>{expandedKeys.has(orderKey(r)) ? "▼" : "▶"}</span>
                       🍽 Pesanan Menu
                       {r.menu_finalized ? (
                         <span className="bg-emerald-50 text-emerald-600 border border-emerald-200 text-[10px] px-2 py-0.5 rounded-full font-bold">Terkirim</span>
                       ) : (
-                        <span className="bg-[#FDF6EC] text-[#B8A88A] border border-[#E8DCC8] text-[10px] px-2 py-0.5 rounded-full font-bold">Belum Dikirim</span>
+                        <span className="bg-[#F9F6F2] text-[#B5A999] border border-[#E5DDD4] text-[10px] px-2 py-0.5 rounded-full font-bold">Belum Dikirim</span>
                       )}
                     </button>
 
                     {expandedKeys.has(orderKey(r)) && (
                       <div className="mt-3">
                         {loadingOrderKeys.has(orderKey(r)) ? (
-                          <p className="text-sm text-[#B8A88A]">Memuat pesanan...</p>
+                          <p className="text-sm text-[#B5A999]">Memuat pesanan...</p>
                         ) : (ordersCache[orderKey(r)] || []).length === 0 ? (
-                          <p className="text-sm text-[#B8A88A] bg-[#FDF6EC] rounded-xl p-3">Belum ada pesanan menu.</p>
+                          <p className="text-sm text-[#B5A999] bg-[#F9F6F2] rounded-xl p-3">Belum ada pesanan menu.</p>
                         ) : (
-                          <div className="bg-[#FDF6EC] border border-[#E8DCC8] rounded-xl divide-y divide-[#E8DCC8] overflow-hidden">
+                          <div className="bg-[#F9F6F2] border border-[#E5DDD4] rounded-xl divide-y divide-[#E5DDD4] overflow-hidden">
                             {(ordersCache[orderKey(r)] || []).map((o) => (
                               <div key={o.Id} className="p-3 flex justify-between gap-3">
                                 <div className="min-w-0">
-                                  <p className="font-semibold text-[#5C3D1A] text-sm">{o.jumlah_porsi}× {getOrderMenuName(o.menu_id)}</p>
-                                  {getOrderVarianName(o.varian_id) && <p className="text-xs text-[#8B7355]">Varian: {getOrderVarianName(o.varian_id)}</p>}
-                                  {o.addon_ids?.length > 0 && <p className="text-xs text-[#8B7355]">Add-on: {getOrderAddonNames(o.addon_ids)}</p>}
-                                  {o.nama_pemesan && <p className="text-xs text-[#C8973E] font-semibold">Pemesan: {o.nama_pemesan}</p>}
-                                  {o.catatan && <p className="text-xs text-[#8B7355] italic">📝 {o.catatan}</p>}
+                                  <p className="font-semibold text-[#3D2E1E] text-sm">{o.jumlah_porsi}× {getOrderMenuName(o.menu_id)}</p>
+                                  {getOrderVarianName(o.varian_id) && <p className="text-xs text-[#9A8B7A]">Varian: {getOrderVarianName(o.varian_id)}</p>}
+                                  {o.addon_ids?.length > 0 && <p className="text-xs text-[#9A8B7A]">Add-on: {getOrderAddonNames(o.addon_ids)}</p>}
+                                  {o.nama_pemesan && <p className="text-xs text-[#5C1420] font-semibold">Pemesan: {o.nama_pemesan}</p>}
+                                  {o.catatan && <p className="text-xs text-[#9A8B7A] italic">📝 {o.catatan}</p>}
                                 </div>
-                                <p className="font-bold text-[#C8973E] text-sm shrink-0">{formatRupiah(o.subtotal)}</p>
+                                <p className="font-bold text-[#5C1420] text-sm shrink-0">{formatRupiah(o.subtotal)}</p>
                               </div>
                             ))}
                             {(() => {
@@ -749,9 +924,9 @@ export default function AdminDashboard() {
                               const pajak = Math.round(subtotal * 0.1);
                               return (
                                 <div className="p-3 bg-white space-y-1">
-                                  <div className="flex justify-between text-xs"><span className="text-[#8B7355]">Subtotal</span><span className="text-[#5C3D1A]">{formatRupiah(subtotal)}</span></div>
-                                  <div className="flex justify-between text-xs"><span className="text-[#8B7355]">Pajak (10%)</span><span className="text-[#5C3D1A]">{formatRupiah(pajak)}</span></div>
-                                  <div className="flex justify-between font-bold text-sm pt-1 border-t border-[#E8DCC8]"><span className="text-[#5C3D1A]">Total</span><span className="text-[#C8973E]">{formatRupiah(subtotal + pajak)}</span></div>
+                                  <div className="flex justify-between text-xs"><span className="text-[#9A8B7A]">Subtotal</span><span className="text-[#3D2E1E]">{formatRupiah(subtotal)}</span></div>
+                                  <div className="flex justify-between text-xs"><span className="text-[#9A8B7A]">Pajak (10%)</span><span className="text-[#3D2E1E]">{formatRupiah(pajak)}</span></div>
+                                  <div className="flex justify-between font-bold text-sm pt-1 border-t border-[#E5DDD4]"><span className="text-[#3D2E1E]">Total</span><span className="text-[#5C1420]">{formatRupiah(subtotal + pajak)}</span></div>
                                 </div>
                               );
                             })()}
@@ -765,25 +940,200 @@ export default function AdminDashboard() {
             </div>
           )}
         </>)}
+{/* ========== TAB KALENDER ========== */}
+        {tab === "kalender" && (<>
+          <div className="mb-6">
+            <h2 className="text-xl font-bold text-[#3D2E1E]">Kalender Ketersediaan Meja</h2>
+            <p className="text-[#9A8B7A] text-sm mt-1">Lihat jadwal booking meja per tanggal. Arahkan mouse ke blok untuk detail.</p>
+          </div>
 
-        {/* ========== TAB AREA ========== */}
+          <div className="bg-white border border-[#E5DDD4] rounded-xl p-4 mb-6">
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="flex items-center gap-2">
+                <button onClick={() => { const d = new Date(kalTanggal); d.setDate(d.getDate() - 1); setKalTanggal(d.toISOString().split("T")[0]); }}
+                  className="w-8 h-8 rounded-lg border border-[#E5DDD4] flex items-center justify-center text-[#3D2E1E] hover:bg-[#F9F6F2]">←</button>
+                <input type="date" value={kalTanggal} onChange={(e) => setKalTanggal(e.target.value)} className={filterClass} />
+                <button onClick={() => { const d = new Date(kalTanggal); d.setDate(d.getDate() + 1); setKalTanggal(d.toISOString().split("T")[0]); }}
+                  className="w-8 h-8 rounded-lg border border-[#E5DDD4] flex items-center justify-center text-[#3D2E1E] hover:bg-[#F9F6F2]">→</button>
+              </div>
+              <button onClick={() => setKalTanggal(new Date().toISOString().split("T")[0])}
+                className="px-3 py-2 rounded-xl border border-[#5C1420]/30 text-[#5C1420] text-sm font-bold hover:bg-[#5C1420]/5">📅 Hari Ini</button>
+              {isSuper && (
+                <select value={kalOutlet} onChange={(e) => setKalOutlet(e.target.value)} className={filterClass}>
+                  <option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
+                </select>
+              )}
+              <div className="ml-auto flex items-center gap-4 text-xs">
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-400 inline-block" /> Pending</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-[#5C1420] inline-block" /> Confirmed</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-sky-400 inline-block" /> Di-Hold</span>
+              </div>
+            </div>
+            {!loadingKalender && (() => {
+              const outletTables = tables.filter((t) => t.outlet === (lockedOutlet || kalOutlet));
+              const bookedIds = new Set(kalReservations.map((r) => r.meja_id));
+              const totalMeja = outletTables.length;
+              const terpakai = outletTables.filter((t) => bookedIds.has(t.Id)).length;
+              return (
+                <div className="flex gap-6 mt-3 pt-3 border-t border-[#E5DDD4]">
+                  <div><p className="text-lg font-bold text-[#3D2E1E]">{totalMeja}</p><p className="text-[10px] text-[#9A8B7A] uppercase">Total Meja</p></div>
+                  <div><p className="text-lg font-bold text-[#5C1420]">{terpakai}</p><p className="text-[10px] text-[#9A8B7A] uppercase">Terpakai</p></div>
+                  <div><p className="text-lg font-bold text-emerald-600">{totalMeja - terpakai}</p><p className="text-[10px] text-[#9A8B7A] uppercase">Tersedia</p></div>
+                  <div><p className="text-lg font-bold text-amber-600">{kalReservations.length}</p><p className="text-[10px] text-[#9A8B7A] uppercase">Booking</p></div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {loadingKalender ? (
+            <p className="text-center text-[#B5A999] py-16">Memuat data...</p>
+          ) : (() => {
+            const outletTables = tables.filter((t) => t.outlet === (lockedOutlet || kalOutlet));
+            const outletAreas = areas.filter((a) => a.outlet === (lockedOutlet || kalOutlet));
+            const jamSlots = ["07","08","09","10","11","12","13","14","15","16","17","18","19","20","21"];
+
+            if (outletTables.length === 0) return <p className="text-center text-[#B5A999] py-10">Belum ada meja terdaftar.</p>;
+
+            const grouped: { areaName: string; tables: TableData[] }[] = [];
+            if (outletAreas.length > 0) {
+              for (const a of outletAreas) {
+                const at = outletTables.filter((t) => t.posisi === a.slug);
+                if (at.length > 0) grouped.push({ areaName: a.nama, tables: at });
+              }
+              const ung = outletTables.filter((t) => !outletAreas.some((a) => a.slug === t.posisi));
+              if (ung.length > 0) grouped.push({ areaName: "Lainnya", tables: ung });
+            } else {
+              grouped.push({ areaName: "Semua Meja", tables: outletTables });
+            }
+
+            return (
+              <div className="space-y-6">
+                {grouped.map((group) => (
+                  <div key={group.areaName} className="bg-white border border-[#E5DDD4] rounded-xl overflow-hidden">
+                    <div className="bg-[#F9F6F2] px-4 py-2.5 border-b border-[#E5DDD4]">
+                      <p className="text-sm font-bold text-[#3D2E1E]">{group.areaName} <span className="text-[#9A8B7A] font-normal">· {group.tables.length} meja</span></p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse table-fixed" style={{ minWidth: "1000px" }}>
+                        <thead>
+                          <tr className="bg-[#F9F6F2]">
+                            <th className="text-left px-4 py-2 text-[10px] text-[#9A8B7A] font-bold uppercase border-b border-[#E5DDD4]" style={{ width: "160px", minWidth: "160px" }}>Meja</th>
+                            {jamSlots.map((j) => (
+                              <th key={j} className="text-center px-0 py-2 text-[10px] text-[#9A8B7A] font-semibold border-l border-b border-[#E5DDD4]">
+                                {j}:00
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.tables.map((t) => {
+                            const bookings = kalReservations.filter((r) => r.meja_id === t.Id);
+
+                            return (
+                              <tr key={t.Id} className="hover:bg-[#FEFCF8] transition-colors">
+                                <td className="px-4 py-3 border-b border-[#E5DDD4] align-middle" style={{ width: "160px", minWidth: "160px" }}>
+                                  <p className="text-sm font-bold text-[#3D2E1E] truncate">{t.nama_meja || `Meja ${t.nomor_meja}`}</p>
+                                  <p className="text-[10px] text-[#9A8B7A]">{t.kapasitas} orang</p>
+                                </td>
+                                {jamSlots.map((j) => {
+                                  const jamNum = Number(j);
+                                  const cellStart = jamNum * 60;
+                                  const cellEnd = (jamNum + 1) * 60;
+
+                                  const booking = bookings.find((r) => {
+                                    const bStart = timeToMinutes(r.jam);
+                                    const bParsedEnd = r.jam_selesai ? timeToMinutes(r.jam_selesai) : 0;
+                                    const bEnd = bParsedEnd > bStart ? bParsedEnd : bStart + 120;
+                                    return bStart < cellEnd && bEnd >= cellStart;
+                                  });
+
+                                  const hold = !booking ? kalHolds.find((h) => {
+                                    if (h.meja_id !== t.Id) return false;
+                                    const hStart = timeToMinutes(h.jam);
+                                    const hParsedEnd = h.jam_selesai ? timeToMinutes(h.jam_selesai) : 0;
+                                    const hEnd = hParsedEnd > hStart ? hParsedEnd : hStart + 120;
+                                    return hStart < cellEnd && hEnd >= cellStart;
+                                  }) : null;
+
+                                  if (hold) {
+                                    const hStart = timeToMinutes(hold.jam);
+                                    const isFirst = hStart >= cellStart && hStart < cellEnd;
+                                    const sisaMs = new Date(hold.expires_at).getTime() - now.getTime();
+                                    const sisaMenit = Math.max(0, Math.floor(sisaMs / 60000));
+                                    const sisaDetik = Math.max(0, Math.floor((sisaMs % 60000) / 1000));
+                                    return (
+                                      <td key={j} className={`border-b border-[#E5DDD4] bg-sky-400 ${isFirst ? "border-l" : ""}`} style={{ padding: "8px 0" }}>
+                                        {isFirst && (
+                                          <div className="px-3">
+                                            <p className="text-white text-sm font-bold whitespace-nowrap">🔒 Di-Hold</p>
+                                            <p className="text-white/80 text-xs whitespace-nowrap">
+                                              {formatJam(hold.jam)} – {formatJam(hold.jam_selesai)} · sisa {sisaMenit}:{String(sisaDetik).padStart(2, "0")}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </td>
+                                    );
+                                  }
+
+                                  if (!booking) {
+                                    return (
+                                      <td key={j} className="border-l border-b border-[#E5DDD4] text-center">
+                                        <span className="text-[9px] text-[#D8CFC2]">Kosong</span>
+                                      </td>
+                                    );
+                                  }
+
+                                  const bStart = timeToMinutes(booking.jam);
+                                  const bParsedEnd = booking.jam_selesai ? timeToMinutes(booking.jam_selesai) : 0;
+                                  const bEnd = bParsedEnd > bStart ? bParsedEnd : bStart + 120;
+                                  const isFirst = bStart >= cellStart && bStart < cellEnd;
+                                  const isLast = bEnd > cellStart && bEnd <= cellEnd;
+                                  const isPending = booking.status === "Pending";
+                                  const bgColor = isPending ? "bg-amber-400" : "bg-[#5C1420]";
+
+                                  return (
+                                    <td key={j}
+                                      title={`${booking.nama_tamu}\n${formatJam(booking.jam)} – ${formatJam(booking.jam_selesai)}\n${booking.jumlah_tamu} orang · ${booking.status}\n📱 ${booking.no_whatsapp}`}
+                                      className={`border-b border-[#E5DDD4] ${bgColor} cursor-pointer ${isFirst ? "border-l" : ""}`}
+                                      style={{ padding: "8px 0" }}>
+                                      {isFirst && (
+                                        <div className="px-3">
+                                          <p className="text-white text-sm font-bold whitespace-nowrap">{booking.nama_tamu}</p>
+                                          <p className="text-white/80 text-xs whitespace-nowrap">{formatJam(booking.jam)} – {formatJam(booking.jam_selesai)} · {booking.jumlah_tamu} org</p>
+                                        </div>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </>)}
         {tab === "area" && !drillArea && (<>
           <div className="flex justify-between items-center mb-8">
-            <div><h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Area &amp; Ruangan</h2><p className="text-[#8B7355] text-sm mt-1">Klik area untuk kelola meja</p></div>
-            <button onClick={() => openAreaForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold shadow-lg shadow-[#C8973E]/20 active:scale-[0.98]">+ Tambah Area</button>
+            <div><h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Area &amp; Ruangan</h2><p className="text-[#9A8B7A] text-sm mt-1">Klik area untuk kelola meja</p></div>
+            <button onClick={() => openAreaForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-lg shadow-[#5C1420]/20 active:scale-[0.98]">+ Tambah Area</button>
           </div>
           {showAreaForm && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-              <div className="bg-white border-2 border-[#C8973E]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl">
-                <div><h3 className="text-xl font-bold text-[#5C3D1A] font-serif">{editArea ? "Edit Area" : "Area Baru"}</h3><div className="w-12 h-0.5 bg-[#C8973E] mt-2" /></div>
+              <div className="bg-white border-2 border-[#5C1420]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl">
+                <div><h3 className="text-xl font-bold text-[#3D2E1E] font-serif">{editArea ? "Edit Area" : "Area Baru"}</h3><div className="w-12 h-0.5 bg-[#5C1420] mt-2" /></div>
                 <div><label className={labelClass}>Outlet</label><select value={aOutlet} onChange={(e) => setAOutlet(e.target.value)} disabled={!isSuper} className={inputClass + (!isSuper ? " opacity-60 cursor-not-allowed" : "")}><option value="solo">Solo</option><option value="jogja">Yogyakarta</option></select></div>
                 <div><label className={labelClass}>Nama Area</label><input value={aNama} onChange={(e) => setANama(e.target.value)} placeholder="Contoh: VIP Room" className={inputClass} /></div>
                 <div><label className={labelClass}>Slug</label><input value={aSlug} onChange={(e) => setASlug(e.target.value)} placeholder="Contoh: vip" className={inputClass} /></div>
                 <div><label className={labelClass}>Deskripsi</label><textarea value={aDesc} onChange={(e) => setADesc(e.target.value)} rows={2} className={inputClass + " resize-none"} /></div>
                 <div><label className={labelClass}>Urutan</label><input type="number" value={aUrutan} onChange={(e) => setAUrutan(e.target.value)} className={inputClass} /></div>
                 <div className="flex gap-3 pt-3">
-                  <button onClick={() => setShowAreaForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC]">Batal</button>
-                  <button onClick={saveArea} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold">Simpan</button>
+                  <button onClick={() => setShowAreaForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Batal</button>
+                  <button onClick={saveArea} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold">Simpan</button>
                 </div>
               </div>
             </div>
@@ -792,23 +1142,23 @@ export default function AdminDashboard() {
             {areas.map((a) => {
               const jumlahMeja = tables.filter((t) => t.outlet === a.outlet && t.posisi === a.slug).length;
               return (
-                <div key={a.Id} className="group bg-white rounded-2xl overflow-hidden border-2 border-[#E8DCC8] shadow-md hover:shadow-xl hover:shadow-[#C8973E]/10 hover:border-[#C8973E]/30 transition-all hover:-translate-y-1">
+                <div key={a.Id} className="group bg-white rounded-2xl overflow-hidden border-2 border-[#E5DDD4] shadow-md hover:shadow-xl hover:shadow-[#5C1420]/10 hover:border-[#5C1420]/30 transition-all hover:-translate-y-1">
                   <button onClick={() => setDrillArea(a)} className="w-full h-44 relative overflow-hidden block text-left">
                     <AreaCardImage area={a} tables={tables} />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
                     <div className="absolute bottom-3 left-3 right-3 flex justify-between items-end">
-                      <span className="bg-[#C8973E] text-white text-[10px] px-3 py-1 rounded-full font-bold">Max {totalKapasitas(a)} orang</span>
-                      <span className="bg-white/90 text-[#5C3D1A] text-[10px] px-3 py-1 rounded-full capitalize font-semibold">{a.outlet}</span>
+                      <span className="bg-[#5C1420] text-white text-[10px] px-3 py-1 rounded-full font-bold">Max {totalKapasitas(a)} orang</span>
+                      <span className="bg-white/90 text-[#3D2E1E] text-[10px] px-3 py-1 rounded-full capitalize font-semibold">{a.outlet}</span>
                     </div>
                   </button>
                   <div className="p-5 space-y-3">
                     <button onClick={() => setDrillArea(a)} className="text-left w-full">
-                      <h3 className="font-bold text-[#5C3D1A] text-lg font-serif group-hover:text-[#C8973E] transition-colors">{a.nama} →</h3>
-                      <p className="text-[#8B7355] text-sm mt-1 line-clamp-2">{a.deskripsi}</p>
-                      <p className="text-[#C8973E] text-xs mt-2 font-semibold">{jumlahMeja} meja terdaftar</p>
+                      <h3 className="font-bold text-[#3D2E1E] text-lg font-serif group-hover:text-[#5C1420] transition-colors">{a.nama} →</h3>
+                      <p className="text-[#9A8B7A] text-sm mt-1 line-clamp-2">{a.deskripsi}</p>
+                      <p className="text-[#5C1420] text-xs mt-2 font-semibold">{jumlahMeja} meja terdaftar</p>
                     </button>
                     <div className="flex gap-2 pt-1">
-                      <button onClick={(e) => { e.stopPropagation(); openAreaForm(a); }} className="flex-1 py-2.5 rounded-xl border-2 border-[#C8973E]/30 text-[#C8973E] text-sm font-bold hover:bg-[#C8973E]/5">Edit</button>
+                      <button onClick={(e) => { e.stopPropagation(); openAreaForm(a); }} className="flex-1 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-bold hover:bg-[#5C1420]/5">Edit</button>
                       <button onClick={(e) => { e.stopPropagation(); deleteArea(a.Id); }} className="py-2.5 px-4 rounded-xl border-2 border-red-200 text-red-400 text-sm hover:bg-red-50">🗑</button>
                     </div>
                   </div>
@@ -822,19 +1172,19 @@ export default function AdminDashboard() {
         {tab === "area" && drillArea && (<>
           <div className="flex justify-between items-center mb-8">
             <div>
-              <button onClick={() => setDrillArea(null)} className="text-sm text-[#C8973E] hover:underline mb-2">← Kembali ke Area</button>
-              <h2 className="text-xl font-bold text-[#5C3D1A] font-serif">{drillArea.nama} <span className="text-[#8B7355] text-base capitalize">· {drillArea.outlet}</span></h2>
-              <p className="text-[#8B7355] text-sm mt-1">Total kapasitas: <span className="text-[#C8973E] font-semibold">{totalKapasitas(drillArea)} orang</span></p>
+              <button onClick={() => setDrillArea(null)} className="text-sm text-[#5C1420] hover:underline mb-2">← Kembali ke Area</button>
+              <h2 className="text-xl font-bold text-[#3D2E1E] font-serif">{drillArea.nama} <span className="text-[#9A8B7A] text-base capitalize">· {drillArea.outlet}</span></h2>
+              <p className="text-[#9A8B7A] text-sm mt-1">Total kapasitas: <span className="text-[#5C1420] font-semibold">{totalKapasitas(drillArea)} orang</span></p>
             </div>
-            <button onClick={() => openTableForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold shadow-lg shadow-[#C8973E]/20">+ Tambah Meja</button>
+            <button onClick={() => openTableForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-lg shadow-[#5C1420]/20">+ Tambah Meja</button>
           </div>
           {showTableForm && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-              <div className="bg-white border-2 border-[#C8973E]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
-                <div><h3 className="text-xl font-bold text-[#5C3D1A] font-serif">{editTable ? "Edit Meja" : "Meja Baru"}</h3>
-                  <p className="text-[#8B7355] text-xs mt-1">{drillArea.nama} · <span className="capitalize">{drillArea.outlet}</span></p><div className="w-12 h-0.5 bg-[#C8973E] mt-2" /></div>
+              <div className="bg-white border-2 border-[#5C1420]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div><h3 className="text-xl font-bold text-[#3D2E1E] font-serif">{editTable ? "Edit Meja" : "Meja Baru"}</h3>
+                  <p className="text-[#9A8B7A] text-xs mt-1">{drillArea.nama} · <span className="capitalize">{drillArea.outlet}</span></p><div className="w-12 h-0.5 bg-[#5C1420] mt-2" /></div>
                 <div><label className={labelClass}>Nomor Meja</label><input type="number" value={tNomor} onChange={(e) => setTNomor(e.target.value)} className={inputClass} /></div>
-                <div><label className={labelClass}>Nama Meja <span className="normal-case font-normal text-[#B8A88A]">(opsional)</span></label><input value={tNama} onChange={(e) => setTNama(e.target.value)} placeholder="Contoh: Meja Sultan" className={inputClass} /></div>
+                <div><label className={labelClass}>Nama Meja <span className="normal-case font-normal text-[#B5A999]">(opsional)</span></label><input value={tNama} onChange={(e) => setTNama(e.target.value)} placeholder="Contoh: Meja Sultan" className={inputClass} /></div>
                 <div className="grid grid-cols-2 gap-4">
                   <div><label className={labelClass}>Kapasitas Max</label><input type="number" value={tKap} onChange={(e) => setTKap(e.target.value)} className={inputClass} /></div>
                   <div><label className={labelClass}>Kapasitas Min</label><input type="number" value={tKapMin} onChange={(e) => setTKapMin(e.target.value)} placeholder="Opsional" className={inputClass} /></div>
@@ -843,49 +1193,49 @@ export default function AdminDashboard() {
                   <div><label className={labelClass}>Uang Muka (Rp)</label><input type="number" value={tDp} onChange={(e) => setTDp(e.target.value)} placeholder="50000" className={inputClass} /></div>
                   <div><label className={labelClass}>Min. Transaksi (Rp)</label><input type="number" value={tMinTrx} onChange={(e) => setTMinTrx(e.target.value)} placeholder="300000" className={inputClass} /></div>
                 </div>
-                <p className="text-xs text-[#B8A88A]">Kapasitas min = minimal tamu. Min. transaksi = minimal belanja customer.</p>
+                <p className="text-xs text-[#B5A999]">Kapasitas min = minimal tamu. Min. transaksi = minimal belanja customer.</p>
                 <div className="flex gap-3 pt-3">
-                  <button onClick={() => setShowTableForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC]">Batal</button>
-                  <button onClick={saveTable} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold">Simpan</button>
+                  <button onClick={() => setShowTableForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Batal</button>
+                  <button onClick={saveTable} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold">Simpan</button>
                 </div>
               </div>
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {tables.filter((t) => t.outlet === drillArea.outlet && t.posisi === drillArea.slug).map((t) => (
-              <div key={t.Id} className="bg-white border-2 border-[#E8DCC8] rounded-2xl overflow-hidden group hover:border-[#C8973E]/30 hover:shadow-xl hover:shadow-[#C8973E]/5 transition-all">
-                <div className="h-40 bg-[#FDF6EC] relative overflow-hidden">
+              <div key={t.Id} className="bg-white border-2 border-[#E5DDD4] rounded-2xl overflow-hidden group hover:border-[#5C1420]/30 hover:shadow-xl hover:shadow-[#5C1420]/5 transition-all">
+                <div className="h-40 bg-[#F9F6F2] relative overflow-hidden">
                   {t.foto_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={t.foto_url} alt={t.nama_meja || `Meja ${t.nomor_meja}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center gap-2"><span className="text-3xl text-[#C8973E]/20">📷</span><span className="text-xs text-[#8B7355]">Belum ada foto</span></div>
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-2"><span className="text-3xl text-[#5C1420]/20">📷</span><span className="text-xs text-[#9A8B7A]">Belum ada foto</span></div>
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
-                  <span className="absolute bottom-3 left-3 bg-[#C8973E] text-white text-[10px] px-3 py-1 rounded-full font-bold">
+                  <span className="absolute bottom-3 left-3 bg-[#5C1420] text-white text-[10px] px-3 py-1 rounded-full font-bold">
                     {t.kapasitas_minimum ? `${t.kapasitas_minimum}–${t.kapasitas}` : t.kapasitas} orang
                   </span>
                 </div>
                 <div className="p-5 space-y-2">
-                  <p className="font-bold text-[#5C3D1A] text-lg font-serif">{t.nama_meja || `Meja ${t.nomor_meja}`}</p>
-                  {t.nama_meja && <p className="text-[#8B7355] text-xs">No. {t.nomor_meja}</p>}
+                  <p className="font-bold text-[#3D2E1E] text-lg font-serif">{t.nama_meja || `Meja ${t.nomor_meja}`}</p>
+                  {t.nama_meja && <p className="text-[#9A8B7A] text-xs">No. {t.nomor_meja}</p>}
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                    <span className="text-[#C8973E] font-semibold">{t.dp_minimum ? `DP ${formatRupiah(t.dp_minimum)}` : "Tanpa DP"}</span>
-                    {t.minimum_transaksi && <span className="text-[#8B7355]">Min. trx {formatRupiah(t.minimum_transaksi)}</span>}
+                    <span className="text-[#5C1420] font-semibold">{t.dp_minimum ? `DP ${formatRupiah(t.dp_minimum)}` : "Tanpa DP"}</span>
+                    {t.minimum_transaksi && <span className="text-[#9A8B7A]">Min. trx {formatRupiah(t.minimum_transaksi)}</span>}
                   </div>
                   <label className="inline-block cursor-pointer pt-1">
-                    <span className="text-xs text-[#C8973E] font-semibold hover:text-[#A67B2E]">{uploadingTable ? "⏳ Mengupload..." : t.foto_url ? "📷 Ganti Foto" : "📷 Upload Foto"}</span>
+                    <span className="text-xs text-[#5C1420] font-semibold hover:text-[#3D0D14]">{uploadingTable ? "⏳ Mengupload..." : t.foto_url ? "📷 Ganti Foto" : "📷 Upload Foto"}</span>
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadTablePhoto(t.Id, f); }} />
                   </label>
                   <div className="flex gap-2 pt-2">
-                    <button onClick={() => openTableForm(t)} className="flex-1 py-2 rounded-xl border-2 border-[#C8973E]/30 text-[#C8973E] text-xs font-bold hover:bg-[#C8973E]/5">Edit</button>
+                    <button onClick={() => openTableForm(t)} className="flex-1 py-2 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-xs font-bold hover:bg-[#5C1420]/5">Edit</button>
                     <button onClick={() => deleteTable(t.Id)} className="py-2 px-3 rounded-xl border-2 border-red-200 text-red-400 text-xs hover:bg-red-50">🗑</button>
                   </div>
                 </div>
               </div>
             ))}
             {tables.filter((t) => t.outlet === drillArea.outlet && t.posisi === drillArea.slug).length === 0 && (
-              <p className="text-[#8B7355] col-span-full text-center py-10">Belum ada meja. Klik &quot;+ Tambah Meja&quot;.</p>
+              <p className="text-[#9A8B7A] col-span-full text-center py-10">Belum ada meja. Klik &quot;+ Tambah Meja&quot;.</p>
             )}
           </div>
         </>)}
@@ -893,28 +1243,28 @@ export default function AdminDashboard() {
         {/* ========== TAB MEJA GABUNGAN ========== */}
         {tab === "gabungan" && (<>
           <div className="flex justify-between items-center mb-8">
-            <div><h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Meja Gabungan</h2><p className="text-[#8B7355] text-sm mt-1">Kombinasi 2+ meja untuk rombongan besar. Semua meja otomatis terkunci saat dibooking.</p></div>
-            <button onClick={() => openGabunganForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold shadow-lg shadow-[#C8973E]/20">+ Buat Gabungan</button>
+            <div><h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Meja Gabungan</h2><p className="text-[#9A8B7A] text-sm mt-1">Kombinasi 2+ meja untuk rombongan besar. Semua meja otomatis terkunci saat dibooking.</p></div>
+            <button onClick={() => openGabunganForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-lg shadow-[#5C1420]/20">+ Buat Gabungan</button>
           </div>
           {showGabunganForm && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-              <div className="bg-white border-2 border-[#C8973E]/20 rounded-3xl p-8 max-w-lg w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
-                <div><h3 className="text-xl font-bold text-[#5C3D1A] font-serif">{editGabungan ? "Edit Gabungan" : "Gabungan Baru"}</h3><div className="w-12 h-0.5 bg-[#C8973E] mt-2" /></div>
+              <div className="bg-white border-2 border-[#5C1420]/20 rounded-3xl p-8 max-w-lg w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div><h3 className="text-xl font-bold text-[#3D2E1E] font-serif">{editGabungan ? "Edit Gabungan" : "Gabungan Baru"}</h3><div className="w-12 h-0.5 bg-[#5C1420] mt-2" /></div>
                 <div><label className={labelClass}>Outlet</label><select value={gOutlet} onChange={(e) => { setGOutlet(e.target.value); setGMejaIds([]); }} disabled={!isSuper} className={inputClass + (!isSuper ? " opacity-60 cursor-not-allowed" : "")}><option value="solo">Solo</option><option value="jogja">Yogyakarta</option></select></div>
                 <div><label className={labelClass}>Nama Gabungan</label><input value={gNama} onChange={(e) => setGNama(e.target.value)} placeholder="Contoh: Gabungan Meja 1 + 2" className={inputClass} /></div>
-                <div><label className={labelClass}>Deskripsi <span className="normal-case font-normal text-[#B8A88A]">(opsional)</span></label><textarea value={gDesc} onChange={(e) => setGDesc(e.target.value)} rows={2} className={inputClass + " resize-none"} placeholder="Cocok untuk acara keluarga" /></div>
+                <div><label className={labelClass}>Deskripsi <span className="normal-case font-normal text-[#B5A999]">(opsional)</span></label><textarea value={gDesc} onChange={(e) => setGDesc(e.target.value)} rows={2} className={inputClass + " resize-none"} placeholder="Cocok untuk acara keluarga" /></div>
                 <div>
                   <label className={labelClass}>Pilih Meja (min 2)</label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1">
                     {tables.filter((t) => t.outlet === gOutlet && areas.some((a) => a.slug === t.posisi && a.outlet === t.outlet)).map((t) => (
                       <button key={t.Id} onClick={() => toggleMejaInGabungan(t.Id)}
-                        className={`p-3 rounded-xl border-2 text-left text-sm transition-all ${gMejaIds.includes(t.Id) ? "border-[#C8973E] bg-[#FDF6EC]" : "border-[#E8DCC8] hover:border-[#C8973E]/50"}`}>
-                        <p className={`font-bold ${gMejaIds.includes(t.Id) ? "text-[#C8973E]" : "text-[#5C3D1A]"}`}>{t.nama_meja || `Meja ${t.nomor_meja}`}</p>
-<p className="text-[#8B7355] text-xs">{t.kapasitas} orang · {areas.find((a) => a.slug === t.posisi && a.outlet === t.outlet)?.nama || t.posisi}</p>
+                        className={`p-3 rounded-xl border-2 text-left text-sm transition-all ${gMejaIds.includes(t.Id) ? "border-[#5C1420] bg-[#F9F6F2]" : "border-[#E5DDD4] hover:border-[#5C1420]/50"}`}>
+                        <p className={`font-bold ${gMejaIds.includes(t.Id) ? "text-[#5C1420]" : "text-[#3D2E1E]"}`}>{t.nama_meja || `Meja ${t.nomor_meja}`}</p>
+<p className="text-[#9A8B7A] text-xs">{t.kapasitas} orang · {areas.find((a) => a.slug === t.posisi && a.outlet === t.outlet)?.nama || t.posisi}</p>
                       </button>
                     ))}
                   </div>
-                  {gMejaIds.length > 0 && <p className="text-sm text-[#C8973E] mt-2 font-semibold">{gMejaIds.length} meja · Total: {gabunganKapTotal()} orang</p>}
+                  {gMejaIds.length > 0 && <p className="text-sm text-[#5C1420] mt-2 font-semibold">{gMejaIds.length} meja · Total: {gabunganKapTotal()} orang</p>}
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div><label className={labelClass}>Kap. Min</label><input type="number" value={gKapMin} onChange={(e) => setGKapMin(e.target.value)} placeholder="6" className={inputClass} /></div>
@@ -922,39 +1272,39 @@ export default function AdminDashboard() {
                   <div><label className={labelClass}>Min. Trx</label><input type="number" value={gMinTrx} onChange={(e) => setGMinTrx(e.target.value)} placeholder="500000" className={inputClass} /></div>
                 </div>
                 <div className="flex gap-3 pt-3">
-                  <button onClick={() => setShowGabunganForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC]">Batal</button>
-                  <button onClick={saveGabungan} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold">Simpan</button>
+                  <button onClick={() => setShowGabunganForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Batal</button>
+                  <button onClick={saveGabungan} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold">Simpan</button>
                 </div>
               </div>
             </div>
           )}
-          {gabunganList.length === 0 ? <p className="text-center text-[#B8A88A] py-16">Belum ada meja gabungan.</p> : (
+          {gabunganList.length === 0 ? <p className="text-center text-[#B5A999] py-16">Belum ada meja gabungan.</p> : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {gabunganList.map((g) => (
-                <div key={g.Id} className={`bg-white border rounded-xl overflow-hidden transition-all ${g.aktif ? "border-[#E8DCC8] hover:border-[#C8973E]/30 hover:shadow-md hover:shadow-[#C8973E]/5" : "border-gray-200 opacity-60"}`}>
+                <div key={g.Id} className={`bg-white border rounded-xl overflow-hidden transition-all ${g.aktif ? "border-[#E5DDD4] hover:border-[#5C1420]/30 hover:shadow-md hover:shadow-[#5C1420]/5" : "border-gray-200 opacity-60"}`}>
                   <div className="relative w-full h-28">
                     <GabunganCardImage gabungan={g} tables={tables} />
                   </div>
                   <div className="p-3.5 space-y-1.5">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <h3 className="font-bold text-[#5C3D1A] text-sm font-serif">{g.nama}</h3>
-                      <span className="bg-[#FDF6EC] text-[#8B7355] text-[9px] px-1.5 py-0.5 rounded-full capitalize border border-[#E8DCC8]">{g.outlet}</span>
+                      <h3 className="font-bold text-[#3D2E1E] text-sm font-serif">{g.nama}</h3>
+                      <span className="bg-[#F9F6F2] text-[#9A8B7A] text-[9px] px-1.5 py-0.5 rounded-full capitalize border border-[#E5DDD4]">{g.outlet}</span>
                       <span className={`text-[9px] px-1.5 py-0.5 rounded-full border font-bold ${g.aktif ? "bg-emerald-50 text-emerald-600 border-emerald-200" : "bg-gray-50 text-gray-400 border-gray-200"}`}>{g.aktif ? "Aktif" : "Nonaktif"}</span>
                     </div>
-                    {g.deskripsi && <p className="text-[#8B7355] text-xs">{g.deskripsi}</p>}
+                    {g.deskripsi && <p className="text-[#9A8B7A] text-xs">{g.deskripsi}</p>}
                     <div className="flex flex-wrap gap-1">
                       {(g.meja_ids || []).map((id) => (
-                        <span key={id} className="bg-[#FDF6EC] text-[#C8973E] text-[10px] px-1.5 py-0.5 rounded-full font-semibold border border-[#C8973E]/20">{getMejaLabel(id)}</span>
+                        <span key={id} className="bg-[#F9F6F2] text-[#5C1420] text-[10px] px-1.5 py-0.5 rounded-full font-semibold border border-[#5C1420]/20">{getMejaLabel(id)}</span>
                       ))}
                     </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
-                      <span className="text-[#8B7355]">👥 <span className="text-[#5C3D1A]">{g.kapasitas_minimum ? `${g.kapasitas_minimum}–` : ""}{g.kapasitas_total} orang</span></span>
-                      {g.dp_minimum && <span className="text-[#C8973E] font-semibold">DP {formatRupiah(g.dp_minimum)}</span>}
+                      <span className="text-[#9A8B7A]">👥 <span className="text-[#3D2E1E]">{g.kapasitas_minimum ? `${g.kapasitas_minimum}–` : ""}{g.kapasitas_total} orang</span></span>
+                      {g.dp_minimum && <span className="text-[#5C1420] font-semibold">DP {formatRupiah(g.dp_minimum)}</span>}
                     </div>
-                    {g.minimum_transaksi && <p className="text-[11px] text-[#8B7355]">Min. trx {formatRupiah(g.minimum_transaksi)}</p>}
+                    {g.minimum_transaksi && <p className="text-[11px] text-[#9A8B7A]">Min. trx {formatRupiah(g.minimum_transaksi)}</p>}
                     <div className="flex gap-1.5 pt-1.5">
-                      <button onClick={() => toggleGabunganAktif(g)} className={`flex-1 px-2 py-1.5 rounded-lg border text-[11px] font-semibold transition-all ${g.aktif ? "border-[#E8DCC8] text-[#8B7355] hover:bg-[#FDF6EC]" : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"}`}>{g.aktif ? "Nonaktifkan" : "Aktifkan"}</button>
-                      <button onClick={() => openGabunganForm(g)} className="flex-1 px-2 py-1.5 rounded-lg border border-[#C8973E]/30 text-[#C8973E] text-[11px] font-semibold hover:bg-[#C8973E]/5">Edit</button>
+                      <button onClick={() => toggleGabunganAktif(g)} className={`flex-1 px-2 py-1.5 rounded-lg border text-[11px] font-semibold transition-all ${g.aktif ? "border-[#E5DDD4] text-[#9A8B7A] hover:bg-[#F9F6F2]" : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"}`}>{g.aktif ? "Nonaktifkan" : "Aktifkan"}</button>
+                      <button onClick={() => openGabunganForm(g)} className="flex-1 px-2 py-1.5 rounded-lg border border-[#5C1420]/30 text-[#5C1420] text-[11px] font-semibold hover:bg-[#5C1420]/5">Edit</button>
                       <button onClick={() => deleteGabungan(g.Id)} className="px-2 py-1.5 rounded-lg border border-red-200 text-red-400 text-[11px] hover:bg-red-50">🗑</button>
                     </div>
                   </div>
@@ -967,40 +1317,40 @@ export default function AdminDashboard() {
         {/* ========== TAB MENU: LIST KATEGORI ========== */}
         {tab === "menu" && !drillKategori && (<>
           <div className="flex justify-between items-center mb-8">
-            <div><h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Kategori Menu</h2><p className="text-[#8B7355] text-sm mt-1">Klik kategori untuk kelola menu di dalamnya</p></div>
-            <button onClick={() => openKategoriForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold shadow-lg shadow-[#C8973E]/20 active:scale-[0.98]">+ Tambah Kategori</button>
+            <div><h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Kategori Menu</h2><p className="text-[#9A8B7A] text-sm mt-1">Klik kategori untuk kelola menu di dalamnya</p></div>
+            <button onClick={() => openKategoriForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-lg shadow-[#5C1420]/20 active:scale-[0.98]">+ Tambah Kategori</button>
           </div>
           {showKategoriForm && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-              <div className="bg-white border-2 border-[#C8973E]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl">
-                <div><h3 className="text-xl font-bold text-[#5C3D1A] font-serif">{editKategori ? "Edit Kategori" : "Kategori Baru"}</h3><div className="w-12 h-0.5 bg-[#C8973E] mt-2" /></div>
+              <div className="bg-white border-2 border-[#5C1420]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl">
+                <div><h3 className="text-xl font-bold text-[#3D2E1E] font-serif">{editKategori ? "Edit Kategori" : "Kategori Baru"}</h3><div className="w-12 h-0.5 bg-[#5C1420] mt-2" /></div>
                 <div><label className={labelClass}>Outlet</label><select value={kOutlet} onChange={(e) => setKOutlet(e.target.value)} disabled={!isSuper} className={inputClass + (!isSuper ? " opacity-60 cursor-not-allowed" : "")}><option value="solo">Solo</option><option value="jogja">Yogyakarta</option></select></div>
                 <div><label className={labelClass}>Nama Kategori</label><input value={kNama} onChange={(e) => setKNama(e.target.value)} placeholder="Contoh: Makanan Utama" className={inputClass} /></div>
                 <div><label className={labelClass}>Urutan</label><input type="number" value={kUrutan} onChange={(e) => setKUrutan(e.target.value)} className={inputClass} /></div>
                 <div className="flex gap-3 pt-3">
-                  <button onClick={() => setShowKategoriForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC]">Batal</button>
-                  <button onClick={saveKategori} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold">Simpan</button>
+                  <button onClick={() => setShowKategoriForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Batal</button>
+                  <button onClick={saveKategori} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold">Simpan</button>
                 </div>
               </div>
             </div>
           )}
-          {menuKategoriList.length === 0 ? <p className="text-center text-[#B8A88A] py-16">Belum ada kategori. Klik &quot;+ Tambah Kategori&quot;.</p> : (
+          {menuKategoriList.length === 0 ? <p className="text-center text-[#B5A999] py-16">Belum ada kategori. Klik &quot;+ Tambah Kategori&quot;.</p> : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {menuKategoriList.map((k) => {
                 const jumlahMenu = menuItemList.filter((m) => m.kategori_id === k.Id).length;
                 return (
-                  <div key={k.Id} className={`bg-white rounded-2xl border-2 p-5 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all ${k.aktif ? "border-[#E8DCC8] hover:border-[#C8973E]/30" : "border-gray-200 opacity-60"}`}>
+                  <div key={k.Id} className={`bg-white rounded-2xl border-2 p-5 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all ${k.aktif ? "border-[#E5DDD4] hover:border-[#5C1420]/30" : "border-gray-200 opacity-60"}`}>
                     <button onClick={() => setDrillKategori(k)} className="text-left w-full">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-bold text-[#5C3D1A] text-lg font-serif">{k.nama} →</h3>
-                        <span className="bg-[#FDF6EC] text-[#8B7355] text-[10px] px-2.5 py-0.5 rounded-full capitalize border border-[#E8DCC8]">{k.outlet}</span>
+                        <h3 className="font-bold text-[#3D2E1E] text-lg font-serif">{k.nama} →</h3>
+                        <span className="bg-[#F9F6F2] text-[#9A8B7A] text-[10px] px-2.5 py-0.5 rounded-full capitalize border border-[#E5DDD4]">{k.outlet}</span>
                         {!k.aktif && <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-gray-50 text-gray-400 border border-gray-200 font-bold">Nonaktif</span>}
                       </div>
-                      <p className="text-[#C8973E] text-xs mt-2 font-semibold">{jumlahMenu} menu terdaftar</p>
+                      <p className="text-[#5C1420] text-xs mt-2 font-semibold">{jumlahMenu} menu terdaftar</p>
                     </button>
                     <div className="flex gap-2 pt-3">
-                      <button onClick={() => toggleKategoriAktif(k)} className={`flex-1 py-2 rounded-xl border-2 text-xs font-bold transition-all ${k.aktif ? "border-[#E8DCC8] text-[#8B7355] hover:bg-[#FDF6EC]" : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"}`}>{k.aktif ? "Nonaktifkan" : "Aktifkan"}</button>
-                      <button onClick={() => openKategoriForm(k)} className="flex-1 py-2 rounded-xl border-2 border-[#C8973E]/30 text-[#C8973E] text-xs font-bold hover:bg-[#C8973E]/5">Edit</button>
+                      <button onClick={() => toggleKategoriAktif(k)} className={`flex-1 py-2 rounded-xl border-2 text-xs font-bold transition-all ${k.aktif ? "border-[#E5DDD4] text-[#9A8B7A] hover:bg-[#F9F6F2]" : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"}`}>{k.aktif ? "Nonaktifkan" : "Aktifkan"}</button>
+                      <button onClick={() => openKategoriForm(k)} className="flex-1 py-2 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-xs font-bold hover:bg-[#5C1420]/5">Edit</button>
                       <button onClick={() => deleteKategori(k.Id)} className="py-2 px-3 rounded-xl border-2 border-red-200 text-red-400 text-xs hover:bg-red-50">🗑</button>
                     </div>
                   </div>
@@ -1014,27 +1364,27 @@ export default function AdminDashboard() {
         {tab === "menu" && drillKategori && (<>
           <div className="flex justify-between items-center mb-8">
             <div>
-              <button onClick={() => setDrillKategori(null)} className="text-sm text-[#C8973E] hover:underline mb-2">← Kembali ke Kategori</button>
-              <h2 className="text-xl font-bold text-[#5C3D1A] font-serif">{drillKategori.nama} <span className="text-[#8B7355] text-base capitalize">· {drillKategori.outlet}</span></h2>
+              <button onClick={() => setDrillKategori(null)} className="text-sm text-[#5C1420] hover:underline mb-2">← Kembali ke Kategori</button>
+              <h2 className="text-xl font-bold text-[#3D2E1E] font-serif">{drillKategori.nama} <span className="text-[#9A8B7A] text-base capitalize">· {drillKategori.outlet}</span></h2>
             </div>
-            <button onClick={() => openMenuItemForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold shadow-lg shadow-[#C8973E]/20">+ Tambah Menu</button>
+            <button onClick={() => openMenuItemForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-lg shadow-[#5C1420]/20">+ Tambah Menu</button>
           </div>
           {showMenuItemForm && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-              <div className="bg-white border-2 border-[#C8973E]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
-                <div><h3 className="text-xl font-bold text-[#5C3D1A] font-serif">{editMenuItem ? "Edit Menu" : "Menu Baru"}</h3>
-                  <p className="text-[#8B7355] text-xs mt-1">{drillKategori.nama} · <span className="capitalize">{drillKategori.outlet}</span></p><div className="w-12 h-0.5 bg-[#C8973E] mt-2" /></div>
+              <div className="bg-white border-2 border-[#5C1420]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div><h3 className="text-xl font-bold text-[#3D2E1E] font-serif">{editMenuItem ? "Edit Menu" : "Menu Baru"}</h3>
+                  <p className="text-[#9A8B7A] text-xs mt-1">{drillKategori.nama} · <span className="capitalize">{drillKategori.outlet}</span></p><div className="w-12 h-0.5 bg-[#5C1420] mt-2" /></div>
                 <div><label className={labelClass}>Nama Menu</label><input value={miNama} onChange={(e) => setMiNama(e.target.value)} placeholder="Contoh: Nasi Mandhi" className={inputClass} /></div>
                 <div><label className={labelClass}>Deskripsi</label><textarea value={miDesc} onChange={(e) => setMiDesc(e.target.value)} rows={2} className={inputClass + " resize-none"} placeholder="Nasi mandhi dengan daging kambing empuk" /></div>
                 <div><label className={labelClass}>Harga Dasar (Rp)</label><input type="number" value={miHarga} onChange={(e) => setMiHarga(e.target.value)} placeholder="45000" className={inputClass} /></div>
                 <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input type="checkbox" checked={miPunyaVarian} onChange={(e) => setMiPunyaVarian(e.target.checked)} className="w-4 h-4 accent-[#C8973E]" />
-                  <span className="text-sm text-[#5C3D1A]">Menu ini punya varian (misal: ukuran/porsi)</span>
+                  <input type="checkbox" checked={miPunyaVarian} onChange={(e) => setMiPunyaVarian(e.target.checked)} className="w-4 h-4 accent-[#5C1420]" />
+                  <span className="text-sm text-[#3D2E1E]">Menu ini punya varian (misal: ukuran/porsi)</span>
                 </label>
-                <p className="text-xs text-[#B8A88A]">Varian &amp; Add-on diatur lewat tombol &quot;Kelola&quot; setelah menu disimpan.</p>
+                <p className="text-xs text-[#B5A999]">Varian &amp; Add-on diatur lewat tombol &quot;Kelola&quot; setelah menu disimpan.</p>
                 <div className="flex gap-3 pt-3">
-                  <button onClick={() => setShowMenuItemForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC]">Batal</button>
-                  <button onClick={saveMenuItem} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold">Simpan</button>
+                  <button onClick={() => setShowMenuItemForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Batal</button>
+                  <button onClick={saveMenuItem} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold">Simpan</button>
                 </div>
               </div>
             </div>
@@ -1043,93 +1393,93 @@ export default function AdminDashboard() {
           {/* Modal Kelola Varian & Add-on */}
           {manageMenuItem && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-              <div className="bg-white border-2 border-[#C8973E]/20 rounded-3xl p-8 max-w-2xl w-full space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+              <div className="bg-white border-2 border-[#5C1420]/20 rounded-3xl p-8 max-w-2xl w-full space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-start">
-                  <div><h3 className="text-xl font-bold text-[#5C3D1A] font-serif">Kelola {manageMenuItem.nama_paket}</h3><div className="w-12 h-0.5 bg-[#C8973E] mt-2" /></div>
-                  <button onClick={() => setManageMenuItem(null)} className="text-[#8B7355] hover:text-[#5C3D1A] text-xl">✕</button>
+                  <div><h3 className="text-xl font-bold text-[#3D2E1E] font-serif">Kelola {manageMenuItem.nama_paket}</h3><div className="w-12 h-0.5 bg-[#5C1420] mt-2" /></div>
+                  <button onClick={() => setManageMenuItem(null)} className="text-[#9A8B7A] hover:text-[#3D2E1E] text-xl">✕</button>
                 </div>
 
                 {/* VARIAN */}
                 <div>
-                  <p className="text-xs font-bold text-[#C8973E] mb-3 tracking-[0.15em] uppercase">Varian (pilih 1, wajib bila diaktifkan)</p>
-                  {!manageMenuItem.punya_varian && <p className="text-xs text-[#B8A88A] mb-2 italic">Menu ini belum diaktifkan untuk varian. Aktifkan lewat Edit Menu.</p>}
+                  <p className="text-xs font-bold text-[#5C1420] mb-3 tracking-[0.15em] uppercase">Varian (pilih 1, wajib bila diaktifkan)</p>
+                  {!manageMenuItem.punya_varian && <p className="text-xs text-[#B5A999] mb-2 italic">Menu ini belum diaktifkan untuk varian. Aktifkan lewat Edit Menu.</p>}
                   <div className="space-y-2 mb-3">
                     {menuVarianList.map((v) => (
-                      <div key={v.Id} className="flex items-center justify-between bg-[#FDF6EC] border border-[#E8DCC8] rounded-xl px-4 py-2.5">
-                        <div><p className="font-semibold text-[#5C3D1A] text-sm">{v.nama}</p><p className="text-xs text-[#8B7355]">{v.harga_tambahan > 0 ? `+${formatRupiah(v.harga_tambahan)}` : "Tanpa tambahan biaya"}</p></div>
+                      <div key={v.Id} className="flex items-center justify-between bg-[#F9F6F2] border border-[#E5DDD4] rounded-xl px-4 py-2.5">
+                        <div><p className="font-semibold text-[#3D2E1E] text-sm">{v.nama}</p><p className="text-xs text-[#9A8B7A]">{v.harga_tambahan > 0 ? `+${formatRupiah(v.harga_tambahan)}` : "Tanpa tambahan biaya"}</p></div>
                         <button onClick={() => deleteVarian(v.Id)} className="text-red-400 hover:text-red-600 text-sm">🗑</button>
                       </div>
                     ))}
-                    {menuVarianList.length === 0 && <p className="text-xs text-[#B8A88A]">Belum ada varian.</p>}
+                    {menuVarianList.length === 0 && <p className="text-xs text-[#B5A999]">Belum ada varian.</p>}
                   </div>
                   <div className="flex gap-2">
                     <input value={vNama} onChange={(e) => setVNama(e.target.value)} placeholder="Nama varian (mis. Jumbo)" className={inputClass + " flex-1 min-w-0 !w-auto"} />
                     <input type="number" value={vHarga} onChange={(e) => setVHarga(e.target.value)} placeholder="+Rp" className={inputClass + " w-24 shrink-0 !w-24"} />
-                    <button onClick={addVarian} className="px-4 py-3 rounded-xl bg-[#C8973E] text-white text-sm font-bold shrink-0">+ Tambah</button>
+                    <button onClick={addVarian} className="px-4 py-3 rounded-xl bg-[#5C1420] text-white text-sm font-bold shrink-0">+ Tambah</button>
                   </div>
                 </div>
 
-                <div className="border-t border-[#E8DCC8]" />
+                <div className="border-t border-[#E5DDD4]" />
 
                 {/* ADD-ON */}
                 <div>
-                  <p className="text-xs font-bold text-[#C8973E] mb-3 tracking-[0.15em] uppercase">Add-on (opsional, boleh pilih lebih dari satu)</p>
+                  <p className="text-xs font-bold text-[#5C1420] mb-3 tracking-[0.15em] uppercase">Add-on (opsional, boleh pilih lebih dari satu)</p>
                   <div className="space-y-2 mb-3">
                     {menuAddonList.map((a) => (
-                      <div key={a.Id} className="flex items-center justify-between bg-[#FDF6EC] border border-[#E8DCC8] rounded-xl px-4 py-2.5">
-                        <div><p className="font-semibold text-[#5C3D1A] text-sm">{a.nama}</p><p className="text-xs text-[#8B7355]">{a.harga_tambahan > 0 ? `+${formatRupiah(a.harga_tambahan)}` : "Gratis"}</p></div>
+                      <div key={a.Id} className="flex items-center justify-between bg-[#F9F6F2] border border-[#E5DDD4] rounded-xl px-4 py-2.5">
+                        <div><p className="font-semibold text-[#3D2E1E] text-sm">{a.nama}</p><p className="text-xs text-[#9A8B7A]">{a.harga_tambahan > 0 ? `+${formatRupiah(a.harga_tambahan)}` : "Gratis"}</p></div>
                         <button onClick={() => deleteAddon(a.Id)} className="text-red-400 hover:text-red-600 text-sm">🗑</button>
                       </div>
                     ))}
-                    {menuAddonList.length === 0 && <p className="text-xs text-[#B8A88A]">Belum ada add-on.</p>}
+                    {menuAddonList.length === 0 && <p className="text-xs text-[#B5A999]">Belum ada add-on.</p>}
                   </div>
                   <div className="flex gap-2">
                     <input value={adNama} onChange={(e) => setAdNama(e.target.value)} placeholder="Nama add-on (mis. Tambah Keju)" className={inputClass + " flex-1 min-w-0 !w-auto"} />
                     <input type="number" value={adHarga} onChange={(e) => setAdHarga(e.target.value)} placeholder="+Rp" className={inputClass + " w-24 shrink-0 !w-24"} />
-                    <button onClick={addAddon} className="px-4 py-3 rounded-xl bg-[#C8973E] text-white text-sm font-bold shrink-0">+ Tambah</button>
+                    <button onClick={addAddon} className="px-4 py-3 rounded-xl bg-[#5C1420] text-white text-sm font-bold shrink-0">+ Tambah</button>
                   </div>
                 </div>
 
-                <button onClick={() => setManageMenuItem(null)} className="w-full py-3 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC]">Tutup</button>
+                <button onClick={() => setManageMenuItem(null)} className="w-full py-3 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Tutup</button>
               </div>
             </div>
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {menuItemList.filter((m) => m.kategori_id === drillKategori.Id).map((m) => (
-              <div key={m.Id} className={`bg-white border-2 rounded-2xl overflow-hidden group transition-all ${m.aktif ? "border-[#E8DCC8] hover:border-[#C8973E]/30 hover:shadow-xl hover:shadow-[#C8973E]/5" : "border-gray-200 opacity-60"}`}>
-                <div className="h-40 bg-[#FDF6EC] relative overflow-hidden">
+              <div key={m.Id} className={`bg-white border-2 rounded-2xl overflow-hidden group transition-all ${m.aktif ? "border-[#E5DDD4] hover:border-[#5C1420]/30 hover:shadow-xl hover:shadow-[#5C1420]/5" : "border-gray-200 opacity-60"}`}>
+                <div className="h-40 bg-[#F9F6F2] relative overflow-hidden">
                   {m.foto_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={m.foto_url} alt={m.nama_paket} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center gap-2"><span className="text-3xl text-[#C8973E]/20">🍽</span><span className="text-xs text-[#8B7355]">Belum ada foto</span></div>
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-2"><span className="text-3xl text-[#5C1420]/20">🍽</span><span className="text-xs text-[#9A8B7A]">Belum ada foto</span></div>
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
-                  {m.punya_varian && <span className="absolute bottom-3 left-3 bg-[#C8973E] text-white text-[10px] px-3 py-1 rounded-full font-bold">Ada Varian</span>}
+                  {m.punya_varian && <span className="absolute bottom-3 left-3 bg-[#5C1420] text-white text-[10px] px-3 py-1 rounded-full font-bold">Ada Varian</span>}
                   {!m.aktif && <span className="absolute top-3 right-3 bg-gray-800/80 text-white text-[10px] px-3 py-1 rounded-full font-bold">Nonaktif</span>}
                 </div>
                 <div className="p-5 space-y-2">
-                  <p className="font-bold text-[#5C3D1A] text-lg font-serif">{m.nama_paket}</p>
-                  {m.deskripsi && <p className="text-[#8B7355] text-xs line-clamp-2">{m.deskripsi}</p>}
-                  <p className="text-[#C8973E] font-bold text-sm">{formatRupiah(m.harga)}</p>
+                  <p className="font-bold text-[#3D2E1E] text-lg font-serif">{m.nama_paket}</p>
+                  {m.deskripsi && <p className="text-[#9A8B7A] text-xs line-clamp-2">{m.deskripsi}</p>}
+                  <p className="text-[#5C1420] font-bold text-sm">{formatRupiah(m.harga)}</p>
                   <label className="inline-block cursor-pointer pt-1">
-                    <span className="text-xs text-[#C8973E] font-semibold hover:text-[#A67B2E]">{uploadingMenuItem ? "⏳ Mengupload..." : m.foto_url ? "📷 Ganti Foto" : "📷 Upload Foto"}</span>
+                    <span className="text-xs text-[#5C1420] font-semibold hover:text-[#3D0D14]">{uploadingMenuItem ? "⏳ Mengupload..." : m.foto_url ? "📷 Ganti Foto" : "📷 Upload Foto"}</span>
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMenuItemPhoto(m.Id, f); }} />
                   </label>
                   <div className="flex gap-2 pt-2">
-                    <button onClick={() => openManageMenuItem(m)} className="flex-1 py-2 rounded-xl border-2 border-[#C8973E]/30 text-[#C8973E] text-xs font-bold hover:bg-[#C8973E]/5">Kelola Varian/Add-on</button>
+                    <button onClick={() => openManageMenuItem(m)} className="flex-1 py-2 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-xs font-bold hover:bg-[#5C1420]/5">Kelola Varian/Add-on</button>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => toggleMenuItemAktif(m)} className={`flex-1 py-2 rounded-xl border-2 text-xs font-bold transition-all ${m.aktif ? "border-[#E8DCC8] text-[#8B7355] hover:bg-[#FDF6EC]" : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"}`}>{m.aktif ? "Nonaktifkan" : "Aktifkan"}</button>
-                    <button onClick={() => openMenuItemForm(m)} className="flex-1 py-2 rounded-xl border-2 border-[#C8973E]/30 text-[#C8973E] text-xs font-bold hover:bg-[#C8973E]/5">Edit</button>
+                    <button onClick={() => toggleMenuItemAktif(m)} className={`flex-1 py-2 rounded-xl border-2 text-xs font-bold transition-all ${m.aktif ? "border-[#E5DDD4] text-[#9A8B7A] hover:bg-[#F9F6F2]" : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"}`}>{m.aktif ? "Nonaktifkan" : "Aktifkan"}</button>
+                    <button onClick={() => openMenuItemForm(m)} className="flex-1 py-2 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-xs font-bold hover:bg-[#5C1420]/5">Edit</button>
                     <button onClick={() => deleteMenuItem(m.Id)} className="py-2 px-3 rounded-xl border-2 border-red-200 text-red-400 text-xs hover:bg-red-50">🗑</button>
                   </div>
                 </div>
               </div>
             ))}
             {menuItemList.filter((m) => m.kategori_id === drillKategori.Id).length === 0 && (
-              <p className="text-[#8B7355] col-span-full text-center py-10">Belum ada menu. Klik &quot;+ Tambah Menu&quot;.</p>
+              <p className="text-[#9A8B7A] col-span-full text-center py-10">Belum ada menu. Klik &quot;+ Tambah Menu&quot;.</p>
             )}
           </div>
         </>)}
@@ -1138,21 +1488,21 @@ export default function AdminDashboard() {
         {tab === "admin" && isSuper && (<>
           <div className="flex justify-between items-center mb-8">
             <div>
-              <h2 className="text-xl font-bold text-[#5C3D1A] font-serif">Kelola Admin</h2>
-              <p className="text-[#8B7355] text-sm mt-1">Setiap staf punya akun sendiri. Beberapa orang boleh pegang outlet yang sama.</p>
+              <h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Kelola Admin</h2>
+              <p className="text-[#9A8B7A] text-sm mt-1">Setiap staf punya akun sendiri. Beberapa orang boleh pegang outlet yang sama.</p>
             </div>
-            <button onClick={() => openAdminForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold shadow-lg shadow-[#C8973E]/20 active:scale-[0.98]">+ Tambah Admin</button>
+            <button onClick={() => openAdminForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-lg shadow-[#5C1420]/20 active:scale-[0.98]">+ Tambah Admin</button>
           </div>
 
           {showAdminForm && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-              <div className="bg-white border-2 border-[#C8973E]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
-                <div><h3 className="text-xl font-bold text-[#5C3D1A] font-serif">{editAdmin ? "Edit Admin" : "Admin Baru"}</h3><div className="w-12 h-0.5 bg-[#C8973E] mt-2" /></div>
+              <div className="bg-white border-2 border-[#5C1420]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div><h3 className="text-xl font-bold text-[#3D2E1E] font-serif">{editAdmin ? "Edit Admin" : "Admin Baru"}</h3><div className="w-12 h-0.5 bg-[#5C1420] mt-2" /></div>
                 <div><label className={labelClass}>Nama Lengkap</label><input value={auNama} onChange={(e) => setAuNama(e.target.value)} placeholder="Contoh: Budi Santoso" className={inputClass} /></div>
                 <div>
                   <label className={labelClass}>Email</label>
                   <input type="email" value={auEmail} onChange={(e) => setAuEmail(e.target.value)} disabled={!!editAdmin} placeholder="budi@yassalam.com" className={inputClass + (editAdmin ? " opacity-60 cursor-not-allowed" : "")} />
-                  {editAdmin && <p className="text-[10px] text-[#B8A88A] mt-1.5">Email tidak bisa diubah</p>}
+                  {editAdmin && <p className="text-[10px] text-[#B5A999] mt-1.5">Email tidak bisa diubah</p>}
                 </div>
                 <div>
                   <label className={labelClass}>{editAdmin ? "Password Baru (opsional)" : "Password"}</label>
@@ -1173,36 +1523,36 @@ export default function AdminDashboard() {
                     </select>
                   </div>
                 )}
-                <p className="text-xs text-[#B8A88A]">Super Admin bisa mengakses semua outlet dan mengelola admin lain.</p>
+                <p className="text-xs text-[#B5A999]">Super Admin bisa mengakses semua outlet dan mengelola admin lain.</p>
                 <div className="flex gap-3 pt-3">
-                  <button onClick={() => setShowAdminForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC]">Batal</button>
-                  <button onClick={saveAdmin} disabled={savingAdmin} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold disabled:opacity-50">{savingAdmin ? "Menyimpan..." : "Simpan"}</button>
+                  <button onClick={() => setShowAdminForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Batal</button>
+                  <button onClick={saveAdmin} disabled={savingAdmin} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold disabled:opacity-50">{savingAdmin ? "Menyimpan..." : "Simpan"}</button>
                 </div>
               </div>
             </div>
           )}
 
-          {loadingAdmin ? <p className="text-center text-[#B8A88A] py-16">Memuat data admin...</p> : adminList.length === 0 ? <p className="text-center text-[#B8A88A] py-16">Belum ada admin terdaftar.</p> : (
+          {loadingAdmin ? <p className="text-center text-[#B5A999] py-16">Memuat data admin...</p> : adminList.length === 0 ? <p className="text-center text-[#B5A999] py-16">Belum ada admin terdaftar.</p> : (
             <div className="space-y-3">
               {adminList.map((a) => (
-                <div key={a.id} className={`bg-white border-2 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${a.aktif ? "border-[#E8DCC8] hover:border-[#C8973E]/30" : "border-gray-200 opacity-60"}`}>
+                <div key={a.id} className={`bg-white border-2 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${a.aktif ? "border-[#E5DDD4] hover:border-[#5C1420]/30" : "border-gray-200 opacity-60"}`}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-bold text-[#5C3D1A] text-lg font-serif">{a.nama || "(tanpa nama)"}</h3>
+                      <h3 className="font-bold text-[#3D2E1E] text-lg font-serif">{a.nama || "(tanpa nama)"}</h3>
                       {a.role === "superadmin" ? (
-                        <span className="bg-[#C8973E]/15 text-[#C8973E] border-2 border-[#C8973E]/30 text-[10px] px-2.5 py-0.5 rounded-full font-bold tracking-wider uppercase">★ Super Admin</span>
+                        <span className="bg-[#5C1420]/15 text-[#5C1420] border-2 border-[#5C1420]/30 text-[10px] px-2.5 py-0.5 rounded-full font-bold tracking-wider uppercase">★ Super Admin</span>
                       ) : (
-                        <span className="bg-[#FDF6EC] text-[#8B7355] border-2 border-[#E8DCC8] text-[10px] px-2.5 py-0.5 rounded-full font-bold tracking-wider uppercase">{a.outlet === "solo" ? "Solo" : "Yogyakarta"}</span>
+                        <span className="bg-[#F9F6F2] text-[#9A8B7A] border-2 border-[#E5DDD4] text-[10px] px-2.5 py-0.5 rounded-full font-bold tracking-wider uppercase">{a.outlet === "solo" ? "Solo" : "Yogyakarta"}</span>
                       )}
                       {!a.aktif && <span className="bg-gray-50 text-gray-400 border-2 border-gray-200 text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase">Nonaktif</span>}
-                      {a.id === session.user.id && <span className="text-[10px] text-[#C8973E] font-bold">(Anda)</span>}
+                      {a.id === session.user.id && <span className="text-[10px] text-[#5C1420] font-bold">(Anda)</span>}
                     </div>
-                    <p className="text-sm text-[#8B7355] mt-1 truncate">📧 {a.email}</p>
+                    <p className="text-sm text-[#9A8B7A] mt-1 truncate">📧 {a.email}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button onClick={() => openAdminForm(a)} className="px-4 py-2 rounded-xl border-2 border-[#C8973E]/30 text-[#C8973E] text-sm font-bold hover:bg-[#C8973E]/5">Edit</button>
+                    <button onClick={() => openAdminForm(a)} className="px-4 py-2 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-bold hover:bg-[#5C1420]/5">Edit</button>
                     {a.id !== session.user.id && (<>
-                      <button onClick={() => toggleAdminAktif(a)} className={`px-4 py-2 rounded-xl border-2 text-sm font-bold ${a.aktif ? "border-[#E8DCC8] text-[#8B7355] hover:bg-[#FDF6EC]" : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"}`}>{a.aktif ? "Nonaktifkan" : "Aktifkan"}</button>
+                      <button onClick={() => toggleAdminAktif(a)} className={`px-4 py-2 rounded-xl border-2 text-sm font-bold ${a.aktif ? "border-[#E5DDD4] text-[#9A8B7A] hover:bg-[#F9F6F2]" : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"}`}>{a.aktif ? "Nonaktifkan" : "Aktifkan"}</button>
                       <button onClick={() => deleteAdmin(a)} className="px-3 py-2 rounded-xl border-2 border-red-200 text-red-400 text-sm hover:bg-red-50">🗑</button>
                     </>)}
                   </div>
@@ -1214,12 +1564,13 @@ export default function AdminDashboard() {
       </div>
 
       {/* Footer */}
-      <div className="border-t-2 border-[#E8DCC8] mt-8">
-        <div className="max-w-6xl mx-auto px-6 py-4 text-center">
-          <p className="text-[#C8973E]/40 text-xs">━━ ✦ ━━</p>
-          <p className="text-[#B8A88A] text-xs mt-2">© 2026 Yassalam Arabian Resto &amp; Catering</p>
+      <div className="border-t border-[#E5DDD4] mt-8">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 text-center">
+          <p className="text-[#9A8B7A]/40 text-xs">━━ ✦ ━━</p>
+          <p className="text-[#B5A999] text-xs mt-2">© 2026 Yassalam Arabian Resto &amp; Catering</p>
         </div>
       </div>
+      </main>
     </div>
   );
 }
