@@ -170,14 +170,14 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
             </div>
           )}
           <div>
-            <label className="block text-[10px] font-bold text-[#5C1420] mb-2 tracking-[0.2em] uppercase">Email</label>
+            <label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Email</label>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="admin@yassalam.com"
-              className="w-full px-4 py-3 rounded-xl border border-[#5C1420]/30 bg-[#5C1420] text-white text-sm placeholder-[#5C1420]/30 outline-none focus:border-[#5C1420] transition-all" />
+              className="w-full px-4 py-3 rounded-xl border border-white/20 bg-[#2A0A0F] text-white text-sm placeholder-white/30 outline-none focus:border-[#C8973E] transition-all" />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-[#5C1420] mb-2 tracking-[0.2em] uppercase">Password</label>
+            <label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Password</label>
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••"
-              className="w-full px-4 py-3 rounded-xl border border-[#5C1420]/30 bg-[#5C1420] text-white text-sm placeholder-[#5C1420]/30 outline-none focus:border-[#5C1420] transition-all" />
+              className="w-full px-4 py-3 rounded-xl border border-white/20 bg-[#2A0A0F] text-white text-sm placeholder-white/30 outline-none focus:border-[#C8973E] transition-all" />
           </div>
           <button type="submit" disabled={loading}
             className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold text-sm shadow-lg shadow-[#5C1420]/20 disabled:opacity-50 transition-all active:scale-[0.98]">
