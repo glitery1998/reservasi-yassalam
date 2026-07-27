@@ -54,6 +54,10 @@ type MenuAddon = {
   Id: number; menu_id: number; nama: string; harga_tambahan: number;
   urutan: number; aktif: boolean;
 };
+type ActivityLogT = {
+  Id: number; created_at: string; admin_email: string | null; admin_nama: string | null;
+  action: string; detail: string | null;
+};
 type AdminUser = {
   id: string; email: string; nama: string | null;
   role: string; outlet: string | null; aktif: boolean; created_at: string;
@@ -196,11 +200,12 @@ export default function AdminDashboard() {
   const isSuper = myRole === "superadmin";
   const lockedOutlet = isSuper ? null : myOutlet;
 
+  const [myNama, setMyNama] = useState<string | null>(null);
   const loadProfile = useCallback(async (userId: string) => {
     const { data } = await supabase.from("AdminProfile")
-      .select("role, outlet, aktif").eq("id", userId).maybeSingle();
+      .select("role, outlet, aktif, nama").eq("id", userId).maybeSingle();
     if (!data || !data.aktif) { setProfileError(true); setMyRole(null); setMyOutlet(null); return; }
-    setProfileError(false); setMyRole(data.role); setMyOutlet(data.outlet);
+    setProfileError(false); setMyRole(data.role); setMyOutlet(data.outlet); setMyNama(data.nama);
   }, []);
 
   useEffect(() => {
@@ -222,7 +227,7 @@ export default function AdminDashboard() {
     setSession(null);
   }
 
-  const [tab, setTab] = useState<"reservasi" | "kalender" | "area" | "gabungan" | "menu" | "laporan" | "admin">("reservasi");
+  const [tab, setTab] = useState<"reservasi" | "kalender" | "area" | "gabungan" | "menu" | "laporan" | "admin" | "log">("reservasi");
   const [kalSubTab, setKalSubTab] = useState<"harian" | "cari">("harian");
   const [drillArea, setDrillArea] = useState<Area | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -231,6 +236,8 @@ export default function AdminDashboard() {
   const [gabunganList, setGabunganList] = useState<MejaGabungan[]>([]);
   const [filterOutlet, setFilterOutlet] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 15;
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDate, setFilterDate] = useState("");
   const [showReservasiForm, setShowReservasiForm] = useState(false);
@@ -326,6 +333,11 @@ export default function AdminDashboard() {
   const [adNama, setAdNama] = useState("");
   const [adHarga, setAdHarga] = useState("");
 
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    setCurrentPage(1);
+  }, [filterOutlet, filterStatus, filterDate, searchQuery]);
+
   const fetchReservations = useCallback(async () => {
     setLoading(true);
     let q = supabase.from("Reservation").select("*")
@@ -345,7 +357,6 @@ export default function AdminDashboard() {
   const [kalReservations, setKalReservations] = useState<Reservation[]>([]);
   const [kalHolds, setKalHolds] = useState<BookingHold[]>([]);
   const [loadingKalender, setLoadingKalender] = useState(false);
-  const [showCariMeja, setShowCariMeja] = useState(false);
   const [cariJumlahTamu, setCariJumlahTamu] = useState("2");
   const [cariJamMulai, setCariJamMulai] = useState("");
   const [cariDariTanggal, setCariDariTanggal] = useState(() => new Date().toISOString().split("T")[0]);
@@ -475,6 +486,15 @@ export default function AdminDashboard() {
     setLoadingLaporan(false);
   }, [lapDari, lapSampai, lapOutlet, lockedOutlet]);
 
+  const [activityLog, setActivityLog] = useState<ActivityLogT[]>([]);
+  const [loadingLog, setLoadingLog] = useState(false);
+  const fetchActivityLog = useCallback(async () => {
+    setLoadingLog(true);
+    const { data } = await supabase.from("ActivityLog").select("*").order("created_at", { ascending: false }).limit(200);
+    setActivityLog(data || []);
+    setLoadingLog(false);
+  }, []);
+
   const fetchAdminList = useCallback(async () => {
     setLoadingAdmin(true);
     const { data: { session: s } } = await supabase.auth.getSession();
@@ -497,6 +517,20 @@ export default function AdminDashboard() {
     alert("Pengaturan disimpan.");
   }
 
+  const [customerHistoryMap, setCustomerHistoryMap] = useState<Record<string, { total: number; noShow: number; completed: number }>>({});
+  const fetchCustomerHistory = useCallback(async () => {
+    const { data } = await supabase.from("Reservation").select("no_whatsapp, status");
+    const map: Record<string, { total: number; noShow: number; completed: number }> = {};
+    (data || []).forEach((r: { no_whatsapp: string; status: string }) => {
+      const key = normalizeWhatsapp(r.no_whatsapp);
+      if (!map[key]) map[key] = { total: 0, noShow: 0, completed: 0 };
+      map[key].total += 1;
+      if (r.status === "No-Show") map[key].noShow += 1;
+      if (r.status === "Completed") map[key].completed += 1;
+    });
+    setCustomerHistoryMap(map);
+  }, []);
+
   const fetchAllMenuLookups = useCallback(async () => {
     const { data: mi } = await supabase.from("MenuPaket").select("*");
     setAllMenuItems(mi || []);
@@ -508,15 +542,16 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
-    if (tab === "reservasi") { void fetchReservations(); void fetchAllMenuLookups(); void fetchTables(); void fetchCutoffSetting(); }
+    if (tab === "reservasi") { void fetchReservations(); void fetchAllMenuLookups(); void fetchTables(); void fetchCutoffSetting(); void fetchCustomerHistory(); }
     if (tab === "kalender") { void fetchKalenderData(); void fetchTables(); void fetchAreas(); void fetchGabungan(); }
     if (tab === "area") { void fetchAreas(); void fetchTables(); }
     if (tab === "gabungan") { void fetchGabungan(); void fetchTables(); }
     if (tab === "menu") { void fetchMenuKategori(); void fetchMenuItems(); }
     if (tab === "laporan") { void fetchLaporan(); }
     if (tab === "admin") { void fetchAdminList(); }
+    if (tab === "log") { void fetchActivityLog(); }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [tab, fetchReservations, fetchKalenderData, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList, fetchLaporan]);
+  }, [tab, fetchReservations, fetchKalenderData, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList, fetchLaporan, fetchActivityLog, fetchCustomerHistory]);
 
   // ===== REALTIME: reservasi baru otomatis muncul + notifikasi =====
   const notifAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -550,11 +585,14 @@ export default function AdminDashboard() {
     source.start(0);
   }
 
-  // ===== SOUND: klik otomatis di SEMUA tombol dashboard =====
+  // ===== SOUND: klik otomatis di SEMUA tombol & elemen interaktif dashboard =====
   useEffect(() => {
     function handleGlobalClick(e: MouseEvent) {
-      const target = (e.target as HTMLElement)?.closest("button");
-      if (target && !target.disabled) playClick();
+      const el = e.target as HTMLElement;
+      const clickable = el?.closest('button, [role="button"], input[type="date"], input[type="time"], select, summary') as (HTMLButtonElement | HTMLInputElement | HTMLSelectElement | null);
+      if (!clickable) return;
+      if ("disabled" in clickable && clickable.disabled) return;
+      playClick();
     }
     document.addEventListener("click", handleGlobalClick, true);
     return () => document.removeEventListener("click", handleGlobalClick, true);
@@ -667,8 +705,27 @@ export default function AdminDashboard() {
     return () => { supabase.removeChannel(channel); };
   }, [tab]);
 
-  async function updateStatus(id: number, s: string) { await supabase.from("Reservation").update({ status: s }).eq("Id", id); fetchReservations(); }
-  async function tandaiHadir(id: number) { await supabase.from("Reservation").update({ checked_in_at: new Date().toISOString() }).eq("Id", id); fetchReservations(); }
+  async function logActivity(action: string, detail?: string) {
+    await supabase.from("ActivityLog").insert({
+      admin_email: session?.user?.email || null,
+      admin_nama: myNama,
+      action,
+      detail: detail || null,
+    });
+  }
+
+  async function updateStatus(id: number, s: string) {
+    const r = reservationsRef.current.find((x) => x.Id === id);
+    await supabase.from("Reservation").update({ status: s }).eq("Id", id);
+    if (r) logActivity("Ubah status reservasi", `${r.nama_tamu} (${r.tanggal} ${formatJam(r.jam)}) → ${s}`);
+    fetchReservations();
+  }
+  async function tandaiHadir(id: number) {
+    const r = reservationsRef.current.find((x) => x.Id === id);
+    await supabase.from("Reservation").update({ checked_in_at: new Date().toISOString() }).eq("Id", id);
+    if (r) logActivity("Tandai hadir", `${r.nama_tamu} (${r.tanggal} ${formatJam(r.jam)})`);
+    fetchReservations();
+  }
 
   function openReservasiForm(existing?: Reservation) {
     if (existing) {
@@ -748,6 +805,7 @@ export default function AdminDashboard() {
       : await supabase.from("Reservation").insert({ ...p, menu_finalized: false });
     setSavingReservasi(false);
     if (error) { alert("Gagal simpan: " + error.message); return; }
+    logActivity(editingReservasiId ? "Edit reservasi" : "Tambah reservasi manual", `${rNama} · ${rTanggal} ${rJam}`);
     setShowReservasiForm(false);
     setEditingReservasiId(null);
     fetchReservations();
@@ -951,6 +1009,7 @@ export default function AdminDashboard() {
     const json = await res.json();
     setSavingAdmin(false);
     if (!res.ok) { alert("Gagal: " + json.error); return; }
+    logActivity(editAdmin ? "Edit admin" : "Tambah admin", `${auNama} (${auEmail}) · role: ${auRole}`);
     setShowAdminForm(false); fetchAdminList();
   }
 
@@ -958,6 +1017,7 @@ export default function AdminDashboard() {
     const res = await authFetch("/api/admin-users", { method: "PATCH", body: JSON.stringify({ id: a.id, aktif: !a.aktif }) });
     const json = await res.json();
     if (!res.ok) { alert("Gagal: " + json.error); return; }
+    logActivity(a.aktif ? "Nonaktifkan admin" : "Aktifkan admin", a.nama || a.email);
     fetchAdminList();
   }
 
@@ -966,9 +1026,9 @@ export default function AdminDashboard() {
     const res = await authFetch(`/api/admin-users?id=${a.id}`, { method: "DELETE" });
     const json = await res.json();
     if (!res.ok) { alert("Gagal: " + json.error); return; }
+    logActivity("Hapus admin", a.nama || a.email);
     fetchAdminList();
   }
-
   const stats = { total: reservations.length, pending: reservations.filter((r) => r.status === "Pending").length, confirmed: reservations.filter((r) => r.status === "Confirmed").length, completed: reservations.filter((r) => r.status === "Completed").length, noshow: reservations.filter((r) => r.status === "No-Show").length, cancelled: reservations.filter((r) => r.status === "Cancelled").length };
   const statusStyle: Record<string, string> = { Pending: "bg-amber-50 text-amber-700 border-amber-200", Confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200", Completed: "bg-blue-50 text-blue-700 border-blue-200", Cancelled: "bg-red-50 text-red-600 border-red-200", "No-Show": "bg-orange-50 text-orange-700 border-orange-300" };
 
@@ -1004,7 +1064,7 @@ export default function AdminDashboard() {
     { key: "gabungan", label: "Gabungan", icon: "🔗" },
     { key: "menu", label: "Menu", icon: "🍽" },
     { key: "laporan", label: "Laporan", icon: "📈" },
-    ...(isSuper ? [{ key: "admin", label: "Kelola Admin", icon: "👤" }] : []),
+    ...(isSuper ? [{ key: "admin", label: "Kelola Admin", icon: "👤" }, { key: "log", label: "Log Aktivitas", icon: "🕘" }] : []),
   ];
 
   return (
@@ -1243,11 +1303,15 @@ export default function AdminDashboard() {
             const filteredReservations = q
               ? reservations.filter((r) => r.nama_tamu.toLowerCase().includes(q) || r.no_whatsapp.includes(q))
               : reservations;
+            const totalPages = Math.max(1, Math.ceil(filteredReservations.length / PAGE_SIZE));
+            const pageSafe = Math.min(currentPage, totalPages);
+            const paginatedReservations = filteredReservations.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
             return loading ? <p className="text-center text-[#B5A999] py-16">Memuat data...</p> : filteredReservations.length === 0 ? (
               <p className="text-center text-[#B5A999] py-16">{q ? `Tidak ada reservasi dengan kata kunci "${searchQuery}"` : "Tidak ada reservasi"}</p>
             ) : (
+            <>
             <div className="space-y-4">
-              {filteredReservations.map((r) => (
+              {paginatedReservations.map((r) => (
                 <div key={r.Id} className="bg-white border border-[#E5DDD4] rounded-2xl overflow-hidden hover:shadow-lg hover:shadow-[#5C1420]/5 transition-all">
                   <div className="flex flex-col lg:flex-row">
                     <div className="flex-1 p-6">
@@ -1258,6 +1322,18 @@ export default function AdminDashboard() {
                             {r.share_token && reservations.filter((x) => x.share_token === r.share_token).length > 1 && (
                               <span className="bg-[#5C1420]/10 text-[#5C1420] text-[10px] px-2 py-0.5 rounded-full font-bold border border-[#5C1420]/20">Gabungan {reservations.filter((x) => x.share_token === r.share_token).length} meja</span>
                             )}
+                            {(() => {
+                              const hist = customerHistoryMap[normalizeWhatsapp(r.no_whatsapp)];
+                              if (!hist || hist.total <= 1) return null;
+                              return (
+                                <>
+                                  <span className="bg-purple-50 text-purple-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-purple-200">👤 Pelanggan Lama · {hist.total}x</span>
+                                  {hist.noShow > 0 && (
+                                    <span className="bg-orange-50 text-orange-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-orange-200">⚠ {hist.noShow}x No-Show</span>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                           <p className="text-xs text-[#9A8B7A] tracking-wide uppercase mt-1 capitalize">{r.outlet} · {r.tanggal}</p>
                         </div>
@@ -1377,6 +1453,20 @@ export default function AdminDashboard() {
                 </div>
               ))}
             </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 mt-6">
+                <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={pageSafe === 1}
+                  className="px-3 py-2 rounded-xl border-2 border-[#E5DDD4] text-[#5C1420] text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#F9F6F2]">← Sebelumnya</button>
+                <span className="text-sm text-[#9A8B7A] px-3">
+                  Halaman <span className="font-bold text-[#3D2E1E]">{pageSafe}</span> dari <span className="font-bold text-[#3D2E1E]">{totalPages}</span>
+                  <span className="hidden sm:inline"> · {filteredReservations.length} total reservasi</span>
+                </span>
+                <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={pageSafe === totalPages}
+                  className="px-3 py-2 rounded-xl border-2 border-[#E5DDD4] text-[#5C1420] text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#F9F6F2]">Selanjutnya →</button>
+              </div>
+            )}
+            </>
             );
           })()}
         </>)}
@@ -1629,8 +1719,6 @@ export default function AdminDashboard() {
                                   }
 
                                   const bStart = timeToMinutes(booking.jam);
-                                  const bParsedEnd = booking.jam_selesai ? timeToMinutes(booking.jam_selesai) : 0;
-                                  const bEnd = bParsedEnd > bStart ? bParsedEnd : bStart + 120;
                                   const isFirst = bStart >= cellStart && bStart < cellEnd;
                                   const isPending = booking.status === "Pending";
                                   const bgColor = isPending ? "bg-amber-400" : "bg-[#5C1420]";
@@ -2052,6 +2140,41 @@ export default function AdminDashboard() {
           const perOutlet: Record<string, number> = {};
           lapReservasi.forEach((r) => { perOutlet[r.outlet] = (perOutlet[r.outlet] || 0) + 1; });
 
+          type Kecurigaan = { phone: string; nama: string; type: "duplicate" | "burst"; items: Reservation[] };
+          const suspicious: Kecurigaan[] = [];
+          const phoneGroups: Record<string, Reservation[]> = {};
+          lapReservasi.forEach((r) => {
+            const key = normalizeWhatsapp(r.no_whatsapp);
+            if (!phoneGroups[key]) phoneGroups[key] = [];
+            phoneGroups[key].push(r);
+          });
+          Object.entries(phoneGroups).forEach(([phone, items]) => {
+            if (items.length < 2) return;
+
+            const dupMap: Record<string, Reservation[]> = {};
+            items.forEach((r) => {
+              const k = `${r.tanggal}_${r.jam}`;
+              if (!dupMap[k]) dupMap[k] = [];
+              dupMap[k].push(r);
+            });
+            Object.values(dupMap).forEach((grp) => {
+              if (grp.length > 1) suspicious.push({ phone, nama: grp[0].nama_tamu, type: "duplicate", items: grp });
+            });
+
+            const sorted = [...items].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+            let burst: Reservation[] = [sorted[0]];
+            for (let i = 1; i < sorted.length; i++) {
+              const diffMin = (new Date(sorted[i].created_at).getTime() - new Date(sorted[i - 1].created_at).getTime()) / 60000;
+              if (diffMin <= 10) {
+                burst.push(sorted[i]);
+              } else {
+                if (burst.length >= 3) suspicious.push({ phone, nama: burst[0].nama_tamu, type: "burst", items: burst });
+                burst = [sorted[i]];
+              }
+            }
+            if (burst.length >= 3) suspicious.push({ phone, nama: burst[0].nama_tamu, type: "burst", items: burst });
+          });
+
           return (
             <>
               <div className="flex justify-between items-center mb-6 flex-wrap gap-3">
@@ -2151,6 +2274,34 @@ export default function AdminDashboard() {
                       )}
                     </div>
                   </div>
+
+                  <div className="bg-white border border-[#E5DDD4] rounded-xl p-5 mt-4">
+                    <p className="text-sm font-bold text-[#3D2E1E] mb-1">⚠ Deteksi Nomor WA Duplikat / Spam</p>
+                    <p className="text-xs text-[#9A8B7A] mb-4">Nomor yang booking di jam sama berkali-kali, atau bikin banyak reservasi dalam waktu singkat</p>
+                    {suspicious.length === 0 ? (
+                      <p className="text-sm text-emerald-600">✓ Tidak ada pola mencurigakan pada periode ini.</p>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {suspicious.map((s, idx) => (
+                          <div key={idx} className={`rounded-xl border p-3 ${s.type === "duplicate" ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <p className="text-sm font-bold text-[#3D2E1E]">
+                                {s.type === "duplicate" ? "🔁 Duplikat" : "⚡ Burst"} · {s.nama} <span className="text-[#9A8B7A] font-normal">({s.phone})</span>
+                              </p>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${s.type === "duplicate" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{s.items.length}x</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {s.items.map((it) => (
+                                <span key={it.Id} className="text-[10px] bg-white border border-[#E5DDD4] px-2 py-1 rounded-full text-[#5C1420]">
+                                  {it.tanggal} {formatJam(it.jam)}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
             </>
@@ -2234,6 +2385,27 @@ export default function AdminDashboard() {
             </div>
           )}
         </>)}
+
+        {/* ========== TAB LOG AKTIVITAS ========== */}
+        {tab === "log" && isSuper && (
+          <>
+            <div className="mb-6"><h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Log Aktivitas Admin</h2><p className="text-[#9A8B7A] text-sm mt-1">Riwayat 200 aksi terakhir yang dilakukan admin di dashboard</p></div>
+            {loadingLog ? <p className="text-center text-[#B5A999] py-16">Memuat log...</p> : activityLog.length === 0 ? <p className="text-center text-[#B5A999] py-16">Belum ada aktivitas tercatat.</p> : (
+              <div className="bg-white border border-[#E5DDD4] rounded-xl divide-y divide-[#E5DDD4] overflow-hidden">
+                {activityLog.map((log) => (
+                  <div key={log.Id} className="p-4 flex items-start justify-between gap-4 hover:bg-[#FEFCF8]">
+                    <div>
+                      <p className="text-sm font-bold text-[#3D2E1E]">{log.action}</p>
+                      {log.detail && <p className="text-xs text-[#9A8B7A] mt-0.5">{log.detail}</p>}
+                      <p className="text-[10px] text-[#B5A999] mt-1">oleh {log.admin_nama || log.admin_email || "Unknown"}</p>
+                    </div>
+                    <p className="text-[10px] text-[#B5A999] whitespace-nowrap">{new Date(log.created_at).toLocaleString("id-ID")}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* Footer */}
