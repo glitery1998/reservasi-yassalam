@@ -153,43 +153,50 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#5C1420] flex items-center justify-center px-6 relative overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#5C1420] to-transparent" />
-      <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 10L50 25H30L40 10ZM40 70L30 55H50L40 70ZM10 40L25 30V50L10 40ZM70 40L55 50V30L70 40Z' fill='%23C8973E'/%3E%3C/svg%3E\")", backgroundSize: "80px 80px" }} />
-      <div className="relative w-full max-w-sm">
-        <div className="text-center mb-8">
-          <Image src="/logo.PNG" alt="Yassalam" width={80} height={80} className="mx-auto drop-shadow-2xl" />
-          <p className="text-[#5C1420]/40 mt-4 text-xs tracking-[0.4em]">━━ ✦ ━━</p>
-          <h1 className="text-2xl font-bold text-white font-serif mt-3">Admin Login</h1>
-          <p className="text-[#5C1420]/60 text-sm mt-1">Yassalam Arabian Resto</p>
+    <div className="min-h-screen bg-[#FEFCF8] flex items-center justify-center p-4 sm:p-6">
+      <div className="w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row">
+        {/* Panel kiri — branding */}
+        <div className="md:flex-1 bg-[#3D0D14] flex flex-col items-center justify-center text-center px-8 py-12 md:py-0">
+          <Image src="/logo.PNG" alt="Yassalam" width={72} height={72} className="mb-5" />
+          <p className="font-serif text-2xl text-[#F5EBD8] tracking-[0.2em]">YASSALAM</p>
+          <p className="text-[10px] text-[#C8973E] tracking-[0.3em] uppercase mt-1.5">Arabian Resto &amp; Catering</p>
+          <div className="w-8 h-px bg-[#C8973E] my-6" />
+          <p className="text-sm text-[#B89A85] max-w-[220px] leading-relaxed">Kelola reservasi dan operasional resto dari satu tempat.</p>
         </div>
-        <form onSubmit={handleLogin} className="bg-[#3D0D14] border border-[#5C1420]/20 rounded-2xl p-6 space-y-4 shadow-2xl">
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-red-400 text-sm text-center">
-              {error}
+
+        {/* Panel kanan — form login */}
+        <div className="md:flex-1 bg-white flex flex-col justify-center px-8 py-10 sm:px-12">
+          <h1 className="font-serif text-2xl text-[#3D2E1E] mb-1">Admin Login</h1>
+          <p className="text-sm text-[#9A8B7A] mb-7">Masuk untuk mengelola reservasi Yassalam.</p>
+
+          <form onSubmit={handleLogin} className="space-y-5">
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-600 text-sm text-center">
+                {error}
+              </div>
+            )}
+            <div>
+              <label className="block text-[11px] font-semibold text-[#9A8B7A] tracking-[0.1em] uppercase mb-1.5">Email</label>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="admin@yassalam.com"
+                className="w-full h-11 px-4 rounded-lg border border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] transition-all" />
             </div>
-          )}
-          <div>
-            <label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Email</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="admin@yassalam.com"
-              className="w-full px-4 py-3 rounded-xl border border-white/20 bg-[#2A0A0F] text-white text-sm placeholder-white/30 outline-none focus:border-[#C8973E] transition-all" />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-[#C8973E] mb-2 tracking-[0.2em] uppercase">Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••"
-              className="w-full px-4 py-3 rounded-xl border border-white/20 bg-[#2A0A0F] text-white text-sm placeholder-white/30 outline-none focus:border-[#C8973E] transition-all" />
-          </div>
-          <button type="submit" disabled={loading}
-            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold text-sm shadow-lg shadow-[#5C1420]/20 disabled:opacity-50 transition-all active:scale-[0.98]">
-            {loading ? "Memverifikasi..." : "Masuk"}
-          </button>
-        </form>
-        <p className="text-center text-[#5C1420]/20 text-xs mt-6">© 2026 Yassalam Arabian Resto & Catering</p>
+            <div>
+              <label className="block text-[11px] font-semibold text-[#9A8B7A] tracking-[0.1em] uppercase mb-1.5">Password</label>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••"
+                className="w-full h-11 px-4 rounded-lg border border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] transition-all" />
+            </div>
+            <button type="submit" disabled={loading}
+              className="w-full h-11 rounded-lg bg-[#5C1420] text-[#F5EBD8] text-sm font-semibold disabled:opacity-50 transition-all active:scale-[0.98]">
+              {loading ? "Memverifikasi..." : "Masuk"}
+            </button>
+          </form>
+
+          <p className="text-center text-[#C4B9AB] text-xs mt-8">© 2026 Yassalam Arabian Resto &amp; Catering</p>
+        </div>
       </div>
     </div>
   );
 }
-
 export default function AdminDashboard() {
   /* ========== AUTH STATE ========== */
   const [session, setSession] = useState<Session | null>(null);
@@ -197,10 +204,30 @@ export default function AdminDashboard() {
   const [myRole, setMyRole] = useState<string | null>(null);
   const [myOutlet, setMyOutlet] = useState<string | null>(null);
   const [profileError, setProfileError] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const hasSpokenRef = useRef(false);
+
+  useEffect(() => {
+    if (!showWelcome) return;
+    const t = setTimeout(() => setShowWelcome(false), 5000);
+    return () => clearTimeout(t);
+  }, [showWelcome]);
+
+  
   const isSuper = myRole === "superadmin";
   const lockedOutlet = isSuper ? null : myOutlet;
 
   const [myNama, setMyNama] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!showWelcome) { hasSpokenRef.current = false; return; }
+    if (hasSpokenRef.current) return;
+    hasSpokenRef.current = true;
+    const audio = new Audio("/ucapan.mp3");
+    audio.volume = 0.8;
+    audio.play().catch(() => {});
+  }, [showWelcome]);
+
   const loadProfile = useCallback(async (userId: string) => {
     const { data } = await supabase.from("AdminProfile")
       .select("role, outlet, aktif, nama").eq("id", userId).maybeSingle();
@@ -216,8 +243,11 @@ export default function AdminDashboard() {
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
       setSession(s);
-      if (s?.user) await loadProfile(s.user.id);
-      else { setMyRole(null); setMyOutlet(null); }
+      if (s?.user) {
+        await loadProfile(s.user.id);
+      } else {
+        setMyRole(null); setMyOutlet(null);
+      }
     });
     return () => subscription.unsubscribe();
   }, [loadProfile]);
@@ -583,6 +613,26 @@ export default function AdminDashboard() {
     gain.gain.value = 0.3;
     source.connect(gain).connect(ctx.destination);
     source.start(0);
+  }
+
+  function playWelcomeChime() {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    if (ctx.state === "suspended") ctx.resume();
+    const notes = [523.25, 659.25, 783.99];
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      const startTime = ctx.currentTime + i * 0.13;
+      gain.gain.setValueAtTime(0, startTime);
+      gain.gain.linearRampToValueAtTime(0.22, startTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.6);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(startTime);
+      osc.stop(startTime + 0.6);
+    });
   }
 
   // ===== SOUND: klik otomatis di SEMUA tombol & elemen interaktif dashboard =====
@@ -1045,7 +1095,11 @@ export default function AdminDashboard() {
       </div>
     </div>
   );
-  if (!session) return <LoginScreen onLogin={() => supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s))} />;
+  if (!session) return <LoginScreen onLogin={() => {
+    setShowWelcome(true);
+    playWelcomeChime();
+    supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
+  }} />;
   if (profileError) return (
     <div className="min-h-screen bg-[#5C1420] flex items-center justify-center px-6">
       <div className="text-center max-w-sm">
@@ -1069,6 +1123,32 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-[#F9F6F2] md:flex">
+      {showWelcome && (() => {
+        const jam = new Date().getHours();
+        const sapaan = jam < 11 ? "Selamat pagi" : jam < 15 ? "Selamat siang" : jam < 19 ? "Selamat sore" : "Selamat malam";
+        const namaTampil = myNama || session.user.email?.split("@")[0] || "Admin";
+        return (
+          <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center px-6">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
+              <div className="bg-[#3D0D14] px-8 py-8 text-center">
+                <Image src="/logo.PNG" alt="Yassalam" width={56} height={56} className="mx-auto mb-3" />
+                <div className="w-8 h-px bg-[#C8973E] mx-auto" />
+              </div>
+              <div className="px-8 py-7 text-center">
+                <p className="text-sm text-[#9A8B7A] mb-1">{sapaan},</p>
+                <h2 className="font-serif text-2xl text-[#3D2E1E] mb-2 capitalize">{namaTampil}</h2>
+                <p className="text-sm text-[#9A8B7A] mb-6">
+                  {isSuper ? "Selamat bekerja, Super Admin." : `Selamat bekerja, Admin ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}.`}
+                </p>
+                <button onClick={() => setShowWelcome(false)}
+                  className="w-full h-11 rounded-lg bg-[#5C1420] text-[#F5EBD8] text-sm font-semibold active:scale-[0.98] transition-all">
+                  Mulai Kerja
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* SIDEBAR — desktop: fixed left column, mobile: top bar with scrollable nav */}
       <aside className="md:w-[220px] md:shrink-0 bg-[#5C1420] md:h-screen md:sticky md:top-0 md:flex md:flex-col md:overflow-y-auto">
         {/* Logo bar */}
