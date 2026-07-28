@@ -53,3 +53,12 @@ button:not(:disabled) {
 .stf__block {
   background: transparent !important;
 }
+
+@keyframes guideFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@keyframes guideWave {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-18deg); }
+}

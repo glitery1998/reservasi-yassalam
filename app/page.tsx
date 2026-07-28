@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { supabase } from "./supabase";
 import dynamic from "next/dynamic";
 
@@ -73,11 +74,16 @@ function FloatingWA({ outlet }: { outlet: string }) {
   return (
     <a href={`https://wa.me/${wa}?text=Halo%20Yassalam%2C%20saya%20butuh%20bantuan%20reservasi`}
       target="_blank" rel="noopener noreferrer"
-      className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-[#25D366] hover:bg-[#1DA851] rounded-full flex items-center justify-center shadow-xl shadow-black/20 transition-all active:scale-95"
+      className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 group"
     >
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
-        <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2zm0 1.67c2.2 0 4.26.86 5.82 2.42a8.225 8.225 0 0 1 2.41 5.82c0 4.54-3.7 8.23-8.23 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32a8.188 8.188 0 0 1-1.25-4.37c0-4.53 3.7-8.24 8.23-8.24zm-3.13 4.5c-.16 0-.42.06-.65.31-.22.25-.85.83-.85 2.02 0 1.19.87 2.34 1 2.5.13.16 1.66 2.65 4.1 3.6 2.03.8 2.44.64 2.88.6.44-.04 1.42-.58 1.62-1.14.2-.56.2-1.03.14-1.14-.06-.11-.23-.17-.48-.3-.25-.13-1.48-.73-1.71-.81-.23-.08-.4-.12-.56.12-.16.24-.64.81-.79.98-.14.16-.29.18-.54.06-.25-.13-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.39-1.72-.14-.24-.02-.38.11-.5.11-.11.25-.29.37-.44.12-.14.16-.24.24-.4.08-.16.04-.31-.02-.44-.06-.13-.55-1.36-.77-1.85-.2-.48-.4-.42-.56-.42h-.5z"/>
-      </svg>
+      <span className="bg-white text-[#5C3D1A] text-sm font-semibold px-4 py-2.5 rounded-full shadow-lg shadow-black/10 whitespace-nowrap hidden sm:block group-hover:bg-[#FDF6EC] transition-all">
+        Butuh bantuan?
+      </span>
+      <span className="w-14 h-14 shrink-0 bg-[#25D366] hover:bg-[#1DA851] rounded-full flex items-center justify-center shadow-xl shadow-black/20 transition-all active:scale-95">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
+          <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2zm0 1.67c2.2 0 4.26.86 5.82 2.42a8.225 8.225 0 0 1 2.41 5.82c0 4.54-3.7 8.23-8.23 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32a8.188 8.188 0 0 1-1.25-4.37c0-4.53 3.7-8.24 8.23-8.24zm-3.13 4.5c-.16 0-.42.06-.65.31-.22.25-.85.83-.85 2.02 0 1.19.87 2.34 1 2.5.13.16 1.66 2.65 4.1 3.6 2.03.8 2.44.64 2.88.6.44-.04 1.42-.58 1.62-1.14.2-.56.2-1.03.14-1.14-.06-.11-.23-.17-.48-.3-.25-.13-1.48-.73-1.71-.81-.23-.08-.4-.12-.56.12-.16.24-.64.81-.79.98-.14.16-.29.18-.54.06-.25-.13-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.39-1.72-.14-.24-.02-.38.11-.5.11-.11.25-.29.37-.44.12-.14.16-.24.24-.4.08-.16.04-.31-.02-.44-.06-.13-.55-1.36-.77-1.85-.2-.48-.4-.42-.56-.42h-.5z"/>
+        </svg>
+      </span>
     </a>
   );
 }
@@ -262,10 +268,9 @@ function GabunganSlideshow({ photos }: { photos: { url: string; label: string }[
     </div>
   );
 }
-/* ========== HOME ========== */
-
 export default function Home() {
   const [showWelcome, setShowWelcome] = useState(true);
+  const [welcomeRestored, setWelcomeRestored] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -273,6 +278,23 @@ export default function Home() {
   const [errors, setErrors] = useState<string[]>([]);
 
   const [outlet, setOutlet] = useState("");
+
+  useEffect(() => {
+    const savedShowWelcome = sessionStorage.getItem("yassalam_show_welcome");
+    const savedOutlet = sessionStorage.getItem("yassalam_outlet");
+    if (savedShowWelcome === "false" && savedOutlet) {
+      /* eslint-disable-next-line react-hooks/set-state-in-effect */
+      setShowWelcome(false);
+      setOutlet(savedOutlet);
+    }
+    setWelcomeRestored(true);
+  }, []);
+
+  useEffect(() => {
+    if (!welcomeRestored) return;
+    sessionStorage.setItem("yassalam_show_welcome", String(showWelcome));
+    sessionStorage.setItem("yassalam_outlet", outlet);
+  }, [showWelcome, outlet, welcomeRestored]);
   const [tanggal, setTanggal] = useState("");
   const [jam, setJam] = useState("");
   const [jumlahTamu, setJumlahTamu] = useState("");
@@ -636,6 +658,19 @@ export default function Home() {
     "from-[#241a10] via-[#3a2818] to-[#150c05]",
   ];
   const [slideIndex, setSlideIndex] = useState(0);
+  const [slideRestored, setSlideRestored] = useState(false);
+
+ useEffect(() => {
+    const saved = sessionStorage.getItem("yassalam_slide_index");
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    if (saved) setSlideIndex(Number(saved));
+    setSlideRestored(true);
+  }, []);
+
+  useEffect(() => {
+    if (!slideRestored) return;
+    sessionStorage.setItem("yassalam_slide_index", String(slideIndex));
+  }, [slideIndex, slideRestored]);
 
   /* ===== WELCOME ===== */
   if (showWelcome) {
@@ -822,7 +857,7 @@ export default function Home() {
                     target="_blank" rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 w-full py-4 rounded-xl bg-[#25D366] hover:bg-[#1DA851] text-white font-bold text-sm transition-all active:scale-[0.98] shadow-lg"
                   >
-                    <span className="text-xl">📱</span>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2zm0 1.67c2.2 0 4.26.86 5.82 2.42a8.225 8.225 0 0 1 2.41 5.82c0 4.54-3.7 8.23-8.23 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32a8.188 8.188 0 0 1-1.25-4.37c0-4.53 3.7-8.24 8.23-8.24zm-3.13 4.5c-.16 0-.42.06-.65.31-.22.25-.85.83-.85 2.02 0 1.19.87 2.34 1 2.5.13.16 1.66 2.65 4.1 3.6 2.03.8 2.44.64 2.88.6.44-.04 1.42-.58 1.62-1.14.2-.56.2-1.03.14-1.14-.06-.11-.23-.17-.48-.3-.25-.13-1.48-.73-1.71-.81-.23-.08-.4-.12-.56.12-.16.24-.64.81-.79.98-.14.16-.29.18-.54.06-.25-.13-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.39-1.72-.14-.24-.02-.38.11-.5.11-.11.25-.29.37-.44.12-.14.16-.24.24-.4.08-.16.04-.31-.02-.44-.06-.13-.55-1.36-.77-1.85-.2-.48-.4-.42-.56-.42h-.5z"/></svg>
                     Hubungi Kami via WhatsApp
                   </a>
                   <button onClick={() => setShowBigGroupModal(false)}
@@ -1171,11 +1206,16 @@ export default function Home() {
           <p className="text-gray-400 mt-4 max-w-md mx-auto text-sm leading-relaxed animate-fadeInUp" style={{ animationDelay: "0.4s" }}>
             Nikmati cita rasa autentik Timur Tengah dalam suasana yang elegan. Reservasi meja Anda sekarang.
           </p>
-          <button onClick={startReservation}
-            className="mt-9 bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white px-10 py-4 rounded-xl font-bold text-lg transition-all active:scale-[0.98] shadow-xl shadow-[#C8973E]/20 tracking-wide animate-fadeInUp"
-            style={{ animationDelay: "0.5s" }}>
-            Reservasi Sekarang
-          </button>
+          <div className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-3 animate-fadeInUp" style={{ animationDelay: "0.5s" }}>
+            <button onClick={startReservation}
+              className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white px-10 py-4 rounded-xl font-bold text-lg transition-all active:scale-[0.98] shadow-xl shadow-[#C8973E]/20 tracking-wide">
+              Reservasi Sekarang
+            </button>
+            <Link href="/cek-reservasi"
+              className="px-10 py-4 rounded-xl border-2 border-[#C8973E]/40 text-[#C8973E] font-semibold text-lg transition-all active:scale-[0.98] hover:bg-[#C8973E]/10 tracking-wide">
+              Cek Reservasi Saya
+            </Link>
+          </div>
         </div>
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 animate-bounce z-10">
           <div className="w-6 h-10 border-2 border-[#C8973E]/30 rounded-full flex justify-center pt-2"><div className="w-1.5 h-3 bg-[#C8973E]/50 rounded-full" /></div>
@@ -1265,8 +1305,14 @@ export default function Home() {
               <div className="text-center md:text-left"><p className="text-[#C8973E] text-xs tracking-[0.25em] uppercase font-semibold">Jumat – Minggu</p><p className="text-4xl font-bold text-white font-serif mt-3">09:00 – 22:00</p></div>
             </div>
             <div className="mt-6 border-t border-[#C8973E]/15 pt-6 flex flex-col items-center md:items-start gap-3">
-              <a href="https://instagram.com/yassalamcatering" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2.5 text-sm text-[#C8973E] hover:text-[#D4A44A] font-semibold transition-colors">📷 @yassalamcatering</a>
-              <a href="https://tiktok.com/@yassalamresto" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2.5 text-sm text-[#C8973E] hover:text-[#D4A44A] font-semibold transition-colors">🎵 @yassalamresto</a>
+              <a href="https://instagram.com/yassalamcatering" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2.5 text-sm text-[#C8973E] hover:text-[#D4A44A] font-semibold transition-colors">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41-.56-.22-.96-.48-1.38-.9-.42-.42-.68-.82-.9-1.38-.16-.42-.36-1.06-.41-2.23-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41 1.27-.06 1.65-.07 4.85-.07zM12 0C8.74 0 8.33.01 7.05.07c-1.28.06-2.15.26-2.91.56-.79.31-1.46.72-2.13 1.38C1.35 2.67.94 3.34.63 4.13c-.3.76-.5 1.64-.56 2.91C0 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.15.56 2.91.31.79.72 1.46 1.38 2.13.66.66 1.33 1.07 2.12 1.38.76.3 1.64.5 2.91.56C8.33 24 8.74 24 12 24s3.67-.01 4.95-.07c1.27-.06 2.15-.26 2.91-.56.79-.31 1.46-.72 2.13-1.38.66-.66 1.07-1.33 1.38-2.12.3-.76.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.15-.56-2.91-.31-.79-.72-1.46-1.38-2.13C21.33 1.35 20.66.94 19.87.63c-.76-.3-1.64-.5-2.91-.56C15.67 0 15.26 0 12 0zm0 5.84A6.16 6.16 0 1 0 12 18.16 6.16 6.16 0 0 0 12 5.84zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.41-10.85a1.44 1.44 0 1 1-2.88 0 1.44 1.44 0 0 1 2.88 0z"/></svg>
+                @yassalamcatering
+              </a>
+              <a href="https://tiktok.com/@yassalamresto" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2.5 text-sm text-[#C8973E] hover:text-[#D4A44A] font-semibold transition-colors">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12.53.02C13.84 0 15.14.01 16.44 0c.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>
+                @yassalamresto
+              </a>
             </div>
           </div>
           <div>
@@ -1285,7 +1331,10 @@ export default function Home() {
                   <p className="text-gray-400 text-sm mt-1">{o.address}</p>
                   {o.active ? (
                     <>
-                      <a href={`https://wa.me/${o.wa}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#C8973E] mt-2 transition-colors">📱 WA {o.waLabel}</a>
+                      <a href={`https://wa.me/${o.wa}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#C8973E] mt-2 transition-colors">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2zm0 1.67c2.2 0 4.26.86 5.82 2.42a8.225 8.225 0 0 1 2.41 5.82c0 4.54-3.7 8.23-8.23 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32a8.188 8.188 0 0 1-1.25-4.37c0-4.53 3.7-8.24 8.23-8.24zm-3.13 4.5c-.16 0-.42.06-.65.31-.22.25-.85.83-.85 2.02 0 1.19.87 2.34 1 2.5.13.16 1.66 2.65 4.1 3.6 2.03.8 2.44.64 2.88.6.44-.04 1.42-.58 1.62-1.14.2-.56.2-1.03.14-1.14-.06-.11-.23-.17-.48-.3-.25-.13-1.48-.73-1.71-.81-.23-.08-.4-.12-.56.12-.16.24-.64.81-.79.98-.14.16-.29.18-.54.06-.25-.13-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.39-1.72-.14-.24-.02-.38.11-.5.11-.11.25-.29.37-.44.12-.14.16-.24.24-.4.08-.16.04-.31-.02-.44-.06-.13-.55-1.36-.77-1.85-.2-.48-.4-.42-.56-.42h-.5z"/></svg>
+                        WA {o.waLabel}
+                      </a>
                       <button onClick={() => { setOutlet(o.ov); startReservation(); }}
                         className="mt-3 bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-[0.98] w-full">
                         Reservasi di {o.city}
@@ -1308,6 +1357,7 @@ export default function Home() {
       </div>
 
       {/* AREA GALLERY MODAL */}
+      
       {selectedAreaModal && (() => {
         const idx = areasData.findIndex((a) => a.Id === selectedAreaModal.Id) % areaVisuals.length;
         const visual = areaVisuals[idx >= 0 ? idx : 0];
