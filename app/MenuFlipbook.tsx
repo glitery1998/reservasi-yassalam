@@ -1,5 +1,5 @@
 "use client";
-import { forwardRef, useState } from "react";
+import { forwardRef, useState, useRef, useEffect } from "react";
 import HTMLFlipBook from "react-pageflip";
 
 const TOTAL_PAGES = 19;
@@ -94,10 +94,36 @@ CoverPage.displayName = "CoverPage";
 export default function MenuFlipbook() {
   const pages = Array.from({ length: TOTAL_PAGES }, (_, i) => `/menu/menu-${String(i + 1).padStart(2, "0")}.jpg`);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const pageFlipBufferRef = useRef<AudioBuffer | null>(null);
+
+  useEffect(() => {
+    const ctx = new AudioContext();
+    audioCtxRef.current = ctx;
+    fetch("/page-flip.mp3")
+      .then((r) => r.arrayBuffer())
+      .then((buf) => ctx.decodeAudioData(buf))
+      .then((decoded) => { pageFlipBufferRef.current = decoded; })
+      .catch(() => {});
+    return () => { ctx.close(); };
+  }, []);
+
+  function playPageFlip() {
+    const ctx = audioCtxRef.current;
+    const buffer = pageFlipBufferRef.current;
+    if (!ctx || !buffer) return;
+    if (ctx.state === "suspended") ctx.resume();
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.6;
+    source.connect(gain).connect(ctx.destination);
+    source.start(0, 0.08); // skip 80ms pertama file, sesuaikan angkanya kalau perlu
+  }
 
   return (
     <div className="flex justify-center pt-0 pb-10 relative">
-      {/* @ts-ignore */}
+      {/* @ts-expect-error - react-pageflip belum punya tipe TypeScript yang lengkap */}
       <HTMLFlipBook
         width={240}
         height={328}
@@ -111,7 +137,7 @@ export default function MenuFlipbook() {
         drawShadow={false}
         maxShadowOpacity={0.5}
         flippingTime={700}
-        onFlip={() => setHasInteracted(true)}
+        onFlip={() => { setHasInteracted(true); playPageFlip(); }}
         className="rounded-2xl overflow-hidden shadow-[0_2px_0_#e8dcc8,0_4px_0_#ddd0b8,0_6px_0_#d2c4a8,0_8px_20px_rgba(0,0,0,0.25)]"
       >
         {/* Cover depan */}
@@ -139,9 +165,11 @@ export default function MenuFlipbook() {
         />
       )}
       {!hasInteracted && (
-        <div className="absolute -bottom-1 left-0 right-0 flex items-center justify-center gap-2 text-[#8B7355] text-xs animate-pulse">
-          <span>Klik atau geser untuk lihat menu</span>
-          <span className="text-base">👉</span>
+        <div className="absolute -bottom-1 left-0 right-0 flex items-center justify-center gap-1.5 text-[#8B7355] text-xs animate-pulse">
+          <span>Klik untuk lihat menu</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M5 12h14M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
         </div>
       )}
     </div>

@@ -268,6 +268,28 @@ function GabunganSlideshow({ photos }: { photos: { url: string; label: string }[
     </div>
   );
 }
+/* ========== TESTIMONI ==========
+   Ganti nama, rating, dan teks di bawah ini dengan ulasan ASLI dari Google Maps Anda.
+   Buka Google Maps > profil bisnis > Ulasan > pilih 3-6 ulasan terbaik > copy teksnya ke sini. */
+const testimonials = [
+  { nama: "Dian Prakoso", rating: 5, teks: "Salah satu restoran favorit di Kota Solo. Tempat sangat strategis, pelayanan bagus, pilihan makanan banyak. Rasanya khas Timur Tengah banget." },
+  { nama: "Afifudin Dhikri", rating: 5, teks: "Recommended banget untuk makan nasi kebuli bersama keluarga, apalagi kebabnya mantap. Pelayanan sat-set, super ramah, tempat bersih." },
+  { nama: "Inggi Lestari", rating: 5, teks: "Dari menu sampai ambience-nya super oke. Pelayanannya juga super cepat, baik waiters maupun admin. Terima kasih Yassalam Solo!" },
+  { nama: "Agus Purnomo", rating: 5, teks: "Tempat makan yang nyaman dan estetik, toilet dan musola bersih dan wangi. Makanan dan minuman enak semua, pelayanan ramah. Sudah langganan sejak lama." },
+  { nama: "Surya Chanel", rating: 5, teks: "Tempat makan yang nyaman, adem, serta makanannya enak cocok di lidah. Cocok buat meet up bareng geng, tempatnya luas banget." },
+  { nama: "Abdul Rohman S", rating: 5, teks: "First time ke sini, pelayanannya sangat bagus, dapat welcome snack sambil menunggu. Daging kambingnya empuk tanpa bau prengus. Ada mushola dan parkiran luas juga." },
+  { nama: "Danang Prayogo", rating: 5, teks: "Tempatnya amazing, nyaman banget, makan enak, pelayanan ramah. Jangan sampai skip cheese kunafa-nya, itu alasan saya balik lagi ke sini!" },
+  { nama: "Ip x", rating: 5, teks: "Makanannya enak, porsi besar, kambingnya empuk dan rempahnya berasa banget. Pelayanannya juga ramah banget, sekarang sudah ada parkiran di belakang." },
+  { nama: "Puspo Riny", rating: 5, teks: "Suasana Timur Tengahnya dapet banget, banyak VIP room dengan pilihan meja kursi atau lesehan. Menunya lengkap, paling suka sama platter-nya." },
+  { nama: "Rahma Dewy Amalia Hikmah", rating: 5, teks: "Tempatnya menyenangkan, bersih, ber-AC, interior cantik. Rasa makanannya khas Timur Tengah banget, sesuai ekspektasi." },
+  { nama: "M. Haris Maraputra", rating: 5, teks: "The real Arabian food, rasa rempahnya nampol, serving-nya cakep dan cepat, kambing lembut rasanya nampol. Atmosfernya khas Timur Tengah, rekomen untuk makan bersama keluarga besar." },
+  { nama: "avril sulistia", rating: 5, teks: "Dulu hobi banget makan kebuli waktu di Surabaya, alhamdulillah sekarang pindah dan nemu Yassalam. Rasanya enak, porsinya banyak bisa sharing, pelayanan ramah." },
+  { nama: "fini tetus", rating: 5, teks: "Pesan menu paket untuk 5 orang, rasanya cocok di lidah orang Indonesia dan porsinya mengenyangkan. Dekorasi tempatnya benar-benar mencerminkan Timur Tengah." },
+  { nama: "Edy Sarwanto", rating: 5, teks: "Tempat sangat strategis di tepi jalan raya, full AC. Makanan khas Arab, pelayanan memuaskan, suasana khas Arab yang kental." },
+  { nama: "Muhammad Adnan", rating: 5, teks: "Makanannya enak, banyak pilihan tidak cuma daging kambing. Tempat nyaman, ada ruangan sendiri yang luas untuk keluarga, parkir mobil luas di belakang." },
+  { nama: "Lisa Salma", rating: 5, teks: "Salah satu masakan Arab terbaik di kota ini. Paket family bisa mix nasi jadi bisa coba semuanya, aromanya kenceng dan rempahnya kerasa banget." },
+];
+
 export default function Home() {
   const [showWelcome, setShowWelcome] = useState(true);
   const [welcomeRestored, setWelcomeRestored] = useState(false);
@@ -659,6 +681,46 @@ export default function Home() {
   ];
   const [slideIndex, setSlideIndex] = useState(0);
   const [slideRestored, setSlideRestored] = useState(false);
+  
+
+  // ===== SOUND: klik global untuk semua tombol/link di website =====
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const clickBufferRef = useRef<AudioBuffer | null>(null);
+
+  useEffect(() => {
+    const ctx = new AudioContext();
+    audioCtxRef.current = ctx;
+    fetch("/click.mp3")
+      .then((r) => r.arrayBuffer())
+      .then((buf) => ctx.decodeAudioData(buf))
+      .then((decoded) => { clickBufferRef.current = decoded; })
+      .catch(() => {});
+    return () => { ctx.close(); };
+  }, []);
+
+  useEffect(() => {
+    function playClick() {
+      const ctx = audioCtxRef.current;
+      const buffer = clickBufferRef.current;
+      if (!ctx || !buffer) return;
+      if (ctx.state === "suspended") ctx.resume();
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      const gain = ctx.createGain();
+      gain.gain.value = 0.3;
+      source.connect(gain).connect(ctx.destination);
+      source.start(0);
+    }
+    function handleGlobalClick(e: MouseEvent) {
+      const el = e.target as HTMLElement;
+      const clickable = el?.closest('button, a, [role="button"], input[type="date"], input[type="time"], input[type="tel"], select') as (HTMLElement & { disabled?: boolean }) | null;
+      if (!clickable) return;
+      if ("disabled" in clickable && clickable.disabled) return;
+      playClick();
+    }
+    document.addEventListener("click", handleGlobalClick, true);
+    return () => document.removeEventListener("click", handleGlobalClick, true);
+  }, []);
 
  useEffect(() => {
     const saved = sessionStorage.getItem("yassalam_slide_index");
@@ -945,14 +1007,32 @@ export default function Home() {
                   <div>
                     <label className={labelClass}>Jam</label>
                     <div className="flex gap-2">
-                      <select value={jam.split(":")[0] || ""} onChange={(e) => setJam(`${e.target.value}:${jam.split(":")[1] || "00"}`)} className={inputClass}>
-                        <option value="">Jam</option>
-                        {Array.from({ length: 14 }, (_, i) => 7 + i).map((h) => <option key={h} value={String(h).padStart(2, "0")}>{String(h).padStart(2, "0")}</option>)}
-                      </select>
-                      <select value={jam.split(":")[1] || ""} onChange={(e) => setJam(`${jam.split(":")[0] || "07"}:${e.target.value}`)} className={inputClass}>
-                        <option value="">Mnt</option>
-                        {[0, 15, 30, 45].map((m) => <option key={m} value={String(m).padStart(2, "0")}>{String(m).padStart(2, "0")}</option>)}
-                      </select>
+                      {(() => {
+                        const isToday = tanggal === today;
+                        const nowH = new Date().getHours();
+                        const nowM = new Date().getMinutes();
+                        const selectedH = Number(jam.split(":")[0] || -1);
+                        return (
+                          <>
+                            <select value={jam.split(":")[0] || ""} onChange={(e) => setJam(`${e.target.value}:${jam.split(":")[1] || "00"}`)} className={inputClass}>
+                              <option value="">Jam</option>
+                              {Array.from({ length: 14 }, (_, i) => 7 + i).map((h) => (
+                                <option key={h} value={String(h).padStart(2, "0")} disabled={isToday && h < nowH}>
+                                  {String(h).padStart(2, "0")}
+                                </option>
+                              ))}
+                            </select>
+                            <select value={jam.split(":")[1] || ""} onChange={(e) => setJam(`${jam.split(":")[0] || "07"}:${e.target.value}`)} className={inputClass}>
+                              <option value="">Mnt</option>
+                              {[0, 15, 30, 45].map((m) => (
+                                <option key={m} value={String(m).padStart(2, "0")} disabled={isToday && selectedH === nowH && m < nowM}>
+                                  {String(m).padStart(2, "0")}
+                                </option>
+                              ))}
+                            </select>
+                          </>
+                        );
+                      })()}
                     </div>
                     {jamSelesai && <p className="text-xs text-[#8B7355] mt-2">Selesai sekitar <span className="font-semibold text-[#C8973E]">{jamSelesai}</span> (2 jam)</p>}
                   </div>
@@ -1260,10 +1340,44 @@ export default function Home() {
               })}
             </div>
           )}
-          <div className="text-center mt-10">
-            <button onClick={startReservation} className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white px-10 py-4 rounded-xl font-bold text-lg transition-all active:scale-[0.98] shadow-xl shadow-[#C8973E]/20">
-              Reservasi Sekarang
-            </button>
+         </div>
+      </div>
+
+      {/* TESTIMONI */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
+        <div className="text-center mb-12">
+          <p className="text-[#C8973E] text-xs tracking-[0.3em] uppercase font-semibold">Testimoni</p>
+          <h2 className="font-serif text-3xl sm:text-4xl text-[#5C3D1A] mt-2">Apa Kata Pelanggan Kami</h2>
+          <div className="flex items-center justify-center gap-3 mt-4">
+            <div className="w-10 h-px bg-[#C8973E]/40" />
+            <span className="text-[#C8973E]">◆</span>
+            <div className="w-10 h-px bg-[#C8973E]/40" />
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden" style={{ maskImage: "linear-gradient(to right, transparent, black 8%, black 92%, transparent)", WebkitMaskImage: "linear-gradient(to right, transparent, black 8%, black 92%, transparent)" }}>
+          <div className="flex gap-6 w-max" style={{ animation: "marquee 70s linear infinite" }}>
+            {[...testimonials, ...testimonials].map((t, i) => (
+              <div key={i} className="w-[280px] sm:w-[340px] shrink-0 bg-white border border-[#F0E6D2] border-t-2 border-t-[#C8973E] rounded-2xl p-6 shadow-sm flex flex-col">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex gap-0.5">
+                    {Array.from({ length: 5 }, (_, j) => (
+                      <svg key={j} width="14" height="14" viewBox="0 0 20 20" fill={j < t.rating ? "#C8973E" : "#E8DCC8"}>
+                        <path d="M10 1l2.6 5.8 6.4.6-4.8 4.3 1.4 6.3L10 14.9 4.4 18l1.4-6.3L1 7.4l6.4-.6z" />
+                      </svg>
+                    ))}
+                  </div>
+                  <svg width="15" height="15" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                </div>
+                <p className="text-[#5C3D1A] text-sm leading-relaxed">&ldquo;{t.teks}&rdquo;</p>
+                <p className="text-[#8B7355] text-sm font-semibold mt-4">{t.nama}</p>
+              </div>
+            ))}
           </div>
         </div>
       </div>
