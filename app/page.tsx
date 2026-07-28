@@ -116,8 +116,8 @@ function WelcomeSplash({
         <div key={i} className={`absolute inset-0 bg-gradient-to-br ${grad} transition-opacity duration-[2000ms] will-change-transform`}
           style={{ opacity: i === slideIndex ? 1 : 0, animation: i === slideIndex ? "kenburns 8s ease-out forwards" : "none" }} />
       ))}
-      <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 10L50 25H30L40 10ZM40 70L30 55H50L40 70ZM10 40L25 30V50L10 40ZM70 40L55 50V30L70 40Z' fill='%23C8973E'/%3E%3Ccircle cx='40' cy='40' r='8' fill='none' stroke='%23C8973E' stroke-width='1'/%3E%3C/svg%3E\")", backgroundSize: "80px 80px" }} />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#1a0f07] via-[#1a0f07]/40 to-[#1a0f07]/70" />
+      <div className="absolute inset-0 opacity-[0.22]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 10L50 25H30L40 10ZM40 70L30 55H50L40 70ZM10 40L25 30V50L10 40ZM70 40L55 50V30L70 40Z' fill='%23C8973E'/%3E%3Ccircle cx='40' cy='40' r='8' fill='none' stroke='%23C8973E' stroke-width='1'/%3E%3C/svg%3E\")", backgroundSize: "80px 80px" }} />
+      <div className="absolute inset-0 bg-gradient-to-t from-[#1a0f07]/75 via-[#1a0f07]/10 to-[#1a0f07]/25" />
       <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#C8973E] to-transparent" />
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2 z-10">
         {slides.map((_, i) => <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${i === slideIndex ? "w-6 bg-[#C8973E]" : "w-1.5 bg-[#C8973E]/30"}`} />)}
@@ -1193,9 +1193,9 @@ export default function Home() {
           <div key={i} className={`absolute inset-0 bg-gradient-to-br ${grad} transition-opacity duration-[2000ms] will-change-transform`}
             style={{ opacity: i === slideIndex ? 1 : 0, animation: i === slideIndex ? "kenburns 8s ease-out forwards" : "none" }} />
         ))}
-        <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 10L50 25H30L40 10ZM40 70L30 55H50L40 70ZM10 40L25 30V50L10 40ZM70 40L55 50V30L70 40Z' fill='%23C8973E'/%3E%3Ccircle cx='40' cy='40' r='8' fill='none' stroke='%23C8973E' stroke-width='1'/%3E%3C/svg%3E\")", backgroundSize: "80px 80px" }} />
+        <div className="absolute inset-0 opacity-[0.22]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 10L50 25H30L40 10ZM40 70L30 55H50L40 70ZM10 40L25 30V50L10 40ZM70 40L55 50V30L70 40Z' fill='%23C8973E'/%3E%3Ccircle cx='40' cy='40' r='8' fill='none' stroke='%23C8973E' stroke-width='1'/%3E%3C/svg%3E\")", backgroundSize: "80px 80px" }} />
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#C8973E] to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#1a0f07]/80 via-transparent to-[#1a0f07]/30" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#1a0f07]/45 via-transparent to-[#1a0f07]/10" />
         <button onClick={() => setShowWelcome(true)} className="absolute top-4 left-4 sm:top-6 sm:left-6 z-20 flex items-center gap-2 text-sm font-bold text-[#C8973E] bg-[#1a0f07] border border-[#C8973E]/50 rounded-full px-5 py-3 sm:px-4 sm:py-2 transition-colors active:scale-[0.97] shadow-lg">
           <span>←</span> <span>Beranda</span>
         </button>
