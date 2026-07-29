@@ -105,7 +105,53 @@ export default function CekReservasiPage() {
     const t = tables.find((x) => x.Id === id);
     return t ? (t.nama_meja || `Meja ${t.nomor_meja}`) : null;
   }
+function getMejaNomor(id: number | null) {
+    if (!id) return null;
+    const t = tables.find((x) => x.Id === id);
+    return t ? t.nomor_meja : null;
+  }
 
+  async function downloadTiket(r: Reservation) {
+    const jsPDF = (await import("jspdf")).default;
+    const logoImg = await new Promise<string>((resolve) => {
+      const img = new window.Image(); img.crossOrigin = "anonymous";
+      img.onload = () => { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; c.getContext("2d")!.drawImage(img, 0, 0); resolve(c.toDataURL("image/png")); };
+      img.src = "/logo.PNG";
+    });
+    const pdf = new jsPDF("p", "mm", [120, 220]);
+    const w = 120, h = 220, cx = w / 2;
+    pdf.setFillColor(255, 252, 245); pdf.rect(0, 0, w, h, "F");
+    pdf.setFillColor(200, 151, 62); pdf.rect(0, 0, w, 3, "F"); pdf.rect(0, h - 3, w, 3, "F");
+    pdf.setDrawColor(200, 151, 62); pdf.setLineWidth(0.3); pdf.roundedRect(5, 7, w - 10, h - 14, 3, 3, "S");
+    pdf.addImage(logoImg, "PNG", cx - 14, 14, 28, 28);
+    pdf.setDrawColor(200, 151, 62); pdf.setLineWidth(0.3); pdf.line(25, 48, cx - 4, 48); pdf.line(cx + 4, 48, w - 25, 48);
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.setTextColor(200, 151, 62);
+    pdf.text("TIKET RESERVASI", cx, 57, { align: "center" });
+    pdf.setDrawColor(200, 151, 62); pdf.setLineWidth(0.3); pdf.line(20, 60, w - 20, 60);
+    pdf.setFillColor(253, 246, 236); pdf.roundedRect(12, 65, w - 24, 68, 3, 3, "F");
+    pdf.setDrawColor(220, 195, 150); pdf.setLineWidth(0.2); pdf.roundedRect(12, 65, w - 24, 68, 3, 3, "S");
+    let y = 76; const lx = 18, vx = w - 18, rh = 10;
+    function infoRow(lbl: string, val: string, gold?: boolean) {
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(6); pdf.setTextColor(160, 140, 115); pdf.text(lbl, lx, y);
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.setTextColor(gold ? 200 : 72, gold ? 151 : 51, gold ? 62 : 26);
+      pdf.text(val, vx, y, { align: "right" }); pdf.setDrawColor(230, 220, 200); pdf.setLineWidth(0.1); pdf.line(lx, y + 3, vx, y + 3); y += rh;
+    }
+    infoRow("NAMA TAMU", r.nama_tamu); infoRow("OUTLET", r.outlet.charAt(0).toUpperCase() + r.outlet.slice(1));
+    infoRow("TANGGAL", r.tanggal); infoRow("JAM", `${formatJam(r.jam)} - ${formatJam(r.jam_selesai)}`);
+    infoRow("JUMLAH TAMU", `${r.jumlah_tamu} orang`);
+    infoRow("MEJA", getMejaLabel(r.meja_id) || "-", true);
+    const nomorMeja = getMejaNomor(r.meja_id);
+    const tearY = 142;
+    pdf.setFillColor(255, 252, 245); pdf.circle(5, tearY, 4, "F"); pdf.circle(w - 5, tearY, 4, "F");
+    pdf.setDrawColor(200, 151, 62); pdf.setLineDashPattern([1.5, 1.5], 0); pdf.setLineWidth(0.2); pdf.line(10, tearY, w - 10, tearY); pdf.setLineDashPattern([], 0);
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(6); pdf.setTextColor(200, 151, 62); pdf.text("MEJA", cx, 151, { align: "center" });
+    pdf.setFontSize(36); pdf.text(`${nomorMeja ?? "-"}`, cx, 166, { align: "center" });
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(6); pdf.setTextColor(160, 140, 115);
+    pdf.text(`${r.outlet.charAt(0).toUpperCase() + r.outlet.slice(1)} - ${r.tanggal} - ${formatJam(r.jam)}`, cx, 173, { align: "center" });
+    pdf.setFontSize(4.5); pdf.setTextColor(180, 165, 140);
+    pdf.text("Tunjukkan tiket ini kepada staff saat tiba di outlet", cx, 190, { align: "center" });
+    pdf.save(`Tiket-Reservasi-Yassalam-${r.tanggal}.pdf`);
+  }
   return (
     <div className="min-h-screen bg-[#FDF6EC] relative overflow-hidden">
       <div className="absolute inset-0 pointer-events-none opacity-40" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, #C8973E11 0%, transparent 40%), radial-gradient(circle at 80% 80%, #C8973E11 0%, transparent 40%)" }} />
@@ -203,14 +249,43 @@ export default function CekReservasiPage() {
                     <p className="text-sm text-[#8B7355] italic mt-3 border-l-2 border-[#C8973E]/40 pl-3">&ldquo;{r.catatan}&rdquo;</p>
                   )}
 
-                  {r.share_token && (r.status === "Pending" || r.status === "Confirmed") && (
-                    <Link
-                      href={`/pesan/${r.share_token}`}
-                      className="inline-flex items-center gap-1.5 mt-4 text-sm font-semibold text-[#C8973E] hover:text-[#A67B2E] transition-colors"
-                    >
-                      Lihat / Ubah Pesanan Menu →
-                    </Link>
-                  )}
+                  {(() => {
+                    const isAktif = r.status === "Pending" || r.status === "Confirmed";
+                    const showMenu = !!r.share_token;
+                    const showTiket = r.status !== "Cancelled" && r.status !== "No-Show";
+                    if (!showMenu && !showTiket) return null;
+                    return (
+                      <div className="flex gap-2.5 mt-4">
+                        {showMenu && (
+                          <Link
+                            href={`/pesan/${r.share_token}`}
+                            className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border text-sm font-semibold transition-colors ${
+                              showTiket
+                                ? "border-[#E8DCC8] text-[#5C3D1A] hover:bg-[#FDF6EC]"
+                                : "border-[#E8DCC8] text-[#8B7355] hover:bg-[#FDF6EC]"
+                            }`}
+                          >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                              <path d="M4 19.5V4.5a1 1 0 0 1 1-1h9l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" strokeLinecap="round" strokeLinejoin="round" />
+                              <path d="M8 9h8M8 13h8M8 17h5" strokeLinecap="round" />
+                            </svg>
+                            {isAktif ? "Lihat / Ubah Menu" : "Lihat Menu"}
+                          </Link>
+                        )}
+                        {showTiket && (
+                          <button
+                            onClick={() => downloadTiket(r)}
+                            className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-semibold active:scale-[0.98] transition-all shadow-sm shadow-[#C8973E]/20"
+                          >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                              <path d="M12 3v12m0 0-4-4m4 4 4-4M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            Unduh Tiket
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))
             )}

@@ -26,6 +26,7 @@ type TableData = {
   kapasitas: number; posisi: string; status: string;
   foto_url: string | null; dp_minimum: number | null;
   kapasitas_minimum: number | null; minimum_transaksi: number | null;
+  deskripsi: string | null;
 };
 type BookingHold = {
   Id: number; created_at: string; meja_id: number; tanggal: string;
@@ -324,6 +325,7 @@ export default function AdminDashboard() {
   const [tKapMin, setTKapMin] = useState("");
   const [tDp, setTDp] = useState("");
   const [tMinTrx, setTMinTrx] = useState("");
+  const [tDesc, setTDesc] = useState("");
 
   // ===== MENU =====
   const [menuKategoriList, setMenuKategoriList] = useState<MenuKategori[]>([]);
@@ -905,13 +907,13 @@ export default function AdminDashboard() {
   async function deleteArea(id: number) { if (!confirm("Hapus area ini?")) return; await supabase.from("Areas").delete().eq("Id", id); fetchAreas(); }
 
   function openTableForm(t?: TableData) {
-    if (t) { setEditTable(t); setTNomor(String(t.nomor_meja)); setTNama(t.nama_meja || ""); setTKap(String(t.kapasitas)); setTKapMin(t.kapasitas_minimum ? String(t.kapasitas_minimum) : ""); setTDp(t.dp_minimum ? String(t.dp_minimum) : ""); setTMinTrx(t.minimum_transaksi ? String(t.minimum_transaksi) : ""); }
-    else { setEditTable(null); setTNomor(""); setTNama(""); setTKap("4"); setTKapMin(""); setTDp(""); setTMinTrx(""); }
+    if (t) { setEditTable(t); setTNomor(String(t.nomor_meja)); setTNama(t.nama_meja || ""); setTKap(String(t.kapasitas)); setTKapMin(t.kapasitas_minimum ? String(t.kapasitas_minimum) : ""); setTDp(t.dp_minimum ? String(t.dp_minimum) : ""); setTMinTrx(t.minimum_transaksi ? String(t.minimum_transaksi) : ""); setTDesc(t.deskripsi || ""); }
+    else { setEditTable(null); setTNomor(""); setTNama(""); setTKap("4"); setTKapMin(""); setTDp(""); setTMinTrx(""); setTDesc(""); }
     setShowTableForm(true);
   }
   async function saveTable() {
     if (!drillArea) return;
-    const p = { outlet: drillArea.outlet, posisi: drillArea.slug, nomor_meja: Number(tNomor), nama_meja: tNama || null, kapasitas: Number(tKap), kapasitas_minimum: tKapMin ? Number(tKapMin) : null, dp_minimum: tDp ? Number(tDp) : null, minimum_transaksi: tMinTrx ? Number(tMinTrx) : null };
+    const p = { outlet: drillArea.outlet, posisi: drillArea.slug, nomor_meja: Number(tNomor), nama_meja: tNama || null, kapasitas: Number(tKap), kapasitas_minimum: tKapMin ? Number(tKapMin) : null, dp_minimum: tDp ? Number(tDp) : null, minimum_transaksi: tMinTrx ? Number(tMinTrx) : null, deskripsi: tDesc || null };
     const { error } = editTable ? await supabase.from("Tables").update(p).eq("Id", editTable.Id) : await supabase.from("Tables").insert(p);
     if (error) { alert("Gagal simpan: " + error.message); return; }
     setShowTableForm(false); fetchTables();
@@ -1907,6 +1909,7 @@ export default function AdminDashboard() {
                   <div><label className={labelClass}>Min. Transaksi (Rp)</label><input type="number" value={tMinTrx} onChange={(e) => setTMinTrx(e.target.value)} placeholder="300000" className={inputClass} /></div>
                 </div>
                 <p className="text-xs text-[#B5A999]">Kapasitas min = minimal tamu. Min. transaksi = minimal belanja customer.</p>
+                <div><label className={labelClass}>Deskripsi Meja <span className="normal-case font-normal text-[#B5A999]">(opsional, tampil ke customer)</span></label><textarea value={tDesc} onChange={(e) => setTDesc(e.target.value)} rows={3} placeholder="Meja lesehan luas dengan pemandangan taman, cocok untuk acara keluarga" className={inputClass + " resize-none"} /></div>
                 <div className="flex gap-3 pt-3">
                   <button onClick={() => setShowTableForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Batal</button>
                   <button onClick={saveTable} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold">Simpan</button>

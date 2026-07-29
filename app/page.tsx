@@ -12,6 +12,7 @@ type Table = {
   kapasitas: number; posisi: string; status: string;
   foto_url?: string | null; dp_minimum?: number | null;
   kapasitas_minimum?: number | null; minimum_transaksi?: number | null;
+  deskripsi?: string | null;
 };
 type AreaData = {
   Id: number; outlet: string; nama: string; slug: string;
@@ -171,10 +172,65 @@ function AreaGalleryModal({ area, tables, gradient, icon, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-3xl overflow-hidden max-w-2xl w-full shadow-2xl animate-fadeInUp max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-3xl overflow-hidden max-w-4xl w-full shadow-2xl animate-fadeInUp max-h-[92vh] md:h-[600px] md:max-h-[85vh] flex flex-col md:flex-row" onClick={(e) => e.stopPropagation()}>
 
-        {/* Foto besar */}
-        <div className={`relative w-full aspect-[4/3] bg-gradient-to-br ${gradient} overflow-hidden`}>
+        {/* Panel kiri: info area + daftar meja */}
+        <div className="md:w-[300px] md:shrink-0 md:h-full md:overflow-y-auto bg-[#FDF6EC] md:border-r border-[#C8973E]/15">
+          <div className="p-6 pb-3">
+            <h3 className="font-bold text-2xl text-[#5C3D1A] font-serif">{area.nama}</h3>
+            {area.deskripsi && <p className="text-[#8B7355] text-sm mt-2 leading-relaxed">{area.deskripsi}</p>}
+            <p className="text-[#C8973E]/40 mt-3 text-sm tracking-widest">━━ ✦ ━━</p>
+          </div>
+
+          {activeTable && (
+            <div className="mx-6 mb-4 bg-[#C8973E]/10 rounded-2xl px-4 py-3.5">
+              <p className="text-base font-bold font-serif text-[#5C3D1A]">
+                {activeTable.nama_meja || `Meja ${activeTable.nomor_meja}`} · muat {activeTable.kapasitas} orang
+              </p>
+              {activeTable.deskripsi && <p className="text-sm text-[#8B7355] mt-1.5 leading-relaxed">{activeTable.deskripsi}</p>}
+              {(!!activeTable.dp_minimum || !!activeTable.minimum_transaksi) && (
+                <div className="flex gap-5 mt-2">
+                  {!!activeTable.dp_minimum && (
+                    <div>
+                      <p className="text-[11px] text-[#8B7355]">DP minimum</p>
+                      <p className="text-sm font-bold text-[#5C3D1A]">Rp {activeTable.dp_minimum.toLocaleString("id-ID")}</p>
+                    </div>
+                  )}
+                  {!!activeTable.minimum_transaksi && (
+                    <div>
+                      <p className="text-[11px] text-[#8B7355]">Min. transaksi</p>
+                      <p className="text-sm font-bold text-[#5C3D1A]">Rp {activeTable.minimum_transaksi.toLocaleString("id-ID")}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {photos.length > 0 && (
+            <div className="px-4 pb-6">
+              <p className="text-xs font-bold text-[#C8973E] mb-2 px-2 tracking-[0.15em] uppercase">Pilih meja</p>
+              <div className="flex md:flex-col gap-2 overflow-x-auto md:overflow-x-visible pb-2 md:pb-0 -mx-1 px-1">
+                {photos.map((t, i) => (
+                  <button key={t.Id} onClick={() => setActiveIdx(i)}
+                    className={`flex items-center gap-3 shrink-0 md:shrink w-[180px] md:w-full text-left p-2 rounded-xl border transition-all ${i === activeIdx ? "border-[#C8973E] bg-[#C8973E]/10 shadow-sm" : "border-transparent hover:bg-[#C8973E]/5"}`}>
+                    <div className="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 ring-1 ring-[#C8973E]/20">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={t.foto_url!} alt="" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className={`text-sm font-bold truncate font-serif ${i === activeIdx ? "text-[#5C3D1A]" : "text-[#5C3D1A]/70"}`}>{t.nama_meja || `Meja ${t.nomor_meja}`}</p>
+                      <p className="text-xs text-[#8B7355]">Muat {t.kapasitas} orang</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Panel kanan: foto besar */}
+        <div className={`relative flex-1 min-w-0 aspect-[4/3] md:aspect-auto md:h-full bg-gradient-to-br ${gradient} overflow-hidden`}>
           {activeTable?.foto_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={activeTable.foto_url} alt={activeTable.nama_meja || `Meja ${activeTable.nomor_meja}`}
@@ -185,12 +241,16 @@ function AreaGalleryModal({ area, tables, gradient, icon, onClose }: {
             </div>
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/10" />
+
+          {/* Ornamen ikon area di pojok */}
+          <div className="absolute top-4 left-4 w-9 h-9 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center text-[#C8973E] text-lg">{icon}</div>
+
           <button onClick={onClose} className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center transition-all z-10">✕</button>
 
           {/* Nama meja di atas foto */}
           {activeTable && (
             <div className="absolute bottom-4 left-4 right-4">
-              <p className="text-white font-bold text-lg drop-shadow-lg">{activeTable.nama_meja || `Meja ${activeTable.nomor_meja}`}</p>
+              <p className="text-white font-bold text-lg drop-shadow-lg font-serif">{activeTable.nama_meja || `Meja ${activeTable.nomor_meja}`}</p>
               <p className="text-white/70 text-sm">Muat {activeTable.kapasitas} orang</p>
             </div>
           )}
@@ -202,35 +262,6 @@ function AreaGalleryModal({ area, tables, gradient, icon, onClose }: {
                 <button key={i} onClick={(e) => { e.stopPropagation(); setActiveIdx(i); }}
                   className={`h-2 rounded-full transition-all duration-300 ${i === activeIdx ? "w-6 bg-white" : "w-2 bg-white/40 hover:bg-white/60"}`} />
               ))}
-            </div>
-          )}
-        </div>
-
-        {/* Info area */}
-        <div className="p-6">
-          <h3 className="font-bold text-2xl text-[#5C3D1A] font-serif">{area.nama}</h3>
-          {area.deskripsi && <p className="text-[#8B7355] text-sm mt-2 leading-relaxed">{area.deskripsi}</p>}
-          <div className="mt-3 flex items-center gap-4 text-sm text-[#8B7355]">
-            <span>🪑 {tables.length} meja</span>
-            <span>👥 Muat hingga {Math.max(...tables.map((t) => t.kapasitas), 0)} orang</span>
-          </div>
-
-          {/* Thumbnail grid semua meja */}
-          {photos.length > 0 && (
-            <div className="mt-5">
-              <p className="text-xs font-bold text-[#C8973E] mb-3 tracking-[0.15em] uppercase">Meja di area ini</p>
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                {photos.map((t, i) => (
-                  <button key={t.Id} onClick={() => setActiveIdx(i)}
-                    className={`relative rounded-xl overflow-hidden aspect-square border-2 transition-all ${i === activeIdx ? "border-[#C8973E] shadow-md" : "border-transparent hover:border-[#C8973E]/30"}`}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={t.foto_url!} alt="" className="w-full h-full object-cover" />
-                    <div className={`absolute inset-0 bg-black/40 flex items-end p-1.5 ${i === activeIdx ? "bg-black/20" : ""}`}>
-                      <p className="text-white text-[10px] font-bold leading-tight drop-shadow">{t.nama_meja || `Meja ${t.nomor_meja}`}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
             </div>
           )}
         </div>
@@ -441,11 +472,24 @@ export default function Home() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  // Fetch data outlet
+  // Fetch data outlet (+ dengar perubahan realtime dari admin)
   useEffect(() => {
     if (!outlet) return;
-    supabase.from("Tables").select("*").eq("outlet", outlet).order("nomor_meja").then(({ data }) => setTables(data || []));
-    supabase.from("Areas").select("*").eq("outlet", outlet).order("urutan").then(({ data }) => setAreasData(data || []));
+
+    function fetchTablesAndAreas() {
+      supabase.from("Tables").select("*").eq("outlet", outlet).order("nomor_meja").then(({ data }) => setTables(data || []));
+      supabase.from("Areas").select("*").eq("outlet", outlet).order("urutan").then(({ data }) => setAreasData(data || []));
+    }
+
+    fetchTablesAndAreas();
+
+    const channel = supabase
+      .channel(`public-tables-areas-${outlet}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "Tables", filter: `outlet=eq.${outlet}` }, fetchTablesAndAreas)
+      .on("postgres_changes", { event: "*", schema: "public", table: "Areas", filter: `outlet=eq.${outlet}` }, fetchTablesAndAreas)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [outlet]);
 
   // Fetch meja tersedia saat masuk step 2
@@ -1475,7 +1519,8 @@ export default function Home() {
       {selectedAreaModal && (() => {
         const idx = areasData.findIndex((a) => a.Id === selectedAreaModal.Id) % areaVisuals.length;
         const visual = areaVisuals[idx >= 0 ? idx : 0];
-        return <AreaGalleryModal area={selectedAreaModal} tables={tables.filter((t) => t.posisi === selectedAreaModal.slug)}
+        const liveArea = areasData.find((a) => a.Id === selectedAreaModal.Id) || selectedAreaModal;
+        return <AreaGalleryModal area={liveArea} tables={tables.filter((t) => t.posisi === liveArea.slug)}
           gradient={visual.gradient} icon={visual.icon} onClose={() => setSelectedAreaModal(null)} />;
       })()}
     </div>
