@@ -214,8 +214,15 @@ function SpotlightTour({ steps, onFinish }: { steps: { targetId: string; text: s
       setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
     }
     const el = document.getElementById(steps[idx].targetId);
+    const isLastStep = idx === steps.length - 1;
     const scrollBlock = steps[idx].targetId === "tour-area-card" ? "start" : "center";
-    el?.scrollIntoView({ behavior: "smooth", block: scrollBlock, inline: "nearest" });
+    if (isLastStep && el) {
+      const elRect = el.getBoundingClientRect();
+      const targetY = window.scrollY + elRect.top - window.innerHeight * 0.35;
+      window.scrollTo({ top: targetY, behavior: "smooth" });
+    } else {
+      el?.scrollIntoView({ behavior: "smooth", block: scrollBlock, inline: "nearest" });
+    }
     const t = setTimeout(update, 400);
     window.addEventListener("scroll", update, true);
     window.addEventListener("resize", update);
@@ -237,8 +244,8 @@ function SpotlightTour({ steps, onFinish }: { steps: { targetId: string; text: s
   const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 768;
   const isMobile = viewportWidth < 640;
 
-  const tooltipWidth = isMobile ? viewportWidth - 32 : 290;
-  const charSize = isMobile ? 110 : 170;
+  const tooltipWidth = isMobile ? viewportWidth - 32 : (isLast ? 340 : 290);
+  const charSize = isLast ? (isMobile ? 160 : 240) : (isMobile ? 110 : 170);
   const overlap = isMobile ? 24 : 30;
 
   const visibleTop = Math.max(rect.top, 0);
@@ -249,6 +256,9 @@ function SpotlightTour({ steps, onFinish }: { steps: { targetId: string; text: s
     boxTop = visibleTop - pad - tooltipHeight - 16;
   }
   boxTop = Math.min(Math.max(boxTop, 16), Math.max(16, viewportHeight - tooltipHeight - 16));
+  if (isLast && !isMobile) {
+    boxTop = visibleBottom + 16;
+  }
 
   const tooltipLeft = isMobile ? 16 : Math.min(Math.max(rect.left, 16), viewportWidth - tooltipWidth - 16);
 
@@ -311,22 +321,32 @@ function SpotlightTour({ steps, onFinish }: { steps: { targetId: string; text: s
         style={{ top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, boxShadow: "0 0 0 9999px rgba(0,0,0,0.6)" }} />
 
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/guide_point_v2.png"
-        alt=""
-        aria-hidden="true"
-        className="absolute object-contain transition-all duration-300"
+      <div
+        className="absolute transition-all duration-300"
         style={{
           left: charLeft, top: charTop, width: charSize, height: charSize,
-          animation: isSpeaking ? "guideTalk 1.6s ease-in-out infinite" : "none",
           transform: shouldMirror ? "scaleX(-1)" : "none",
           zIndex: 1,
         }}
-      />
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={isLast ? "/guide_celebrate.png" : "/guide_point_v2.png"}
+          alt=""
+          aria-hidden="true"
+          className="w-full h-full object-contain"
+          style={{
+            animation: isSpeaking ? "guideTalk 1.6s ease-in-out infinite" : "none",
+          }}
+        />
+      </div>
 
-      <div ref={tooltipRef} className="absolute bg-[#FDF6EC] rounded-2xl p-4 shadow-2xl pointer-events-auto transition-all duration-300"
+      <div ref={tooltipRef} className={`absolute bg-[#FDF6EC] pointer-events-auto transition-all duration-300 ${isLast ? "rounded-3xl p-6 shadow-[0_0_0_1px_rgba(200,151,62,0.4),0_20px_50px_-10px_rgba(0,0,0,0.5)] border-2 border-[#C8973E]" : "rounded-2xl p-4 shadow-2xl"}`}
         style={{ left: tooltipLeft, top: boxTop, width: tooltipWidth, zIndex: 2 }}>
-        <p className="text-sm text-[#5C3D1A] leading-relaxed">{steps[idx].text}</p>
+        {isLast && (
+          <p className="text-[#C8973E] text-xs tracking-[0.25em] uppercase font-bold mb-2">✦ Selamat ✦</p>
+        )}
+        <p className={isLast ? "text-base text-[#5C3D1A] leading-relaxed font-medium" : "text-sm text-[#5C3D1A] leading-relaxed"}>{steps[idx].text}</p>
         <div className="flex items-center justify-between mt-3">
           <div className="flex items-center gap-3">
             <button onClick={onFinish} className="text-xs text-[#8B7355] hover:text-[#5C3D1A]">Lewati</button>
@@ -1823,6 +1843,7 @@ useEffect(() => {
             { targetId: "tour-reservasi", text: "Kalau sudah tahu mau kapan, klik tombol ini. Kamu akan diminta isi tanggal, jam, jumlah tamu, nama, dan nomor WhatsApp — sistem akan otomatis carikan meja yang muat." },
             { targetId: "tour-area-card", text: "Setiap area punya suasana berbeda-beda. Klik salah satu kartu ini untuk lihat foto asli tiap meja beserta detailnya (kapasitas, uang muka, dll) sebelum kamu memutuskan." },
             { targetId: "tour-cek-reservasi", text: "Sudah pernah reservasi sebelumnya? Klik di sini dan masukkan nomor WhatsApp kamu — kamu bisa lihat status reservasi, ubah pesanan menu, atau unduh tiket digital kapan saja." },
+            { targetId: "tour-reservasi", text: "Yeay, itu dia semua fitur serunya! Sekarang giliran kamu—pilih tanggal, isi form, dan meja favoritmu siap menyambut. Sampai ketemu di Yassalam ya!" },
           ]}
           onFinish={() => {
             if (typeof window !== "undefined") localStorage.setItem("yassalam_tour_done", "1");
