@@ -154,7 +154,58 @@ function WelcomeSplash({
     </div>
   );
 }
+function SpotlightTour({ steps, onFinish }: { steps: { targetId: string; text: string }[]; onFinish: () => void }) {
+  const [idx, setIdx] = useState(0);
+  const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
 
+  useEffect(() => {
+    function update() {
+      const el = document.getElementById(steps[idx].targetId);
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+    }
+    const el = document.getElementById(steps[idx].targetId);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(update, 400);
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [idx, steps]);
+
+  if (!rect) return null;
+  const isLast = idx === steps.length - 1;
+  const pad = 8;
+  const tooltipTop = rect.top + rect.height + 16;
+  const flipUp = typeof window !== "undefined" && tooltipTop + 140 > window.innerHeight;
+  const tooltipLeft = typeof window !== "undefined" ? Math.min(Math.max(rect.left, 16), window.innerWidth - 256) : rect.left;
+
+  return (
+    <div className="fixed inset-0 z-[60] pointer-events-none">
+      <div className="absolute rounded-2xl border-2 border-[#C8973E] transition-all duration-300"
+        style={{ top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, boxShadow: "0 0 0 9999px rgba(0,0,0,0.6)" }} />
+      <div className="absolute bg-[#FDF6EC] rounded-2xl p-4 max-w-[240px] shadow-2xl pointer-events-auto transition-all duration-300"
+        style={{ left: tooltipLeft, top: flipUp ? rect.top - pad - 130 : tooltipTop }}>
+        <p className="text-sm text-[#5C3D1A] leading-relaxed">{steps[idx].text}</p>
+        <div className="flex items-center justify-between mt-3">
+          <button onClick={onFinish} className="text-xs text-[#8B7355] hover:text-[#5C3D1A]">Lewati</button>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-[#B5A594]">{idx + 1}/{steps.length}</span>
+            <button
+              onClick={() => (isLast ? onFinish() : setIdx((i) => i + 1))}
+              className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-xs font-semibold">
+              {isLast ? "Selesai" : "Lanjut"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 /* ========== AREA GALLERY MODAL (hanya untuk lihat-lihat, bukan pilih meja) ========== */
 
 function AreaGalleryModal({ area, tables, gradient, icon, onClose }: {
@@ -325,6 +376,7 @@ export default function Home() {
   const [showWelcome, setShowWelcome] = useState(true);
   const [welcomeRestored, setWelcomeRestored] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [showSpotlightTour, setShowSpotlightTour] = useState(false);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [sukses, setSukses] = useState(false);
@@ -491,6 +543,12 @@ export default function Home() {
 
     return () => { supabase.removeChannel(channel); };
   }, [outlet]);
+  useEffect(() => {
+    if (showWelcome || showForm) return;
+    const sudahLihatTutorial = typeof window !== "undefined" && localStorage.getItem("yassalam_tour_done");
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    if (!sudahLihatTutorial) setShowSpotlightTour(true);
+  }, [showWelcome, showForm]);
 
   // Fetch meja tersedia saat masuk step 2
   async function fetchAvailableTables() {
@@ -1331,11 +1389,11 @@ export default function Home() {
             Nikmati cita rasa autentik Timur Tengah dalam suasana yang elegan. Reservasi meja Anda sekarang.
           </p>
           <div className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-3 animate-fadeInUp" style={{ animationDelay: "0.5s" }}>
-            <button onClick={startReservation}
+            <button id="tour-reservasi" onClick={startReservation}
               className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white px-10 py-4 rounded-xl font-bold text-lg transition-all active:scale-[0.98] shadow-xl shadow-[#C8973E]/20 tracking-wide">
               Reservasi Sekarang
             </button>
-            <Link href="/cek-reservasi"
+            <Link id="tour-cek-reservasi" href="/cek-reservasi"
               className="px-10 py-4 rounded-xl border-2 border-[#C8973E]/40 text-[#C8973E] font-semibold text-lg transition-all active:scale-[0.98] hover:bg-[#C8973E]/10 tracking-wide">
               Cek Reservasi Saya
             </Link>
@@ -1364,7 +1422,7 @@ export default function Home() {
                 const areaTables = tables.filter((t) => t.posisi === area.slug);
                 const photos = areaTables.filter((t) => t.foto_url).map((t) => t.foto_url as string);
                 return (
-                  <div key={area.Id} className="group bg-white rounded-2xl overflow-hidden border border-[#E8DCC8] shadow-md hover:shadow-xl hover:shadow-[#C8973E]/10 transition-all duration-300 hover:-translate-y-1">
+                  <div key={area.Id} id={i === 0 ? "tour-area-card" : undefined} className="group bg-white rounded-2xl overflow-hidden border border-[#E8DCC8] shadow-md hover:shadow-xl hover:shadow-[#C8973E]/10 transition-all duration-300 hover:-translate-y-1">
                     <button onClick={() => setSelectedAreaModal(area)} className="w-full h-48 relative overflow-hidden block text-left">
                       <AreaCardPhotos photos={photos} icon={visual.icon} gradient={visual.gradient} />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
@@ -1516,6 +1574,20 @@ export default function Home() {
 
       {/* AREA GALLERY MODAL */}
       
+      {showSpotlightTour && (
+        <SpotlightTour
+          steps={[
+            { targetId: "tour-reservasi", text: "Klik di sini untuk mulai reservasi meja pilihanmu — pilih tanggal, jam, dan jumlah tamu." },
+            { targetId: "tour-area-card", text: "Klik salah satu area untuk lihat foto asli dan detail tiap meja sebelum kamu pesan." },
+            { targetId: "tour-cek-reservasi", text: "Sudah pernah reservasi? Cek status, lihat menu, atau unduh tiketmu di sini." },
+          ]}
+          onFinish={() => {
+            if (typeof window !== "undefined") localStorage.setItem("yassalam_tour_done", "1");
+            setShowSpotlightTour(false);
+          }}
+        />
+      )}
+
       {selectedAreaModal && (() => {
         const idx = areasData.findIndex((a) => a.Id === selectedAreaModal.Id) % areaVisuals.length;
         const visual = areaVisuals[idx >= 0 ? idx : 0];
