@@ -157,6 +157,54 @@ function WelcomeSplash({
 function SpotlightTour({ steps, onFinish }: { steps: { targetId: string; text: string }[]; onFinish: () => void }) {
   const [idx, setIdx] = useState(0);
   const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [tooltipHeight, setTooltipHeight] = useState(140);
+  const audioPoolRef = useRef<HTMLAudioElement[]>([]);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    audioPoolRef.current = steps.map((_, i) => {
+      const audio = new Audio(`/step${i + 1}.mp3`);
+      audio.preload = "auto";
+      return audio;
+    });
+    return () => { audioPoolRef.current.forEach((a) => a.pause()); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function playStep(i: number, retried?: boolean) {
+    currentAudioRef.current?.pause();
+    setIsSpeaking(false);
+    if (muted) return;
+    const audio = audioPoolRef.current[i];
+    if (!audio) return;
+
+    audio.onplay = () => setIsSpeaking(true);
+    audio.onended = () => setIsSpeaking(false);
+    audio.onpause = () => setIsSpeaking(false);
+    audio.onerror = () => {
+      if (retried) return;
+      const fresh = new Audio(`/step${i + 1}.mp3`);
+      audioPoolRef.current[i] = fresh;
+      playStep(i, true);
+    };
+
+    audio.currentTime = 0;
+    currentAudioRef.current = audio;
+    audio.play().catch(() => {
+      if (retried) return;
+      const fresh = new Audio(`/step${i + 1}.mp3`);
+      audioPoolRef.current[i] = fresh;
+      playStep(i, true);
+    });
+  }
+
+  useEffect(() => {
+    playStep(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     function update() {
@@ -166,7 +214,8 @@ function SpotlightTour({ steps, onFinish }: { steps: { targetId: string; text: s
       setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
     }
     const el = document.getElementById(steps[idx].targetId);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const scrollBlock = steps[idx].targetId === "tour-area-card" ? "start" : "center";
+    el?.scrollIntoView({ behavior: "smooth", block: scrollBlock, inline: "nearest" });
     const t = setTimeout(update, 400);
     window.addEventListener("scroll", update, true);
     window.addEventListener("resize", update);
@@ -177,27 +226,130 @@ function SpotlightTour({ steps, onFinish }: { steps: { targetId: string; text: s
     };
   }, [idx, steps]);
 
+  useEffect(() => {
+    if (tooltipRef.current) setTooltipHeight(tooltipRef.current.offsetHeight);
+  }, [idx, rect]);
+
   if (!rect) return null;
   const isLast = idx === steps.length - 1;
   const pad = 8;
-  const tooltipTop = rect.top + rect.height + 16;
-  const flipUp = typeof window !== "undefined" && tooltipTop + 140 > window.innerHeight;
-  const tooltipLeft = typeof window !== "undefined" ? Math.min(Math.max(rect.left, 16), window.innerWidth - 256) : rect.left;
+  const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1024;
+  const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 768;
+  const isMobile = viewportWidth < 640;
+
+  const tooltipWidth = isMobile ? viewportWidth - 32 : 290;
+  const charSize = isMobile ? 110 : 170;
+  const overlap = isMobile ? 24 : 30;
+
+  const visibleTop = Math.max(rect.top, 0);
+  const visibleBottom = Math.min(rect.top + rect.height, viewportHeight);
+
+  let boxTop = visibleBottom + 16;
+  if (boxTop + tooltipHeight + 16 > viewportHeight) {
+    boxTop = visibleTop - pad - tooltipHeight - 16;
+  }
+  boxTop = Math.min(Math.max(boxTop, 16), Math.max(16, viewportHeight - tooltipHeight - 16));
+
+  const tooltipLeft = isMobile ? 16 : Math.min(Math.max(rect.left, 16), viewportWidth - tooltipWidth - 16);
+
+  let charLeft: number;
+  let charTop: number;
+  let shouldMirror = false;
+
+  if (isMobile) {
+    const mSpaceRight = viewportWidth - (rect.left + rect.width);
+    const mSpaceLeft = rect.left;
+    if (mSpaceRight >= charSize) {
+      // Ada ruang di kanan target (step 1, 2, 4 biasanya masuk sini)
+      charLeft = rect.left + rect.width + 4;
+      charTop = Math.min(Math.max(rect.top + rect.height / 2 - charSize / 2, 8), viewportHeight - charSize - 8);
+    } else if (mSpaceLeft >= charSize) {
+      charLeft = rect.left - charSize - 4;
+      charTop = Math.min(Math.max(rect.top + rect.height / 2 - charSize / 2, 8), viewportHeight - charSize - 8);
+      shouldMirror = true;
+    } else {
+      // Tidak muat di samping (step 3 — kartu full-width) -> taruh di atas tooltip
+      charLeft = Math.min(Math.max(tooltipLeft + tooltipWidth - charSize + 10, 8), viewportWidth - charSize - 8);
+      charTop = Math.max(8, boxTop - charSize + overlap);
+    }
+  } else {
+    const spaceRight = viewportWidth - (rect.left + rect.width);
+    const spaceLeft = rect.left;
+    const charOnRight = spaceRight >= charSize + 8;
+    const charOnLeft = !charOnRight && spaceLeft >= charSize + 8;
+
+    if (charOnRight) {
+      charLeft = rect.left + rect.width + 8;
+      charTop = Math.min(Math.max(rect.top + rect.height / 2 - charSize / 2, 8), viewportHeight - charSize - 8);
+    } else if (charOnLeft) {
+      charLeft = rect.left - charSize - 8;
+      charTop = Math.min(Math.max(rect.top + rect.height / 2 - charSize / 2, 8), viewportHeight - charSize - 8);
+      shouldMirror = true;
+    } else {
+      charLeft = Math.min(Math.max(rect.left + rect.width / 2 - charSize / 2 + 30, 8), viewportWidth - charSize - 8);
+      charTop = Math.max(8, boxTop - charSize + overlap);
+    }
+  }
+
+  function goNext() {
+    if (isLast) { onFinish(); return; }
+    const next = idx + 1;
+    setIdx(next);
+    playStep(next);
+  }
 
   return (
     <div className="fixed inset-0 z-[60] pointer-events-none">
+      <style>{`
+        @keyframes guideTalk {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50% { transform: translateY(-3px) scale(1.02); }
+        }
+      `}</style>
+
       <div className="absolute rounded-2xl border-2 border-[#C8973E] transition-all duration-300"
         style={{ top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, boxShadow: "0 0 0 9999px rgba(0,0,0,0.6)" }} />
-      <div className="absolute bg-[#FDF6EC] rounded-2xl p-4 max-w-[240px] shadow-2xl pointer-events-auto transition-all duration-300"
-        style={{ left: tooltipLeft, top: flipUp ? rect.top - pad - 130 : tooltipTop }}>
+
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/guide_point_v2.png"
+        alt=""
+        aria-hidden="true"
+        className="absolute object-contain transition-all duration-300"
+        style={{
+          left: charLeft, top: charTop, width: charSize, height: charSize,
+          animation: isSpeaking ? "guideTalk 1.6s ease-in-out infinite" : "none",
+          transform: shouldMirror ? "scaleX(-1)" : "none",
+          zIndex: 1,
+        }}
+      />
+
+      <div ref={tooltipRef} className="absolute bg-[#FDF6EC] rounded-2xl p-4 shadow-2xl pointer-events-auto transition-all duration-300"
+        style={{ left: tooltipLeft, top: boxTop, width: tooltipWidth, zIndex: 2 }}>
         <p className="text-sm text-[#5C3D1A] leading-relaxed">{steps[idx].text}</p>
         <div className="flex items-center justify-between mt-3">
-          <button onClick={onFinish} className="text-xs text-[#8B7355] hover:text-[#5C3D1A]">Lewati</button>
+          <div className="flex items-center gap-3">
+            <button onClick={onFinish} className="text-xs text-[#8B7355] hover:text-[#5C3D1A]">Lewati</button>
+            <button onClick={() => playStep(idx)} aria-label="Putar penjelasan" className="text-[#8B7355] hover:text-[#5C3D1A]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+            </button>
+            <button onClick={() => setMuted((m) => !m)} aria-label={muted ? "Nyalakan suara" : "Matikan suara"} className="text-[#8B7355] hover:text-[#5C3D1A]">
+              {muted ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M11 5 6 9H2v6h4l5 4V5z" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M23 9l-6 6M17 9l6 6" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M11 5 6 9H2v6h4l5 4V5z" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14" strokeLinecap="round" />
+                </svg>
+              )}
+            </button>
+          </div>
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-[#B5A594]">{idx + 1}/{steps.length}</span>
-            <button
-              onClick={() => (isLast ? onFinish() : setIdx((i) => i + 1))}
-              className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-xs font-semibold">
+            <button onClick={goNext} className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-xs font-semibold">
               {isLast ? "Selesai" : "Lanjut"}
             </button>
           </div>
@@ -406,6 +558,7 @@ export default function Home() {
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [namaTamu, setNamaTamu] = useState("");
   const [noWa, setNoWa] = useState("");
+  const [website, setWebsite] = useState(""); // honeypot anti-spam — jangan diisi manusia
   const [catatan, setCatatan] = useState("");
   const [selectedAreaModal, setSelectedAreaModal] = useState<AreaData | null>(null);
   const [holdId, setHoldId] = useState<number | null>(null);
@@ -424,6 +577,7 @@ export default function Home() {
   const [lightboxPhoto, setLightboxPhoto] = useState<{ url: string; nama: string } | null>(null);
   const [showBackConfirm, setShowBackConfirm] = useState(false);
   const [showBigGroupModal, setShowBigGroupModal] = useState(false);
+  const [showRateLimitModal, setShowRateLimitModal] = useState(false);
 
   const jamSelesai = hitungJamSelesai(jam);
   const today = new Date().toISOString().split("T")[0];
@@ -627,13 +781,32 @@ export default function Home() {
     }
     return errs;
   }
-
+async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
+    const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data } = await supabase
+      .from("Reservation")
+      .select("Id")
+      .eq("no_whatsapp", noWaValue)
+      .gte("created_at", cutoff)
+      .limit(1);
+    return (data?.length || 0) > 0;
+  }
   async function nextStep() {
     const errs = validateStep(step);
     setErrors(errs);
     if (errs.length > 0) return;
 
     if (step === 1) {
+      // Honeypot: field ini cuma bisa keisi oleh bot, manusia tidak akan lihat/isi ini
+      if (website) return;
+
+      // Rate limit: cegah nomor yang sama spam reservasi berkali-kali dalam waktu singkat
+      const kenaLimit = await checkRateLimitWa(noWa);
+      if (kenaLimit) {
+        setShowRateLimitModal(true);
+        return;
+      }
+
       // Hitung kapasitas terbesar dari meja tunggal + gabungan
       const maxTunggal = Math.max(...tables.map((t) => t.kapasitas), 0);
       const gabunganData = availableGabungan.length > 0 ? availableGabungan : [];
@@ -771,7 +944,27 @@ export default function Home() {
     setAvailableTables([]);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("mulai") !== "1") return;
 
+    const o = params.get("outlet");
+    const tgl = params.get("tanggal");
+    const j = params.get("jam");
+    const t = params.get("tamu");
+
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (o) setOutlet(o);
+    setShowWelcome(false);
+    startReservation();
+    if (tgl) setTanggal(tgl);
+    if (j) setJam(j);
+    if (t) setJumlahTamu(t);
+    /* eslint-enable react-hooks/set-state-in-effect */
+
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
   const stepLabels = ["Data Diri", "Pilih Meja", "Bayar Uang Muka"];
   const inputClass = "w-full px-4 py-3.5 rounded-xl border-2 border-[#E8DCC8] focus:border-[#C8973E] bg-[#FEFCF8] outline-none text-[#5C3D1A] placeholder-[#C8B89A] transition-all text-[15px]";
   const labelClass = "block text-xs font-bold text-[#C8973E] mb-2 tracking-[0.15em] uppercase";
@@ -1033,7 +1226,36 @@ export default function Home() {
             </div>
           </div>
         )}
-
+{/* Popup rate limit */}
+        {showRateLimitModal && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-6 bg-black/60 backdrop-blur-sm" onClick={() => setShowRateLimitModal(false)}>
+            <div className="bg-[#FDF6EC] rounded-3xl overflow-hidden max-w-sm w-full shadow-2xl animate-fadeInUp" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] px-6 py-7 text-center">
+                <div className="w-[60px] h-[60px] rounded-full bg-white/20 flex items-center justify-center mx-auto mb-3">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8">
+                    <circle cx="12" cy="12" r="9" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+                <h3 className="text-white font-serif text-lg">Sabar dulu ya</h3>
+              </div>
+              <div className="p-6 text-center">
+                <p className="text-[#5C3D1A] font-semibold text-sm">Kamu baru saja membuat reservasi dengan nomor WhatsApp ini</p>
+                <p className="text-[#8B7355] text-sm mt-2.5 leading-relaxed">Untuk menjaga sistem tetap adil buat semua orang, tunggu beberapa menit sebelum mencoba reservasi baru lagi.</p>
+                <div className="mt-6 space-y-3">
+                  <Link href="/cek-reservasi"
+                    className="block w-full py-3 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-semibold text-sm text-center transition-all active:scale-[0.98]">
+                    Cek Reservasi Saya
+                  </Link>
+                  <button onClick={() => setShowRateLimitModal(false)}
+                    className="w-full py-3 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC] transition-all text-sm">
+                    Tutup
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Lightbox foto meja */}
         {lightboxPhoto && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-6 bg-black/80 backdrop-blur-sm" onClick={() => setLightboxPhoto(null)}>
@@ -1151,6 +1373,16 @@ export default function Home() {
                   <label className={labelClass}>No. WhatsApp</label>
                   <input type="tel" placeholder="081234567890" value={noWa} onChange={(e) => setNoWa(e.target.value)} className={inputClass} />
                 </div>
+                <input
+                  type="text"
+                  name="website"
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                  autoComplete="off"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  style={{ position: "absolute", left: "-9999px", top: "-9999px", width: "1px", height: "1px", opacity: 0 }}
+                />
                 <div>
                   <label className={labelClass}>Catatan <span className="text-[#B8A88A] normal-case tracking-normal font-normal">(opsional)</span></label>
                   <textarea placeholder="Contoh: perlu kursi bayi, alergi kacang, dll." rows={2} value={catatan} onChange={(e) => setCatatan(e.target.value)} className={inputClass + " resize-none"} />
@@ -1388,14 +1620,18 @@ export default function Home() {
           <p className="text-gray-400 mt-4 max-w-md mx-auto text-sm leading-relaxed animate-fadeInUp" style={{ animationDelay: "0.4s" }}>
             Nikmati cita rasa autentik Timur Tengah dalam suasana yang elegan. Reservasi meja Anda sekarang.
           </p>
-          <div className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-3 animate-fadeInUp" style={{ animationDelay: "0.5s" }}>
+          <div className="mt-9 grid grid-cols-3 gap-2.5 sm:gap-3 max-w-lg mx-auto animate-fadeInUp" style={{ animationDelay: "0.5s" }}>
             <button id="tour-reservasi" onClick={startReservation}
-              className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white px-10 py-4 rounded-xl font-bold text-lg transition-all active:scale-[0.98] shadow-xl shadow-[#C8973E]/20 tracking-wide">
-              Reservasi Sekarang
+              className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white px-2 sm:px-4 py-4 rounded-xl font-bold text-sm sm:text-base transition-all active:scale-[0.98] shadow-xl shadow-[#C8973E]/20 tracking-wide whitespace-nowrap">
+              Reservasi
             </button>
             <Link id="tour-cek-reservasi" href="/cek-reservasi"
-              className="px-10 py-4 rounded-xl border-2 border-[#C8973E]/40 text-[#C8973E] font-semibold text-lg transition-all active:scale-[0.98] hover:bg-[#C8973E]/10 tracking-wide">
-              Cek Reservasi Saya
+              className="px-2 sm:px-4 py-4 rounded-xl border-2 border-[#C8973E]/40 text-[#C8973E] font-semibold text-sm sm:text-base transition-all active:scale-[0.98] hover:bg-[#C8973E]/10 tracking-wide text-center whitespace-nowrap">
+              Cek reservasi
+            </Link>
+            <Link id="tour-ketersediaan" href="/cek-ketersediaan"
+              className="px-2 sm:px-4 py-4 rounded-xl border-2 border-[#C8973E]/40 text-[#C8973E] font-semibold text-sm sm:text-base transition-all active:scale-[0.98] hover:bg-[#C8973E]/10 tracking-wide text-center whitespace-nowrap">
+              Ketersediaan
             </Link>
           </div>
         </div>
@@ -1422,8 +1658,8 @@ export default function Home() {
                 const areaTables = tables.filter((t) => t.posisi === area.slug);
                 const photos = areaTables.filter((t) => t.foto_url).map((t) => t.foto_url as string);
                 return (
-                  <div key={area.Id} id={i === 0 ? "tour-area-card" : undefined} className="group bg-white rounded-2xl overflow-hidden border border-[#E8DCC8] shadow-md hover:shadow-xl hover:shadow-[#C8973E]/10 transition-all duration-300 hover:-translate-y-1">
-                    <button onClick={() => setSelectedAreaModal(area)} className="w-full h-48 relative overflow-hidden block text-left">
+                  <div key={area.Id} className="group bg-white rounded-2xl overflow-hidden border border-[#E8DCC8] shadow-md hover:shadow-xl hover:shadow-[#C8973E]/10 transition-all duration-300 hover:-translate-y-1">
+                    <button id={i === 0 ? "tour-area-card" : undefined} onClick={() => setSelectedAreaModal(area)} className="w-full h-48 relative overflow-hidden block text-left">
                       <AreaCardPhotos photos={photos} icon={visual.icon} gradient={visual.gradient} />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
                         <span className="opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-bold tracking-widest uppercase border border-white/60 rounded-full px-4 py-1.5">Lihat Foto</span>
@@ -1433,8 +1669,7 @@ export default function Home() {
                       <h3 className="font-bold text-lg text-[#5C3D1A] font-serif">{area.nama}</h3>
                       {area.deskripsi && <p className="text-[#8B7355] text-sm mt-2 leading-relaxed">{area.deskripsi}</p>}
                       <div className="mt-3 flex gap-3 text-xs text-[#8B7355]">
-                        <span>🪑 {areaTables.length} meja</span>
-                        <span>👥 {areaTables.reduce((s, t) => s + t.kapasitas, 0)} kursi</span>
+                        <span>🪑 {areaTables.length} tempat</span>
                       </div>
                     </div>
                   </div>
@@ -1537,16 +1772,23 @@ export default function Home() {
             <p className="text-[#C8973E]/40 mt-3 text-center md:text-left">━━ ✦ ━━</p>
             <div className="grid gap-4 mt-8">
               {[
-                { city: "Solo", ov: "solo", address: "Jl. Kapten Mulyadi No. 193, Pasar Kliwon, Surakarta", wa: "6281222666068", waLabel: "0812-2266-6068", active: true },
-                { city: "Yogyakarta", ov: "jogja", address: "Jl. Timoho No. 56, Muja Muju, Umbulharjo, DIY", wa: "6281222666030", waLabel: "0812-2266-6030", active: true },
-                { city: "Surabaya", ov: "surabaya", address: "Coming Soon", wa: "", waLabel: "", active: false },
-                { city: "Semarang", ov: "semarang", address: "Coming Soon", wa: "", waLabel: "", active: false },
+                { city: "Solo", ov: "solo", address: "Jl. Kapten Mulyadi No. 193, Pasar Kliwon, Surakarta", mapsUrl: "https://maps.app.goo.gl/e5fgMNMXcPEnufUD8", wa: "6281222666068", waLabel: "0812-2266-6068", active: true },
+                { city: "Yogyakarta", ov: "jogja", address: "Jl. Timoho No. 56, Muja Muju, Umbulharjo, DIY", mapsUrl: "https://maps.app.goo.gl/dnZ9UeXykTtsodh49", wa: "6281222666030", waLabel: "0812-2266-6030", active: true },
+                { city: "Surabaya", ov: "surabaya", address: "Coming Soon", mapsUrl: "", wa: "", waLabel: "", active: false },
+                { city: "Semarang", ov: "semarang", address: "Coming Soon", mapsUrl: "", wa: "", waLabel: "", active: false },
               ].map((o) => (
                 <div key={o.city} className={`border rounded-2xl p-6 transition-all ${o.active ? "border-[#C8973E]/20 hover:border-[#C8973E]/40" : "border-[#C8973E]/10 opacity-60"}`}>
                   <h3 className="font-bold text-lg text-white font-serif">{o.city}</h3>
                   <p className="text-gray-400 text-sm mt-1">{o.address}</p>
                   {o.active ? (
                     <>
+                      <a href={o.mapsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#C8973E] mt-2 transition-colors">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M12 21s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12z" strokeLinecap="round" strokeLinejoin="round" />
+                          <circle cx="12" cy="9" r="2.5" />
+                        </svg>
+                        Lihat di Maps
+                      </a>
                       <a href={`https://wa.me/${o.wa}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#C8973E] mt-2 transition-colors">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2zm0 1.67c2.2 0 4.26.86 5.82 2.42a8.225 8.225 0 0 1 2.41 5.82c0 4.54-3.7 8.23-8.23 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32a8.188 8.188 0 0 1-1.25-4.37c0-4.53 3.7-8.24 8.23-8.24zm-3.13 4.5c-.16 0-.42.06-.65.31-.22.25-.85.83-.85 2.02 0 1.19.87 2.34 1 2.5.13.16 1.66 2.65 4.1 3.6 2.03.8 2.44.64 2.88.6.44-.04 1.42-.58 1.62-1.14.2-.56.2-1.03.14-1.14-.06-.11-.23-.17-.48-.3-.25-.13-1.48-.73-1.71-.81-.23-.08-.4-.12-.56.12-.16.24-.64.81-.79.98-.14.16-.29.18-.54.06-.25-.13-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.39-1.72-.14-.24-.02-.38.11-.5.11-.11.25-.29.37-.44.12-.14.16-.24.24-.4.08-.16.04-.31-.02-.44-.06-.13-.55-1.36-.77-1.85-.2-.48-.4-.42-.56-.42h-.5z"/></svg>
                         WA {o.waLabel}
@@ -1577,9 +1819,10 @@ export default function Home() {
       {showSpotlightTour && (
         <SpotlightTour
           steps={[
-            { targetId: "tour-reservasi", text: "Klik di sini untuk mulai reservasi meja pilihanmu — pilih tanggal, jam, dan jumlah tamu." },
-            { targetId: "tour-area-card", text: "Klik salah satu area untuk lihat foto asli dan detail tiap meja sebelum kamu pesan." },
-            { targetId: "tour-cek-reservasi", text: "Sudah pernah reservasi? Cek status, lihat menu, atau unduh tiketmu di sini." },
+            { targetId: "tour-ketersediaan", text: "Belum tahu mau reservasi kapan? Klik di sini dulu untuk cek tanggal dan jam mana saja yang masih ada meja kosong, sebelum kamu mengisi form reservasi." },
+            { targetId: "tour-reservasi", text: "Kalau sudah tahu mau kapan, klik tombol ini. Kamu akan diminta isi tanggal, jam, jumlah tamu, nama, dan nomor WhatsApp — sistem akan otomatis carikan meja yang muat." },
+            { targetId: "tour-area-card", text: "Setiap area punya suasana berbeda-beda. Klik salah satu kartu ini untuk lihat foto asli tiap meja beserta detailnya (kapasitas, uang muka, dll) sebelum kamu memutuskan." },
+            { targetId: "tour-cek-reservasi", text: "Sudah pernah reservasi sebelumnya? Klik di sini dan masukkan nomor WhatsApp kamu — kamu bisa lihat status reservasi, ubah pesanan menu, atau unduh tiket digital kapan saja." },
           ]}
           onFinish={() => {
             if (typeof window !== "undefined") localStorage.setItem("yassalam_tour_done", "1");
