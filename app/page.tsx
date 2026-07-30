@@ -556,6 +556,35 @@ export default function Home() {
 
   const [outlet, setOutlet] = useState("");
 
+  const [holdMinutes, setHoldMinutes] = useState(15);
+  const [minBookingHours, setMinBookingHours] = useState(2);
+  const [maxBookingDays, setMaxBookingDays] = useState(30);
+  const [jamOperasional, setJamOperasional] = useState<Record<string, { buka: string; tutup: string }>>({
+    solo: { buka: "09:00", tutup: "21:00" },
+    jogja: { buka: "09:00", tutup: "21:00" },
+  });
+  const [liburList, setLiburList] = useState<{ outlet: string; tanggal_mulai: string; tanggal_selesai: string; alasan: string | null }[]>([]);
+
+  // Ambil semua pengaturan dari admin (jam operasional, kebijakan booking, jadwal libur) sekali saat halaman dibuka
+  useEffect(() => {
+    async function fetchSettingsAdmin() {
+      const keys = ["booking_hold_minutes", "booking_min_hours", "booking_max_days", "jam_buka_solo", "jam_tutup_solo", "jam_buka_jogja", "jam_tutup_jogja"];
+      const { data } = await supabase.from("AppSettings").select("key, value").in("key", keys);
+      const map = Object.fromEntries((data || []).map((d: { key: string; value: string }) => [d.key, d.value]));
+      if (map.booking_hold_minutes) setHoldMinutes(Number(map.booking_hold_minutes));
+      if (map.booking_min_hours) setMinBookingHours(Number(map.booking_min_hours));
+      if (map.booking_max_days) setMaxBookingDays(Number(map.booking_max_days));
+      setJamOperasional({
+        solo: { buka: map.jam_buka_solo || "09:00", tutup: map.jam_tutup_solo || "21:00" },
+        jogja: { buka: map.jam_buka_jogja || "09:00", tutup: map.jam_tutup_jogja || "21:00" },
+      });
+
+      const { data: liburData } = await supabase.from("LiburOutlet").select("outlet, tanggal_mulai, tanggal_selesai, alasan");
+      setLiburList(liburData || []);
+    }
+    fetchSettingsAdmin();
+  }, []);
+
   useEffect(() => {
     const savedShowWelcome = sessionStorage.getItem("yassalam_show_welcome");
     const savedOutlet = sessionStorage.getItem("yassalam_outlet");
@@ -601,6 +630,8 @@ export default function Home() {
 
   const jamSelesai = hitungJamSelesai(jam);
   const today = new Date().toISOString().split("T")[0];
+  const jamAktif = jamOperasional[outlet] || { buka: "09:00", tutup: "21:00" };
+  const maxDateStr = new Date(Date.now() + maxBookingDays * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
   const backToHome = useCallback(() => {
     if (holdId) {
@@ -787,8 +818,23 @@ export default function Home() {
     if (s === 1) {
       if (!tanggal) errs.push("Pilih tanggal kunjungan");
       if (tanggal && tanggal < today) errs.push("Tanggal tidak boleh hari yang sudah lewat");
+      if (tanggal && tanggal > maxDateStr) errs.push(`Reservasi maksimal ${maxBookingDays} hari ke depan`);
       if (!jam) errs.push("Pilih jam kunjungan");
-      if (jam) { const h = parseInt(jam.split(":")[0]); if (h < 7 || h >= 20) errs.push("Jam reservasi antara 07:00 - 20:00"); }
+      if (jam) {
+        const h = parseInt(jam.split(":")[0]);
+        const jamBukaH = parseInt(jamAktif.buka.split(":")[0]);
+        const jamTutupH = parseInt(jamAktif.tutup.split(":")[0]);
+        if (h < jamBukaH || h >= jamTutupH) errs.push(`Jam reservasi antara ${jamAktif.buka} - ${jamAktif.tutup}`);
+      }
+      if (tanggal && jam) {
+        const waktuReservasi = new Date(`${tanggal}T${jam}:00`);
+        const batasMinimal = new Date(Date.now() + minBookingHours * 60 * 60 * 1000);
+        if (waktuReservasi < batasMinimal) errs.push(`Reservasi minimal ${minBookingHours} jam sebelum jam kunjungan`);
+      }
+      if (tanggal) {
+        const liburAktif = liburList.find((l) => l.outlet === outlet && tanggal >= l.tanggal_mulai && tanggal <= l.tanggal_selesai);
+        if (liburAktif) errs.push(`Outlet libur pada tanggal ini${liburAktif.alasan ? ": " + liburAktif.alasan : ""}`);
+      }
       if (!jumlahTamu || Number(jumlahTamu) < 1) errs.push("Isi jumlah tamu");
       if (!namaTamu || namaTamu.trim().length < 2) errs.push("Isi nama lengkap Anda");
       if (!noWa || !/^[0-9]{10,15}$/.test(noWa)) errs.push("No. WhatsApp harus 10-15 digit angka");
@@ -860,7 +906,7 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
 
     const computedEnd = hitungJamSelesai(jam);
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + holdMinutes * 60 * 1000).toISOString();
 
     await supabase.from("BookingHold").delete().lt("expires_at", new Date().toISOString());
 
@@ -1346,7 +1392,7 @@ useEffect(() => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={labelClass}>Tanggal</label>
-                    <input type="date" min={today} value={tanggal} onChange={(e) => setTanggal(e.target.value)} className={inputClass} />
+                    <input type="date" min={today} max={maxDateStr} value={tanggal} onChange={(e) => setTanggal(e.target.value)} className={inputClass} />
                   </div>
                   <div>
                     <label className={labelClass}>Jam</label>
@@ -1356,11 +1402,14 @@ useEffect(() => {
                         const nowH = new Date().getHours();
                         const nowM = new Date().getMinutes();
                         const selectedH = Number(jam.split(":")[0] || -1);
+                        const jamBukaH = parseInt(jamAktif.buka.split(":")[0]);
+                        const jamTutupH = parseInt(jamAktif.tutup.split(":")[0]);
+                        const jamTersedia = Math.max(0, jamTutupH - jamBukaH);
                         return (
                           <>
                             <select value={jam.split(":")[0] || ""} onChange={(e) => setJam(`${e.target.value}:${jam.split(":")[1] || "00"}`)} className={inputClass}>
                               <option value="">Jam</option>
-                              {Array.from({ length: 14 }, (_, i) => 7 + i).map((h) => (
+                              {Array.from({ length: jamTersedia }, (_, i) => jamBukaH + i).map((h) => (
                                 <option key={h} value={String(h).padStart(2, "0")} disabled={isToday && h < nowH}>
                                   {String(h).padStart(2, "0")}
                                 </option>
@@ -1771,9 +1820,9 @@ useEffect(() => {
             <h2 className="text-3xl font-bold text-white font-serif mt-2">Kunjungi Kami Setiap Hari</h2>
             <p className="text-[#C8973E]/40 mt-3">━━ ✦ ━━</p>
             <div className="mt-8 border border-[#C8973E]/25 rounded-2xl px-8 py-8 inline-flex flex-col items-center md:items-start gap-6 w-full md:w-auto">
-              <div className="text-center md:text-left"><p className="text-[#C8973E] text-xs tracking-[0.25em] uppercase font-semibold">Senin – Kamis</p><p className="text-4xl font-bold text-white font-serif mt-3">09:00 – 21:00</p></div>
+              <div className="text-center md:text-left"><p className="text-[#C8973E] text-xs tracking-[0.25em] uppercase font-semibold">Solo</p><p className="text-4xl font-bold text-white font-serif mt-3">{jamOperasional.solo.buka} – {jamOperasional.solo.tutup}</p></div>
               <div className="w-16 h-[1px] bg-[#C8973E]/25" />
-              <div className="text-center md:text-left"><p className="text-[#C8973E] text-xs tracking-[0.25em] uppercase font-semibold">Jumat – Minggu</p><p className="text-4xl font-bold text-white font-serif mt-3">09:00 – 22:00</p></div>
+              <div className="text-center md:text-left"><p className="text-[#C8973E] text-xs tracking-[0.25em] uppercase font-semibold">Yogyakarta</p><p className="text-4xl font-bold text-white font-serif mt-3">{jamOperasional.jogja.buka} – {jamOperasional.jogja.tutup}</p></div>
             </div>
             <div className="mt-6 border-t border-[#C8973E]/15 pt-6 flex flex-col items-center md:items-start gap-3">
               <a href="https://instagram.com/yassalamcatering" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2.5 text-sm text-[#C8973E] hover:text-[#D4A44A] font-semibold transition-colors">

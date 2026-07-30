@@ -15,10 +15,11 @@ function getAdmin() {
 }
 
 /**
- * Pastikan pemanggil benar-benar superadmin.
- * Tanpa ini, siapa pun bisa memanggil endpoint dan membuat akun admin.
+ * Pastikan pemanggil superadmin ATAU manajer outlet.
+ * Manajer outlet hanya boleh mengelola admin_outlet di outletnya sendiri —
+ * pembatasan itu diterapkan per-handler di bawah, bukan di sini.
  */
-async function requireSuperadmin(req: NextRequest) {
+async function requireElevated(req: NextRequest) {
   const admin = getAdmin();
   const authHeader = req.headers.get("Authorization") || "";
   const token = authHeader.replace("Bearer ", "").trim();
@@ -31,30 +32,40 @@ async function requireSuperadmin(req: NextRequest) {
 
   const { data: profile } = await admin
     .from("AdminProfile")
-    .select("role, aktif")
+    .select("role, aktif, outlet")
     .eq("id", userData.user.id)
     .maybeSingle();
 
-  if (!profile || !profile.aktif || profile.role !== "superadmin") {
-    return { ok: false as const, error: "Hanya superadmin yang boleh mengelola admin", status: 403 };
+  if (!profile || !profile.aktif || (profile.role !== "superadmin" && profile.role !== "manajer_outlet")) {
+    return { ok: false as const, error: "Hanya superadmin atau manajer outlet yang boleh mengelola admin", status: 403 };
   }
 
-  return { ok: true as const, userId: userData.user.id };
+  return {
+    ok: true as const,
+    userId: userData.user.id,
+    role: profile.role as string,
+    outlet: profile.outlet as string | null,
+  };
 }
 
-/* ========== GET: daftar semua admin ========== */
+/* ========== GET: daftar admin (manajer outlet hanya lihat outletnya sendiri) ========== */
 export async function GET(req: NextRequest) {
   const admin = getAdmin();
-  const auth = await requireSuperadmin(req);
+  const auth = await requireElevated(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const { data, error } = await admin
+  let query = admin
     .from("AdminProfile")
     .select("id, email, nama, role, outlet, aktif, created_at")
     .order("role")
     .order("outlet", { nullsFirst: true })
     .order("nama");
 
+  if (auth.role === "manajer_outlet") {
+    query = query.eq("outlet", auth.outlet);
+  }
+
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ data });
 }
@@ -62,11 +73,12 @@ export async function GET(req: NextRequest) {
 /* ========== POST: buat admin baru ========== */
 export async function POST(req: NextRequest) {
   const admin = getAdmin();
-  const auth = await requireSuperadmin(req);
+  const auth = await requireElevated(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const body = await req.json();
-  const { email, password, nama, role, outlet } = body;
+  const { email, password, nama } = body;
+  let { role, outlet } = body;
 
   if (!email || !password || !nama) {
     return NextResponse.json({ error: "Email, password, dan nama wajib diisi" }, { status: 400 });
@@ -74,8 +86,15 @@ export async function POST(req: NextRequest) {
   if (password.length < 6) {
     return NextResponse.json({ error: "Password minimal 6 karakter" }, { status: 400 });
   }
-  if (role === "admin_outlet" && !outlet) {
-    return NextResponse.json({ error: "Admin outlet wajib punya outlet" }, { status: 400 });
+
+  // Manajer outlet: paksa role admin_outlet & outlet miliknya sendiri, apa pun yang dikirim client
+  if (auth.role === "manajer_outlet") {
+    role = "admin_outlet";
+    outlet = auth.outlet;
+  }
+
+  if ((role === "admin_outlet" || role === "manajer_outlet") && !outlet) {
+    return NextResponse.json({ error: "Role ini wajib punya outlet" }, { status: 400 });
   }
 
   // 1. Buat akun login
@@ -108,19 +127,37 @@ export async function POST(req: NextRequest) {
 /* ========== PATCH: ubah admin ========== */
 export async function PATCH(req: NextRequest) {
   const admin = getAdmin();
-  const auth = await requireSuperadmin(req);
+  const auth = await requireElevated(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const body = await req.json();
-  const { id, nama, role, outlet, aktif, password } = body;
+  const { id, nama, aktif, password } = body;
+  let { role, outlet } = body;
   if (!id) return NextResponse.json({ error: "ID tidak ada" }, { status: 400 });
 
-  // Cegah superadmin menonaktifkan dirinya sendiri
+  // Cegah menonaktifkan akun sendiri
   if (id === auth.userId && aktif === false) {
     return NextResponse.json({ error: "Tidak bisa menonaktifkan akun sendiri" }, { status: 400 });
   }
-  if (id === auth.userId && role && role !== "superadmin") {
+  // Cegah menurunkan role akun sendiri (berlaku utk superadmin maupun manajer outlet)
+  if (id === auth.userId && role && role !== auth.role) {
     return NextResponse.json({ error: "Tidak bisa menurunkan role akun sendiri" }, { status: 400 });
+  }
+
+  if (auth.role === "manajer_outlet") {
+    // Manajer outlet hanya boleh menyentuh admin_outlet di outletnya sendiri
+    const { data: target } = await admin
+      .from("AdminProfile")
+      .select("role, outlet")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (!target || target.role !== "admin_outlet" || target.outlet !== auth.outlet) {
+      return NextResponse.json({ error: "Tidak berwenang mengubah admin ini" }, { status: 403 });
+    }
+    // Tidak boleh mengubah role atau memindah outlet admin
+    role = undefined;
+    outlet = undefined;
   }
 
   // Ganti password kalau diminta
@@ -154,7 +191,7 @@ export async function PATCH(req: NextRequest) {
 /* ========== DELETE: hapus admin ========== */
 export async function DELETE(req: NextRequest) {
   const admin = getAdmin();
-  const auth = await requireSuperadmin(req);
+  const auth = await requireElevated(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const { searchParams } = new URL(req.url);
@@ -163,6 +200,18 @@ export async function DELETE(req: NextRequest) {
 
   if (id === auth.userId) {
     return NextResponse.json({ error: "Tidak bisa menghapus akun sendiri" }, { status: 400 });
+  }
+
+  if (auth.role === "manajer_outlet") {
+    const { data: target } = await admin
+      .from("AdminProfile")
+      .select("role, outlet")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (!target || target.role !== "admin_outlet" || target.outlet !== auth.outlet) {
+      return NextResponse.json({ error: "Tidak berwenang menghapus admin ini" }, { status: 403 });
+    }
   }
 
   // Hapus akun login — baris AdminProfile ikut terhapus (ON DELETE CASCADE)

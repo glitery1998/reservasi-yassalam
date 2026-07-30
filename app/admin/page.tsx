@@ -63,6 +63,10 @@ type AdminUser = {
   id: string; email: string; nama: string | null;
   role: string; outlet: string | null; aktif: boolean; created_at: string;
 };
+type LiburOutlet = {
+  Id: number; created_at: string; outlet: string;
+  tanggal_mulai: string; tanggal_selesai: string; alasan: string | null;
+};
 
 function AreaCardImage({ area, tables }: { area: Area; tables: TableData[] }) {
   const photos = tables.filter((t) => t.outlet === area.outlet && t.posisi === area.slug && t.foto_url).map((t) => t.foto_url as string);
@@ -216,6 +220,8 @@ export default function AdminDashboard() {
 
   
   const isSuper = myRole === "superadmin";
+  const isManajer = myRole === "manajer_outlet";
+  const isElevated = isSuper || isManajer;
   const lockedOutlet = isSuper ? null : myOutlet;
 
   const [myNama, setMyNama] = useState<string | null>(null);
@@ -258,7 +264,7 @@ export default function AdminDashboard() {
     setSession(null);
   }
 
-  const [tab, setTab] = useState<"reservasi" | "kalender" | "area" | "gabungan" | "menu" | "laporan" | "admin" | "log">("reservasi");
+  const [tab, setTab] = useState<"reservasi" | "kalender" | "area" | "gabungan" | "menu" | "laporan" | "admin" | "log" | "pengaturan">("reservasi");
   const [kalSubTab, setKalSubTab] = useState<"harian" | "cari">("harian");
   const [drillArea, setDrillArea] = useState<Area | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -289,6 +295,31 @@ export default function AdminDashboard() {
   const [savingReservasi, setSavingReservasi] = useState(false);
   const [cutoffSetting, setCutoffSetting] = useState("4");
   const [savingCutoff, setSavingCutoff] = useState(false);
+  const [holdMinutes, setHoldMinutes] = useState("10");
+  const [minBookingHours, setMinBookingHours] = useState("2");
+  const [maxBookingDays, setMaxBookingDays] = useState("30");
+  const [savingReservasiPolicy, setSavingReservasiPolicy] = useState(false);
+  const [thresholdLama, setThresholdLama] = useState("2");
+  const [thresholdNoShow, setThresholdNoShow] = useState("1");
+  const [savingThreshold, setSavingThreshold] = useState(false);
+  const [jamBukaSolo, setJamBukaSolo] = useState("10:00");
+  const [jamTutupSolo, setJamTutupSolo] = useState("22:00");
+  const [jamBukaJogja, setJamBukaJogja] = useState("10:00");
+  const [jamTutupJogja, setJamTutupJogja] = useState("22:00");
+  const [savingJamOperasional, setSavingJamOperasional] = useState(false);
+  const [notifSuaraAktif, setNotifSuaraAktif] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("yassalam_notif_suara") !== "off";
+  });
+  const [liburList, setLiburList] = useState<LiburOutlet[]>([]);
+  const [loadingLibur, setLoadingLibur] = useState(false);
+  const [showLiburForm, setShowLiburForm] = useState(false);
+  const [editLibur, setEditLibur] = useState<LiburOutlet | null>(null);
+  const [lOutlet, setLOutlet] = useState("solo");
+  const [lMulai, setLMulai] = useState("");
+  const [lSelesai, setLSelesai] = useState("");
+  const [lAlasan, setLAlasan] = useState("");
+  const [savingLibur, setSavingLibur] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [loadingOrderKeys, setLoadingOrderKeys] = useState<Set<string>>(new Set());
   const [ordersCache, setOrdersCache] = useState<Record<string, ReservationMenuItemT[]>>({});
@@ -538,15 +569,94 @@ export default function AdminDashboard() {
   }, []);
 
   const fetchCutoffSetting = useCallback(async () => {
-    const { data } = await supabase.from("AppSettings").select("value").eq("key", "menu_cutoff_hours").single();
-    if (data?.value) setCutoffSetting(data.value);
+    const keys = ["menu_cutoff_hours", "booking_hold_minutes", "booking_min_hours", "booking_max_days", "threshold_pelanggan_lama", "threshold_no_show", "jam_buka_solo", "jam_tutup_solo", "jam_buka_jogja", "jam_tutup_jogja"];
+    const { data } = await supabase.from("AppSettings").select("key, value").in("key", keys);
+    const map = Object.fromEntries((data || []).map((d: { key: string; value: string }) => [d.key, d.value]));
+    if (map.menu_cutoff_hours) setCutoffSetting(map.menu_cutoff_hours);
+    if (map.booking_hold_minutes) setHoldMinutes(map.booking_hold_minutes);
+    if (map.booking_min_hours) setMinBookingHours(map.booking_min_hours);
+    if (map.booking_max_days) setMaxBookingDays(map.booking_max_days);
+    if (map.threshold_pelanggan_lama) setThresholdLama(map.threshold_pelanggan_lama);
+    if (map.threshold_no_show) setThresholdNoShow(map.threshold_no_show);
+    if (map.jam_buka_solo) setJamBukaSolo(map.jam_buka_solo);
+    if (map.jam_tutup_solo) setJamTutupSolo(map.jam_tutup_solo);
+    if (map.jam_buka_jogja) setJamBukaJogja(map.jam_buka_jogja);
+    if (map.jam_tutup_jogja) setJamTutupJogja(map.jam_tutup_jogja);
   }, []);
   async function saveCutoffSetting() {
     setSavingCutoff(true);
-    const { error } = await supabase.from("AppSettings").update({ value: cutoffSetting }).eq("key", "menu_cutoff_hours");
+    const { error } = await supabase.from("AppSettings").upsert({ key: "menu_cutoff_hours", value: cutoffSetting }, { onConflict: "key" });
     setSavingCutoff(false);
     if (error) { alert("Gagal simpan: " + error.message); return; }
     alert("Pengaturan disimpan.");
+  }
+  async function saveReservasiPolicy() {
+    setSavingReservasiPolicy(true);
+    const { error } = await supabase.from("AppSettings").upsert([
+      { key: "booking_hold_minutes", value: holdMinutes },
+      { key: "booking_min_hours", value: minBookingHours },
+      { key: "booking_max_days", value: maxBookingDays },
+    ], { onConflict: "key" });
+    setSavingReservasiPolicy(false);
+    if (error) { alert("Gagal simpan: " + error.message); return; }
+    alert("Pengaturan disimpan.");
+  }
+  async function saveThreshold() {
+    setSavingThreshold(true);
+    const { error } = await supabase.from("AppSettings").upsert([
+      { key: "threshold_pelanggan_lama", value: thresholdLama },
+      { key: "threshold_no_show", value: thresholdNoShow },
+    ], { onConflict: "key" });
+    setSavingThreshold(false);
+    if (error) { alert("Gagal simpan: " + error.message); return; }
+    alert("Pengaturan disimpan.");
+  }
+  async function saveJamOperasional() {
+    setSavingJamOperasional(true);
+    const { error } = await supabase.from("AppSettings").upsert([
+      { key: "jam_buka_solo", value: jamBukaSolo },
+      { key: "jam_tutup_solo", value: jamTutupSolo },
+      { key: "jam_buka_jogja", value: jamBukaJogja },
+      { key: "jam_tutup_jogja", value: jamTutupJogja },
+    ], { onConflict: "key" });
+    setSavingJamOperasional(false);
+    if (error) { alert("Gagal simpan: " + error.message); return; }
+    alert("Pengaturan disimpan.");
+  }
+  function toggleNotifSuara() {
+    const next = !notifSuaraAktif;
+    setNotifSuaraAktif(next);
+    localStorage.setItem("yassalam_notif_suara", next ? "on" : "off");
+  }
+  const fetchLibur = useCallback(async () => {
+    setLoadingLibur(true);
+    const { data } = await supabase.from("LiburOutlet").select("*").order("tanggal_mulai", { ascending: false });
+    setLiburList(data || []);
+    setLoadingLibur(false);
+  }, []);
+  function openLiburForm(l?: LiburOutlet) {
+    if (l) { setEditLibur(l); setLOutlet(l.outlet); setLMulai(l.tanggal_mulai); setLSelesai(l.tanggal_selesai); setLAlasan(l.alasan || ""); }
+    else { setEditLibur(null); setLOutlet(isSuper ? "solo" : (myOutlet || "solo")); setLMulai(""); setLSelesai(""); setLAlasan(""); }
+    setShowLiburForm(true);
+  }
+  async function saveLibur() {
+    if (!lMulai || !lSelesai) { alert("Isi tanggal mulai dan tanggal selesai"); return; }
+    if (lMulai > lSelesai) { alert("Tanggal mulai tidak boleh lebih besar dari tanggal selesai"); return; }
+    setSavingLibur(true);
+    const payload = { outlet: lOutlet, tanggal_mulai: lMulai, tanggal_selesai: lSelesai, alasan: lAlasan.trim() || null };
+    const { error } = editLibur
+      ? await supabase.from("LiburOutlet").update(payload).eq("Id", editLibur.Id)
+      : await supabase.from("LiburOutlet").insert(payload);
+    setSavingLibur(false);
+    if (error) { alert("Gagal simpan: " + error.message); return; }
+    setShowLiburForm(false);
+    fetchLibur();
+  }
+  async function deleteLibur(l: LiburOutlet) {
+    if (!confirm(`Hapus jadwal libur ${l.outlet === "solo" ? "Solo" : "Yogyakarta"} (${l.tanggal_mulai} – ${l.tanggal_selesai})?`)) return;
+    const { error } = await supabase.from("LiburOutlet").delete().eq("Id", l.Id);
+    if (error) { alert("Gagal hapus: " + error.message); return; }
+    fetchLibur();
   }
 
   const [customerHistoryMap, setCustomerHistoryMap] = useState<Record<string, { total: number; noShow: number; completed: number }>>({});
@@ -574,7 +684,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
-    if (tab === "reservasi") { void fetchReservations(); void fetchAllMenuLookups(); void fetchTables(); void fetchCutoffSetting(); void fetchCustomerHistory(); }
+    if (tab === "reservasi") { void fetchReservations(); void fetchAllMenuLookups(); void fetchTables(); void fetchCustomerHistory(); }
     if (tab === "kalender") { void fetchKalenderData(); void fetchTables(); void fetchAreas(); void fetchGabungan(); }
     if (tab === "area") { void fetchAreas(); void fetchTables(); }
     if (tab === "gabungan") { void fetchGabungan(); void fetchTables(); }
@@ -582,8 +692,9 @@ export default function AdminDashboard() {
     if (tab === "laporan") { void fetchLaporan(); }
     if (tab === "admin") { void fetchAdminList(); }
     if (tab === "log") { void fetchActivityLog(); }
+    if (tab === "pengaturan") { void fetchCutoffSetting(); void fetchLibur(); }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [tab, fetchReservations, fetchKalenderData, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList, fetchLaporan, fetchActivityLog, fetchCustomerHistory]);
+  }, [tab, fetchReservations, fetchKalenderData, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList, fetchLaporan, fetchActivityLog, fetchCustomerHistory, fetchLibur]);
 
   // ===== REALTIME: reservasi baru otomatis muncul + notifikasi =====
   const notifAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -661,9 +772,9 @@ export default function AdminDashboard() {
           const newRes = payload.new as { nama_tamu?: string; outlet?: string; tanggal?: string; jam?: string };
           fetchReservations();
           // Bunyikan suara
-          notifAudioRef.current?.play().catch(() => {});
+          if (notifSuaraAktif) notifAudioRef.current?.play().catch(() => {});
           // Tampilkan notifikasi browser (kalau diizinkan)
-          if (Notification.permission === "granted") {
+          if (notifSuaraAktif && Notification.permission === "granted") {
             new Notification("Reservasi Baru!", {
               body: `${newRes.nama_tamu || "Tamu"} — ${newRes.outlet || ""} ${newRes.tanggal || ""} ${newRes.jam || ""}`,
               icon: "/logo.PNG",
@@ -683,7 +794,7 @@ export default function AdminDashboard() {
       )
       .subscribe();
     return () => { supabase.removeChannel(resCh); };
-  }, [tab, fetchReservations]);
+  }, [tab, fetchReservations, notifSuaraAktif]);
 
   // ===== AUTO-COMPLETE: reservasi Confirmed otomatis jadi Completed atau No-Show setelah lewat jam selesai =====
   useEffect(() => {
@@ -1045,7 +1156,7 @@ export default function AdminDashboard() {
 
   function openAdminForm(a?: AdminUser) {
     if (a) { setEditAdmin(a); setAuNama(a.nama || ""); setAuEmail(a.email); setAuRole(a.role); setAuOutlet(a.outlet || "solo"); }
-    else { setEditAdmin(null); setAuNama(""); setAuEmail(""); setAuRole("admin_outlet"); setAuOutlet("solo"); }
+    else { setEditAdmin(null); setAuNama(""); setAuEmail(""); setAuRole("admin_outlet"); setAuOutlet(isSuper ? "solo" : (myOutlet || "solo")); }
     setAuPassword("");
     setShowAdminForm(true);
   }
@@ -1082,6 +1193,7 @@ export default function AdminDashboard() {
     fetchAdminList();
   }
   const stats = { total: reservations.length, pending: reservations.filter((r) => r.status === "Pending").length, confirmed: reservations.filter((r) => r.status === "Confirmed").length, completed: reservations.filter((r) => r.status === "Completed").length, noshow: reservations.filter((r) => r.status === "No-Show").length, cancelled: reservations.filter((r) => r.status === "Cancelled").length };
+  const visibleAdminList = isSuper ? adminList : adminList.filter((a) => a.outlet === myOutlet);
   const statusStyle: Record<string, string> = { Pending: "bg-amber-50 text-amber-700 border-amber-200", Confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200", Completed: "bg-blue-50 text-blue-700 border-blue-200", Cancelled: "bg-red-50 text-red-600 border-red-200", "No-Show": "bg-orange-50 text-orange-700 border-orange-300" };
 
   const inputClass = "w-full px-4 py-3 rounded-xl border-2 border-[#E5DDD4] focus:border-[#5C1420] bg-[#FEFCF8] outline-none text-[#3D2E1E] text-sm placeholder-[#C4B9AB] transition-all";
@@ -1120,7 +1232,7 @@ export default function AdminDashboard() {
     { key: "gabungan", label: "Gabungan", icon: "🔗" },
     { key: "menu", label: "Menu", icon: "🍽" },
     { key: "laporan", label: "Laporan", icon: "📈" },
-    ...(isSuper ? [{ key: "admin", label: "Kelola Admin", icon: "👤" }, { key: "log", label: "Log Aktivitas", icon: "🕘" }] : []),
+    ...(isElevated ? [{ key: "admin", label: "Kelola Admin", icon: "👤" }, { key: "log", label: "Log Aktivitas", icon: "🕘" }, { key: "pengaturan", label: "Pengaturan", icon: "🔧" }] : []),
   ];
 
   return (
@@ -1140,7 +1252,7 @@ export default function AdminDashboard() {
                 <p className="text-sm text-[#9A8B7A] mb-1">{sapaan},</p>
                 <h2 className="font-serif text-2xl text-[#3D2E1E] mb-2 capitalize">{namaTampil}</h2>
                 <p className="text-sm text-[#9A8B7A] mb-6">
-                  {isSuper ? "Selamat bekerja, Super Admin." : `Selamat bekerja, Admin ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}.`}
+                  {isSuper ? "Selamat bekerja, Super Admin." : isManajer ? `Selamat bekerja, Manajer Outlet ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}.` : `Selamat bekerja, Admin ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}.`}
                 </p>
                 <button onClick={() => setShowWelcome(false)}
                   className="w-full h-11 rounded-lg bg-[#5C1420] text-[#F5EBD8] text-sm font-semibold active:scale-[0.98] transition-all">
@@ -1186,7 +1298,7 @@ export default function AdminDashboard() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-[11px] font-medium truncate">{session.user.email}</p>
-              <p className="text-white/60 text-[10px]">{isSuper ? "★ Super Admin" : `Admin ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}`}</p>
+              <p className="text-white/60 text-[10px]">{isSuper ? "★ Super Admin" : isManajer ? `★ Manajer ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}` : `Admin ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}`}</p>
             </div>
           </div>
           <div className="flex gap-2">
@@ -1244,15 +1356,6 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className={`bg-[#F9F6F2] border-2 border-[#5C1420]/15 rounded-2xl p-5 mb-6 flex-wrap items-center gap-3 ${isSuper ? "flex" : "hidden"}`}>
-            <span className="text-[#5C1420] text-xs font-bold tracking-wider uppercase">⚙ Batas Waktu Pesan Menu:</span>
-            <input type="number" min="0" value={cutoffSetting} onChange={(e) => setCutoffSetting(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] text-center" />
-            <span className="text-sm text-[#9A8B7A]">jam sebelum jam reservasi</span>
-            <button onClick={saveCutoffSetting} disabled={savingCutoff}
-              className="ml-auto px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 disabled:opacity-50">
-              {savingCutoff ? "Menyimpan..." : "Simpan"}
-            </button>
-          </div>
           {showReservasiForm && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
               <div className="bg-white border-2 border-[#5C1420]/20 rounded-3xl p-8 max-w-lg w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -1406,11 +1509,11 @@ export default function AdminDashboard() {
                             )}
                             {(() => {
                               const hist = customerHistoryMap[normalizeWhatsapp(r.no_whatsapp)];
-                              if (!hist || hist.total <= 1) return null;
+                              if (!hist || hist.total < Number(thresholdLama)) return null;
                               return (
                                 <>
                                   <span className="bg-purple-50 text-purple-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-purple-200">👤 Pelanggan Lama · {hist.total}x</span>
-                                  {hist.noShow > 0 && (
+                                  {hist.noShow >= Number(thresholdNoShow) && (
                                     <span className="bg-orange-50 text-orange-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-orange-200">⚠ {hist.noShow}x No-Show</span>
                                   )}
                                 </>
@@ -2392,7 +2495,7 @@ export default function AdminDashboard() {
         })()}
 
         {/* ========== TAB KELOLA ADMIN ========== */}
-        {tab === "admin" && isSuper && (<>
+        {tab === "admin" && isElevated && (<>
           <div className="flex justify-between items-center mb-8">
             <div>
               <h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Kelola Admin</h2>
@@ -2417,20 +2520,22 @@ export default function AdminDashboard() {
                 </div>
                 <div>
                   <label className={labelClass}>Role</label>
-                  <select value={auRole} onChange={(e) => setAuRole(e.target.value)} className={inputClass}>
+                  <select value={auRole} onChange={(e) => setAuRole(e.target.value)} disabled={!isSuper} className={inputClass + (!isSuper ? " opacity-60 cursor-not-allowed" : "")}>
                     <option value="admin_outlet">Admin Outlet</option>
-                    <option value="superadmin">Super Admin</option>
+                    {isSuper && <option value="manajer_outlet">Manajer Outlet</option>}
+                    {isSuper && <option value="superadmin">Super Admin</option>}
                   </select>
+                  {!isSuper && <p className="text-[10px] text-[#B5A999] mt-1.5">Hanya Super Admin yang bisa mengatur role</p>}
                 </div>
-                {auRole === "admin_outlet" && (
+                {auRole !== "superadmin" && (
                   <div>
                     <label className={labelClass}>Outlet</label>
-                    <select value={auOutlet} onChange={(e) => setAuOutlet(e.target.value)} className={inputClass}>
+                    <select value={auOutlet} onChange={(e) => setAuOutlet(e.target.value)} disabled={!isSuper} className={inputClass + (!isSuper ? " opacity-60 cursor-not-allowed" : "")}>
                       <option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
                     </select>
                   </div>
                 )}
-                <p className="text-xs text-[#B5A999]">Super Admin bisa mengakses semua outlet dan mengelola admin lain.</p>
+                <p className="text-xs text-[#B5A999]">Super Admin bisa mengakses semua outlet dan mengelola admin lain. Manajer Outlet setara Super Admin tapi hanya untuk outlet-nya sendiri.</p>
                 <div className="flex gap-3 pt-3">
                   <button onClick={() => setShowAdminForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Batal</button>
                   <button onClick={saveAdmin} disabled={savingAdmin} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold disabled:opacity-50">{savingAdmin ? "Menyimpan..." : "Simpan"}</button>
@@ -2439,15 +2544,17 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {loadingAdmin ? <p className="text-center text-[#B5A999] py-16">Memuat data admin...</p> : adminList.length === 0 ? <p className="text-center text-[#B5A999] py-16">Belum ada admin terdaftar.</p> : (
+          {loadingAdmin ? <p className="text-center text-[#B5A999] py-16">Memuat data admin...</p> : visibleAdminList.length === 0 ? <p className="text-center text-[#B5A999] py-16">Belum ada admin terdaftar.</p> : (
             <div className="space-y-3">
-              {adminList.map((a) => (
+              {visibleAdminList.map((a) => (
                 <div key={a.id} className={`bg-white border-2 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${a.aktif ? "border-[#E5DDD4] hover:border-[#5C1420]/30" : "border-gray-200 opacity-60"}`}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-bold text-[#3D2E1E] text-lg font-serif">{a.nama || "(tanpa nama)"}</h3>
                       {a.role === "superadmin" ? (
                         <span className="bg-[#5C1420]/15 text-[#5C1420] border-2 border-[#5C1420]/30 text-[10px] px-2.5 py-0.5 rounded-full font-bold tracking-wider uppercase">★ Super Admin</span>
+                      ) : a.role === "manajer_outlet" ? (
+                        <span className="bg-[#5C1420]/10 text-[#5C1420] border-2 border-[#5C1420]/25 text-[10px] px-2.5 py-0.5 rounded-full font-bold tracking-wider uppercase">★ Manajer {a.outlet === "solo" ? "Solo" : "Yogyakarta"}</span>
                       ) : (
                         <span className="bg-[#F9F6F2] text-[#9A8B7A] border-2 border-[#E5DDD4] text-[10px] px-2.5 py-0.5 rounded-full font-bold tracking-wider uppercase">{a.outlet === "solo" ? "Solo" : "Yogyakarta"}</span>
                       )}
@@ -2470,7 +2577,7 @@ export default function AdminDashboard() {
         </>)}
 
         {/* ========== TAB LOG AKTIVITAS ========== */}
-        {tab === "log" && isSuper && (
+        {tab === "log" && isElevated && (
           <>
             <div className="mb-6"><h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Log Aktivitas Admin</h2><p className="text-[#9A8B7A] text-sm mt-1">Riwayat 200 aksi terakhir yang dilakukan admin di dashboard</p></div>
             {loadingLog ? <p className="text-center text-[#B5A999] py-16">Memuat log...</p> : activityLog.length === 0 ? <p className="text-center text-[#B5A999] py-16">Belum ada aktivitas tercatat.</p> : (
@@ -2485,6 +2592,161 @@ export default function AdminDashboard() {
                     <p className="text-[10px] text-[#B5A999] whitespace-nowrap">{new Date(log.created_at).toLocaleString("id-ID")}</p>
                   </div>
                 ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ========== TAB PENGATURAN ========== */}
+        {tab === "pengaturan" && isElevated && (
+          <>
+            <div className="mb-6"><h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Pengaturan</h2><p className="text-[#9A8B7A] text-sm mt-1">Pengaturan umum untuk sistem reservasi</p></div>
+
+            <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 flex flex-wrap items-center gap-3">
+              <span className="text-[#5C1420] text-xs font-bold tracking-wider uppercase">🔧 Batas Waktu Pesan Menu:</span>
+              <input type="number" min="0" value={cutoffSetting} onChange={(e) => setCutoffSetting(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] text-center" />
+              <span className="text-sm text-[#9A8B7A]">jam sebelum jam reservasi</span>
+              <button onClick={saveCutoffSetting} disabled={savingCutoff}
+                className="ml-auto px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 disabled:opacity-50">
+                {savingCutoff ? "Menyimpan..." : "Simpan"}
+              </button>
+            </div>
+
+            <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
+              <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase mb-3">⏱ Kebijakan Reservasi</p>
+              <div className="flex flex-wrap items-center gap-3 mb-3">
+                <span className="text-sm text-[#3D2E1E] w-56">Durasi hold slot meja</span>
+                <input type="number" min="1" value={holdMinutes} onChange={(e) => setHoldMinutes(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] text-center" />
+                <span className="text-sm text-[#9A8B7A]">menit</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 mb-3">
+                <span className="text-sm text-[#3D2E1E] w-56">Minimal booking sebelum jam reservasi</span>
+                <input type="number" min="0" value={minBookingHours} onChange={(e) => setMinBookingHours(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] text-center" />
+                <span className="text-sm text-[#9A8B7A]">jam</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm text-[#3D2E1E] w-56">Maksimal booking ke depan</span>
+                <input type="number" min="1" value={maxBookingDays} onChange={(e) => setMaxBookingDays(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] text-center" />
+                <span className="text-sm text-[#9A8B7A]">hari</span>
+                <button onClick={saveReservasiPolicy} disabled={savingReservasiPolicy}
+                  className="ml-auto px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 disabled:opacity-50">
+                  {savingReservasiPolicy ? "Menyimpan..." : "Simpan"}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
+              <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase mb-3">👤 Ambang Batas Badge Pelanggan</p>
+              <div className="flex flex-wrap items-center gap-3 mb-3">
+                <span className="text-sm text-[#3D2E1E] w-56">Tampilkan &quot;Pelanggan Lama&quot; mulai dari</span>
+                <input type="number" min="1" value={thresholdLama} onChange={(e) => setThresholdLama(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] text-center" />
+                <span className="text-sm text-[#9A8B7A]">x booking</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm text-[#3D2E1E] w-56">Tampilkan peringatan &quot;No-Show&quot; mulai dari</span>
+                <input type="number" min="1" value={thresholdNoShow} onChange={(e) => setThresholdNoShow(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] text-center" />
+                <span className="text-sm text-[#9A8B7A]">x no-show</span>
+                <button onClick={saveThreshold} disabled={savingThreshold}
+                  className="ml-auto px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 disabled:opacity-50">
+                  {savingThreshold ? "Menyimpan..." : "Simpan"}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
+              <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase mb-3">🕐 Jam Operasional Outlet</p>
+              <div className="grid sm:grid-cols-2 gap-4 mb-3">
+                {(isSuper || myOutlet === "solo") && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-[#3D2E1E] w-16">Solo</span>
+                    <input type="time" value={jamBukaSolo} onChange={(e) => setJamBukaSolo(e.target.value)} className="px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420]" />
+                    <span className="text-[#9A8B7A] text-sm">–</span>
+                    <input type="time" value={jamTutupSolo} onChange={(e) => setJamTutupSolo(e.target.value)} className="px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420]" />
+                  </div>
+                )}
+                {(isSuper || myOutlet === "jogja") && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-[#3D2E1E] w-16">Yogyakarta</span>
+                    <input type="time" value={jamBukaJogja} onChange={(e) => setJamBukaJogja(e.target.value)} className="px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420]" />
+                    <span className="text-[#9A8B7A] text-sm">–</span>
+                    <input type="time" value={jamTutupJogja} onChange={(e) => setJamTutupJogja(e.target.value)} className="px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420]" />
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-end">
+                <button onClick={saveJamOperasional} disabled={savingJamOperasional}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 disabled:opacity-50">
+                  {savingJamOperasional ? "Menyimpan..." : "Simpan"}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4 flex items-center justify-between">
+              <div>
+                <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase">🔔 Notifikasi Suara &amp; Browser</p>
+                <p className="text-xs text-[#9A8B7A] mt-1">Bunyi &amp; popup saat ada reservasi baru masuk (khusus perangkat ini)</p>
+              </div>
+              <button onClick={toggleNotifSuara}
+                className={`shrink-0 w-14 h-8 rounded-full relative transition-all ${notifSuaraAktif ? "bg-[#5C1420]" : "bg-[#E5DDD4]"}`}>
+                <span className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow-md transition-all ${notifSuaraAktif ? "left-7" : "left-1"}`} />
+              </button>
+            </div>
+
+            <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
+              <div className="flex justify-between items-center flex-wrap gap-3 mb-4">
+                <div>
+                  <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase">🚫 Libur Outlet</p>
+                  <p className="text-xs text-[#9A8B7A] mt-1">Customer tidak bisa booking di tanggal yang ditandai libur</p>
+                </div>
+                <button onClick={() => openLiburForm()} className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20">+ Tambah Libur</button>
+              </div>
+
+              {(() => {
+                const visibleLiburList = isSuper ? liburList : liburList.filter((l) => l.outlet === myOutlet);
+                return loadingLibur ? <p className="text-center text-[#B5A999] py-8 text-sm">Memuat...</p> : visibleLiburList.length === 0 ? <p className="text-center text-[#B5A999] py-8 text-sm">Belum ada jadwal libur.</p> : (
+                <div className="space-y-2">
+                  {visibleLiburList.map((l) => (
+                    <div key={l.Id} className="flex flex-wrap items-center justify-between gap-3 border-2 border-[#E5DDD4] rounded-xl p-3.5">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="bg-[#F9F6F2] text-[#9A8B7A] border-2 border-[#E5DDD4] text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase">{l.outlet === "solo" ? "Solo" : "Yogyakarta"}</span>
+                          <span className="text-sm font-bold text-[#3D2E1E]">
+                            {l.tanggal_mulai === l.tanggal_selesai ? l.tanggal_mulai : `${l.tanggal_mulai} – ${l.tanggal_selesai}`}
+                          </span>
+                        </div>
+                        {l.alasan && <p className="text-xs text-[#9A8B7A] mt-1">{l.alasan}</p>}
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => openLiburForm(l)} className="px-3 py-1.5 rounded-lg border-2 border-[#5C1420]/30 text-[#5C1420] text-xs font-bold hover:bg-[#5C1420]/5">Edit</button>
+                        <button onClick={() => deleteLibur(l)} className="px-3 py-1.5 rounded-lg border-2 border-red-200 text-red-400 text-xs hover:bg-red-50">🗑</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                );
+              })()}
+            </div>
+
+            {showLiburForm && (
+              <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+                <div className="bg-white border-2 border-[#5C1420]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+                  <div><h3 className="text-xl font-bold text-[#3D2E1E] font-serif">{editLibur ? "Edit Libur" : "Tambah Libur Outlet"}</h3><div className="w-12 h-0.5 bg-[#5C1420] mt-2" /></div>
+                  <div>
+                    <label className={labelClass}>Outlet</label>
+                    <select value={lOutlet} onChange={(e) => setLOutlet(e.target.value)} disabled={!isSuper} className={inputClass + (!isSuper ? " opacity-60 cursor-not-allowed" : "")}>
+                      <option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className={labelClass}>Tanggal Mulai</label><input type="date" value={lMulai} onChange={(e) => setLMulai(e.target.value)} className={inputClass} /></div>
+                    <div><label className={labelClass}>Tanggal Selesai</label><input type="date" value={lSelesai} onChange={(e) => setLSelesai(e.target.value)} className={inputClass} /></div>
+                  </div>
+                  <div><label className={labelClass}>Alasan <span className="normal-case font-normal text-[#B5A999]">(opsional, tampil ke customer)</span></label><textarea value={lAlasan} onChange={(e) => setLAlasan(e.target.value)} rows={3} placeholder="Contoh: Libur Hari Raya Idul Fitri" className={inputClass + " resize-none"} /></div>
+                  <div className="flex gap-3 pt-3">
+                    <button onClick={() => setShowLiburForm(false)} className="flex-1 py-3.5 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Batal</button>
+                    <button onClick={saveLibur} disabled={savingLibur} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold disabled:opacity-50">{savingLibur ? "Menyimpan..." : "Simpan"}</button>
+                  </div>
+                </div>
               </div>
             )}
           </>
