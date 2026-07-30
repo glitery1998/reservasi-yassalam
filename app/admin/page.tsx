@@ -202,6 +202,174 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
     </div>
   );
 }
+
+/* ========== SCAN TIKET (QR check-in) ========== */
+type ScanFoundRow = {
+  Id: number; nama_tamu: string; outlet: string; tanggal: string; jam: string; jam_selesai: string;
+  jumlah_tamu: number; status: string; meja_id: number | null; checked_in_at: string | null;
+};
+function ScanTiketPanel({
+  lockedOutlet, formatJam, getMejaLabel, tandaiHadirByToken,
+}: {
+  lockedOutlet: string | null;
+  formatJam: (j: string) => string;
+  getMejaLabel: (id: number) => string;
+  tandaiHadirByToken: (token: string, namaTamu: string, tanggal: string, jam: string) => Promise<void>;
+}) {
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const [looking, setLooking] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [wrongOutlet, setWrongOutlet] = useState(false);
+  const [found, setFound] = useState<{ token: string; rows: ScanFoundRow[] } | null>(null);
+  const [marking, setMarking] = useState(false);
+  const scannerRef = useRef<{ pause: (a?: boolean) => void; resume: () => void; stop: () => Promise<void>; clear: () => void } | null>(null);
+  const busyRef = useRef(false);
+
+  async function handleDecoded(decodedText: string) {
+    const m = decodedText.match(/^YSL-CHECKIN:(.+)$/);
+    const token = m ? m[1] : decodedText.trim();
+    setLooking(true); setNotFound(false); setWrongOutlet(false); setFound(null);
+    const { data } = await supabase.from("Reservation")
+      .select("Id, nama_tamu, outlet, tanggal, jam, jam_selesai, jumlah_tamu, status, meja_id, checked_in_at")
+      .eq("share_token", token);
+    setLooking(false);
+    if (!data || data.length === 0) { setNotFound(true); return; }
+    if (lockedOutlet && data[0].outlet !== lockedOutlet) { setWrongOutlet(true); return; }
+    setFound({ token, rows: data as ScanFoundRow[] });
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    let didStart = false;
+    (async () => {
+      try {
+        const { Html5Qrcode } = await import("html5-qrcode");
+        if (cancelled) return;
+        const scanner = new Html5Qrcode("scan-tiket-region");
+        scannerRef.current = scanner;
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 240, height: 240 } },
+          async (decodedText: string) => {
+            if (busyRef.current) return;
+            busyRef.current = true;
+            try { scannerRef.current?.pause(true); } catch { /* noop */ }
+            await handleDecoded(decodedText);
+            busyRef.current = false;
+          },
+          () => { /* frame tanpa QR, biarkan */ }
+        );
+        didStart = true;
+        setCameraError(null);
+      } catch (e) {
+        setCameraError(e instanceof Error ? e.message : "Gagal mengakses kamera. Pastikan izin kamera diaktifkan di browser lalu muat ulang halaman.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+      const s = scannerRef.current;
+      if (!s) return;
+      if (didStart) {
+        // Kamera sempat jalan → aman untuk di-stop
+        s.stop().catch(() => {}).finally(() => { try { s.clear(); } catch { /* noop */ } });
+      } else {
+        // Kamera gak pernah berhasil jalan (izin ditolak dll) → stop() akan error, cukup clear
+        try { s.clear(); } catch { /* noop */ }
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retryKey]);
+
+  function scanLagi() {
+    setFound(null); setNotFound(false); setWrongOutlet(false);
+    try { scannerRef.current?.resume(); } catch { /* noop */ }
+  }
+
+  async function konfirmasiHadir() {
+    if (!found) return;
+    const r = found.rows[0];
+    setMarking(true);
+    await tandaiHadirByToken(found.token, r.nama_tamu, r.tanggal, r.jam);
+    setMarking(false);
+    scanLagi();
+  }
+
+  const semuaMejaLabel = found ? found.rows.map((r) => (r.meja_id ? getMejaLabel(r.meja_id) : "—")).join(" + ") : "";
+  const sudahHadirSebelumnya = found ? !!found.rows[0].checked_in_at : false;
+
+  return (
+    <div className="max-w-xl mx-auto">
+      <div className="mb-6 text-center">
+        <h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Scan Tiket Reservasi</h2>
+        <p className="text-[#9A8B7A] text-sm mt-1">Arahkan kamera ke QR code di tiket customer untuk menandai kehadiran otomatis</p>
+      </div>
+
+      <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-4 overflow-hidden">
+        <div id="scan-tiket-region" className="rounded-xl overflow-hidden" />
+        {cameraError && (
+          <div className="text-center mt-3">
+            <p className="text-red-500 text-sm">⚠ {cameraError}</p>
+            <button onClick={() => setRetryKey((k) => k + 1)} className="mt-2 px-4 py-2 rounded-xl bg-red-500 text-white text-sm font-bold">Coba Lagi</button>
+          </div>
+        )}
+      </div>
+
+      {looking && <p className="text-center text-[#9A8B7A] text-sm mt-4">Mencari reservasi...</p>}
+
+      {notFound && (
+        <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-5 mt-4 text-center">
+          <p className="font-bold text-red-600">QR tidak dikenali</p>
+          <p className="text-red-500 text-sm mt-1">Reservasi dengan kode ini tidak ditemukan di sistem.</p>
+          <button onClick={scanLagi} className="mt-4 px-5 py-2 rounded-xl bg-red-500 text-white text-sm font-bold">Scan Lagi</button>
+        </div>
+      )}
+
+      {wrongOutlet && (
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-5 mt-4 text-center">
+          <p className="font-bold text-amber-700">Reservasi outlet lain</p>
+          <p className="text-amber-600 text-sm mt-1">Tiket ini bukan untuk outlet Anda.</p>
+          <button onClick={scanLagi} className="mt-4 px-5 py-2 rounded-xl bg-amber-500 text-white text-sm font-bold">Scan Lagi</button>
+        </div>
+      )}
+
+      {found && (
+        <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
+          <div className="flex items-center justify-between">
+            <p className="font-bold text-[#3D2E1E] text-lg font-serif">{found.rows[0].nama_tamu}</p>
+            <span className={`text-[10px] px-3 py-1 rounded-full border-2 font-bold tracking-wider uppercase ${found.rows[0].status === "Confirmed" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-[#F9F6F2] text-[#9A8B7A] border-[#E5DDD4]"}`}>{found.rows[0].status}</span>
+          </div>
+          <p className="text-[#9A8B7A] text-xs uppercase tracking-wide mt-1 capitalize">{found.rows[0].outlet} · {found.rows[0].tanggal}</p>
+          <div className="grid grid-cols-3 gap-3 py-4 mt-3 border-y border-[#F0EAE0]">
+            <div><p className="text-[9px] text-[#B5A999] font-bold uppercase mb-0.5">Jam</p><p className="text-sm font-semibold text-[#3D2E1E]">{formatJam(found.rows[0].jam)}–{formatJam(found.rows[0].jam_selesai)}</p></div>
+            <div><p className="text-[9px] text-[#B5A999] font-bold uppercase mb-0.5">Tamu</p><p className="text-sm font-semibold text-[#3D2E1E]">{found.rows[0].jumlah_tamu} orang</p></div>
+            <div><p className="text-[9px] text-[#B5A999] font-bold uppercase mb-0.5">Meja</p><p className="text-sm font-semibold text-[#5C1420]">{semuaMejaLabel}</p></div>
+          </div>
+
+          {sudahHadirSebelumnya ? (
+            <div className="mt-4 text-center">
+              <p className="text-emerald-600 font-bold text-sm">✓ Sudah ditandai hadir sebelumnya</p>
+              <button onClick={scanLagi} className="mt-3 px-5 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-bold">Scan Lagi</button>
+            </div>
+          ) : found.rows[0].status !== "Confirmed" ? (
+            <div className="mt-4 text-center">
+              <p className="text-amber-600 text-sm font-semibold">Status reservasi bukan &quot;Confirmed&quot;, tidak bisa ditandai hadir dari sini.</p>
+              <button onClick={scanLagi} className="mt-3 px-5 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-bold">Scan Lagi</button>
+            </div>
+          ) : (
+            <div className="flex gap-3 mt-4">
+              <button onClick={scanLagi} className="flex-1 py-3 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold">Batal</button>
+              <button onClick={konfirmasiHadir} disabled={marking} className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold disabled:opacity-50">
+                {marking ? "Menyimpan..." : "✓ Tandai Hadir"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   /* ========== AUTH STATE ========== */
   const [session, setSession] = useState<Session | null>(null);
@@ -236,8 +404,9 @@ export default function AdminDashboard() {
   }, [showWelcome]);
 
   const loadProfile = useCallback(async (userId: string) => {
-    const { data } = await supabase.from("AdminProfile")
+    const { data, error } = await supabase.from("AdminProfile")
       .select("role, outlet, aktif, nama").eq("id", userId).maybeSingle();
+    if (error) { console.error("Gagal memuat AdminProfile:", error.message); }
     if (!data || !data.aktif) { setProfileError(true); setMyRole(null); setMyOutlet(null); return; }
     setProfileError(false); setMyRole(data.role); setMyOutlet(data.outlet); setMyNama(data.nama);
   }, []);
@@ -264,7 +433,7 @@ export default function AdminDashboard() {
     setSession(null);
   }
 
-  const [tab, setTab] = useState<"reservasi" | "kalender" | "area" | "gabungan" | "menu" | "laporan" | "admin" | "log" | "pengaturan">("reservasi");
+  const [tab, setTab] = useState<"reservasi" | "scan" | "kalender" | "area" | "gabungan" | "menu" | "laporan" | "admin" | "log" | "pengaturan">("reservasi");
   const [kalSubTab, setKalSubTab] = useState<"harian" | "cari">("harian");
   const [drillArea, setDrillArea] = useState<Area | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -560,12 +729,20 @@ export default function AdminDashboard() {
 
   const fetchAdminList = useCallback(async () => {
     setLoadingAdmin(true);
-    const { data: { session: s } } = await supabase.auth.getSession();
-    const res = await fetch("/api/admin-users", { headers: { Authorization: `Bearer ${s?.access_token}` } });
-    const json = await res.json();
-    setLoadingAdmin(false);
-    if (!res.ok) { alert("Gagal memuat: " + json.error); return; }
-    setAdminList(json.data || []);
+    try {
+      const { data: { session: s } } = await supabase.auth.getSession();
+      const res = await fetch("/api/admin-users", { headers: { Authorization: `Bearer ${s?.access_token}` } });
+      const text = await res.text();
+      let json: { data?: AdminUser[]; error?: string };
+      try { json = JSON.parse(text); }
+      catch { throw new Error(`Server mengembalikan respons tidak valid (status ${res.status}). Cek log Vercel / env var Supabase.`); }
+      if (!res.ok) { alert("Gagal memuat: " + (json.error || `status ${res.status}`)); return; }
+      setAdminList(json.data || []);
+    } catch (err) {
+      alert("Gagal memuat data admin: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setLoadingAdmin(false);
+    }
   }, []);
 
   const fetchCutoffSetting = useCallback(async () => {
@@ -887,6 +1064,11 @@ export default function AdminDashboard() {
     const r = reservationsRef.current.find((x) => x.Id === id);
     await supabase.from("Reservation").update({ checked_in_at: new Date().toISOString() }).eq("Id", id);
     if (r) logActivity("Tandai hadir", `${r.nama_tamu} (${r.tanggal} ${formatJam(r.jam)})`);
+    fetchReservations();
+  }
+  async function tandaiHadirByToken(token: string, namaTamu: string, tanggal: string, jam: string) {
+    await supabase.from("Reservation").update({ checked_in_at: new Date().toISOString() }).eq("share_token", token);
+    logActivity("Tandai hadir (scan QR)", `${namaTamu} (${tanggal} ${formatJam(jam)})`);
     fetchReservations();
   }
 
@@ -1227,6 +1409,7 @@ export default function AdminDashboard() {
 
   const sidebarItems = [
     { key: "reservasi", label: "Reservasi", icon: "📋" },
+    { key: "scan", label: "Scan Tiket", icon: "📷" },
     { key: "kalender", label: "Kalender", icon: "📅" },
     { key: "area", label: "Area & Meja", icon: "🏛" },
     { key: "gabungan", label: "Gabungan", icon: "🔗" },
@@ -1655,6 +1838,15 @@ export default function AdminDashboard() {
             );
           })()}
         </>)}
+{/* ========== TAB SCAN TIKET ========== */}
+        {tab === "scan" && (
+          <ScanTiketPanel
+            lockedOutlet={lockedOutlet}
+            formatJam={formatJam}
+            getMejaLabel={getMejaLabel}
+            tandaiHadirByToken={tandaiHadirByToken}
+          />
+        )}
 {/* ========== TAB KALENDER ========== */}
         {tab === "kalender" && (<>
           <div className="mb-6">
