@@ -219,26 +219,38 @@ function ScanTiketPanel({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const [cameraStarted, setCameraStarted] = useState(false);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [looking, setLooking] = useState(false);
-  const [notFound, setNotFound] = useState(false);
-  const [wrongOutlet, setWrongOutlet] = useState(false);
-  const [found, setFound] = useState<{ token: string; rows: ScanFoundRow[] } | null>(null);
-  const [marking, setMarking] = useState(false);
+  const [resultPopup, setResultPopup] = useState<{
+    kind: "success" | "already" | "blocked" | "notfound" | "wrongoutlet";
+    namaTamu?: string; jam?: string; jamSelesai?: string; mejaLabel?: string; status?: string;
+  } | null>(null);
   const scannerRef = useRef<{ pause: (a?: boolean) => void; resume: () => void; stop: () => Promise<void>; clear: () => void } | null>(null);
   const busyRef = useRef(false);
 
   async function handleDecoded(decodedText: string) {
     const m = decodedText.match(/^YSL-CHECKIN:(.+)$/);
     const token = m ? m[1] : decodedText.trim();
-    setLooking(true); setNotFound(false); setWrongOutlet(false); setFound(null);
+    setLooking(true);
     const { data } = await supabase.from("Reservation")
       .select("Id, nama_tamu, outlet, tanggal, jam, jam_selesai, jumlah_tamu, status, meja_id, checked_in_at")
       .eq("share_token", token);
     setLooking(false);
-    if (!data || data.length === 0) { setNotFound(true); return; }
-    if (lockedOutlet && data[0].outlet !== lockedOutlet) { setWrongOutlet(true); return; }
-    setFound({ token, rows: data as ScanFoundRow[] });
+
+    if (!data || data.length === 0) { setResultPopup({ kind: "notfound" }); return; }
+    const rows = data as ScanFoundRow[];
+    const r = rows[0];
+
+    if (lockedOutlet && r.outlet !== lockedOutlet) { setResultPopup({ kind: "wrongoutlet", namaTamu: r.nama_tamu }); return; }
+
+    const mejaLabel = rows.map((rr) => (rr.meja_id ? getMejaLabel(rr.meja_id) : "—")).join(" + ");
+    const base = { namaTamu: r.nama_tamu, jam: r.jam, jamSelesai: r.jam_selesai, mejaLabel };
+
+    if (r.checked_in_at) { setResultPopup({ kind: "already", ...base }); return; }
+    if (r.status !== "Confirmed") { setResultPopup({ kind: "blocked", ...base, status: r.status }); return; }
+
+    // Langsung konfirmasi hadir otomatis, gak perlu klik tombol lagi
+    await tandaiHadirByToken(token, r.nama_tamu, r.tanggal, r.jam);
+    setResultPopup({ kind: "success", ...base });
   }
 
   useEffect(() => {
@@ -285,22 +297,9 @@ function ScanTiketPanel({
   }, [retryKey, cameraStarted]);
 
   function scanLagi() {
-    setFound(null); setNotFound(false); setWrongOutlet(false); setSuccessMsg(null);
+    setResultPopup(null);
     try { scannerRef.current?.resume(); } catch { /* noop */ }
   }
-
-  async function konfirmasiHadir() {
-    if (!found) return;
-    const r = found.rows[0];
-    setMarking(true);
-    await tandaiHadirByToken(found.token, r.nama_tamu, r.tanggal, r.jam);
-    setMarking(false);
-    setFound(null);
-    setSuccessMsg(`${r.nama_tamu} berhasil ditandai hadir!`);
-  }
-
-  const semuaMejaLabel = found ? found.rows.map((r) => (r.meja_id ? getMejaLabel(r.meja_id) : "—")).join(" + ") : "";
-  const sudahHadirSebelumnya = found ? !!found.rows[0].checked_in_at : false;
 
   return (
     <div className="max-w-xl mx-auto">
@@ -334,65 +333,55 @@ function ScanTiketPanel({
         )}
       </div>
 
-      {looking && <p className="text-center text-[#9A8B7A] text-sm mt-4">Mencari reservasi...</p>}
+      {looking && <p className="text-center text-[#9A8B7A] text-sm mt-4">Memverifikasi tiket...</p>}
 
-      {successMsg && (
-        <div className="bg-emerald-50 border-2 border-emerald-200 rounded-2xl p-5 mt-4 text-center">
-          <div className="w-14 h-14 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-3">
-            <span className="text-white text-2xl">✓</span>
-          </div>
-          <p className="font-bold text-emerald-700">{successMsg}</p>
-          <button onClick={scanLagi} className="mt-4 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold">Scan Tiket Berikutnya</button>
-        </div>
-      )}
-
-      {notFound && (
-        <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-5 mt-4 text-center">
-          <p className="font-bold text-red-600">QR tidak dikenali</p>
-          <p className="text-red-500 text-sm mt-1">Reservasi dengan kode ini tidak ditemukan di sistem.</p>
-          <button onClick={scanLagi} className="mt-4 px-5 py-2 rounded-xl bg-red-500 text-white text-sm font-bold">Scan Lagi</button>
-        </div>
-      )}
-
-      {wrongOutlet && (
-        <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-5 mt-4 text-center">
-          <p className="font-bold text-amber-700">Reservasi outlet lain</p>
-          <p className="text-amber-600 text-sm mt-1">Tiket ini bukan untuk outlet Anda.</p>
-          <button onClick={scanLagi} className="mt-4 px-5 py-2 rounded-xl bg-amber-500 text-white text-sm font-bold">Scan Lagi</button>
-        </div>
-      )}
-
-      {found && (
-        <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
-          <div className="flex items-center justify-between">
-            <p className="font-bold text-[#3D2E1E] text-lg font-serif">{found.rows[0].nama_tamu}</p>
-            <span className={`text-[10px] px-3 py-1 rounded-full border-2 font-bold tracking-wider uppercase ${found.rows[0].status === "Confirmed" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-[#F9F6F2] text-[#9A8B7A] border-[#E5DDD4]"}`}>{found.rows[0].status}</span>
-          </div>
-          <p className="text-[#9A8B7A] text-xs uppercase tracking-wide mt-1 capitalize">{found.rows[0].outlet} · {found.rows[0].tanggal}</p>
-          <div className="grid grid-cols-3 gap-3 py-4 mt-3 border-y border-[#F0EAE0]">
-            <div><p className="text-[9px] text-[#B5A999] font-bold uppercase mb-0.5">Jam</p><p className="text-sm font-semibold text-[#3D2E1E]">{formatJam(found.rows[0].jam)}–{formatJam(found.rows[0].jam_selesai)}</p></div>
-            <div><p className="text-[9px] text-[#B5A999] font-bold uppercase mb-0.5">Tamu</p><p className="text-sm font-semibold text-[#3D2E1E]">{found.rows[0].jumlah_tamu} orang</p></div>
-            <div><p className="text-[9px] text-[#B5A999] font-bold uppercase mb-0.5">Meja</p><p className="text-sm font-semibold text-[#5C1420]">{semuaMejaLabel}</p></div>
-          </div>
-
-          {sudahHadirSebelumnya ? (
-            <div className="mt-4 text-center">
-              <p className="text-emerald-600 font-bold text-sm">✓ Sudah ditandai hadir sebelumnya</p>
-              <button onClick={scanLagi} className="mt-3 px-5 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-bold">Scan Lagi</button>
+      {resultPopup && (
+        <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center px-4" onClick={scanLagi}>
+          <div className="bg-white rounded-3xl overflow-hidden max-w-sm w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className={`px-6 py-7 text-center bg-gradient-to-r ${
+              resultPopup.kind === "success" ? "from-emerald-500 to-emerald-600"
+              : resultPopup.kind === "already" ? "from-[#C8973E] to-[#A67B2E]"
+              : resultPopup.kind === "blocked" ? "from-amber-500 to-amber-600"
+              : resultPopup.kind === "wrongoutlet" ? "from-amber-500 to-amber-600"
+              : "from-red-500 to-red-600"
+            }`}>
+              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                <span className="text-3xl">
+                  {resultPopup.kind === "success" ? "✓" : resultPopup.kind === "already" ? "ℹ" : resultPopup.kind === "notfound" ? "✕" : "⚠"}
+                </span>
+              </div>
+              <h3 className="text-white font-bold text-lg font-serif">
+                {resultPopup.kind === "success" ? "Kehadiran Dikonfirmasi"
+                  : resultPopup.kind === "already" ? "Sudah Pernah Discan"
+                  : resultPopup.kind === "blocked" ? "Belum Bisa Dikonfirmasi"
+                  : resultPopup.kind === "wrongoutlet" ? "Reservasi Outlet Lain"
+                  : "QR Tidak Dikenali"}
+              </h3>
             </div>
-          ) : found.rows[0].status !== "Confirmed" ? (
-            <div className="mt-4 text-center">
-              <p className="text-amber-600 text-sm font-semibold">Status reservasi bukan &quot;Confirmed&quot;, tidak bisa ditandai hadir dari sini.</p>
-              <button onClick={scanLagi} className="mt-3 px-5 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-bold">Scan Lagi</button>
-            </div>
-          ) : (
-            <div className="flex gap-3 mt-4">
-              <button onClick={scanLagi} className="flex-1 py-3 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold">Batal</button>
-              <button onClick={konfirmasiHadir} disabled={marking} className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold disabled:opacity-50">
-                {marking ? "Menyimpan..." : "✓ Tandai Hadir"}
+            <div className="p-6 text-center">
+              {resultPopup.kind === "notfound" && (
+                <p className="text-[#8B7355] text-sm">Reservasi dengan kode ini tidak ditemukan di sistem.</p>
+              )}
+              {resultPopup.kind === "wrongoutlet" && (
+                <p className="text-[#8B7355] text-sm">Tiket atas nama <span className="font-bold text-[#3D2E1E]">{resultPopup.namaTamu}</span> ini bukan untuk outlet Anda.</p>
+              )}
+              {resultPopup.kind === "blocked" && (
+                <p className="text-[#8B7355] text-sm">Status reservasi <span className="font-bold text-[#3D2E1E]">{resultPopup.status}</span>, bukan &quot;Confirmed&quot;, jadi belum bisa dikonfirmasi hadir.</p>
+              )}
+              {(resultPopup.kind === "success" || resultPopup.kind === "already" || resultPopup.kind === "blocked") && resultPopup.namaTamu && (
+                <div className="bg-[#F9F6F2] border border-[#E5DDD4] rounded-2xl p-4 mt-4 text-left space-y-1.5">
+                  <p className="font-bold text-[#3D2E1E] text-base font-serif">{resultPopup.namaTamu}</p>
+                  <p className="text-[#9A8B7A] text-sm">🪑 Meja {resultPopup.mejaLabel} &nbsp;·&nbsp; 🕐 {formatJam(resultPopup.jam || "")}–{formatJam(resultPopup.jamSelesai || "")}</p>
+                  {resultPopup.kind === "success" && <p className="text-emerald-600 text-sm font-semibold pt-1">✓ Tercatat hadir barusan</p>}
+                  {resultPopup.kind === "already" && <p className="text-[#C8973E] text-sm font-semibold pt-1">Sudah ditandai hadir sebelumnya</p>}
+                </div>
+              )}
+              <button onClick={scanLagi}
+                className="w-full mt-6 py-3 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold text-sm transition-all active:scale-[0.98]">
+                Scan Tiket Berikutnya
               </button>
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>
