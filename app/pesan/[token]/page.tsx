@@ -56,6 +56,14 @@ export default function PesanMenuPage() {
   const [waVerify, setWaVerify] = useState("");
   const [waError, setWaError] = useState("");
   const [cancelingFinalize, setCancelingFinalize] = useState(false);
+  const [notif, setNotif] = useState<{ kind: "error" | "warning"; title: string; message: string } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
+  function showNotif(kind: "error" | "warning", title: string, message: string) {
+    setNotif({ kind, title, message });
+  }
+  function askConfirm(title: string, message: string, onConfirm: () => void) {
+    setConfirmModal({ title, message, onConfirm });
+  }
 
   const primaryReservation = reservations[0] || null;
 
@@ -114,7 +122,7 @@ export default function PesanMenuPage() {
       p_token: token, p_wa_last4: waVerify.trim(),
     });
     setFinalizing(false);
-    if (error) { alert("Gagal mengirim pesanan: " + error.message); return; }
+    if (error) { showNotif("error", "Gagal Mengirim Pesanan", error.message); return; }
     if (!(data as { ok?: boolean } | null)?.ok) {
       setWaError("4 digit tidak cocok. Coba tanya ke yang membuat reservasi ini.");
       return;
@@ -124,13 +132,15 @@ export default function PesanMenuPage() {
     setWaVerify("");
   }
 
-  async function cancelFinalize() {
+  function cancelFinalize() {
+    askConfirm("Batalkan Pengiriman Menu?", "Pesanan akan bisa diedit lagi setelah dibatalkan.", doCancelFinalize);
+  }
+  async function doCancelFinalize() {
     if (!token) return;
-    if (!confirm("Batalkan pengiriman menu? Pesanan akan bisa diedit lagi.")) return;
     setCancelingFinalize(true);
     const { error } = await supabase.rpc("unfinalize_order_by_token", { p_token: token });
     setCancelingFinalize(false);
-    if (error) { alert("Gagal membatalkan: " + error.message); return; }
+    if (error) { showNotif("error", "Gagal Membatalkan", error.message); return; }
     setReservations((prev) => prev.map((r) => ({ ...r, menu_finalized: false })));
   }
 
@@ -164,7 +174,7 @@ export default function PesanMenuPage() {
   async function submitOrder() {
     if (!pickedItem || !primaryReservation) return;
     if (pickedItem.punya_varian && itemVarianList.length > 0 && !pickVarian) {
-      alert("Pilih varian dulu ya");
+      showNotif("warning", "Pilih Varian Dulu", "Silakan pilih salah satu varian sebelum menambahkan ke pesanan.");
       return;
     }
     setSubmitting(true);
@@ -180,13 +190,15 @@ export default function PesanMenuPage() {
       nama_pemesan: pickNama || null,
     });
     setSubmitting(false);
-    if (error) { alert("Gagal menyimpan pesanan: " + error.message); return; }
+    if (error) { showNotif("error", "Gagal Menyimpan Pesanan", error.message); return; }
     setPickedItem(null);
     refreshOrders();
   }
 
-  async function deleteOrderedItem(id: number) {
-    if (!confirm("Hapus item ini dari pesanan?")) return;
+  function deleteOrderedItem(id: number) {
+    askConfirm("Hapus Item Ini?", "Item akan dihapus dari daftar pesanan.", () => doDeleteOrderedItem(id));
+  }
+  async function doDeleteOrderedItem(id: number) {
     await supabase.from("ReservationMenuItem").delete().eq("Id", id);
     refreshOrders();
   }
@@ -547,6 +559,54 @@ export default function PesanMenuPage() {
               className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold transition-all active:scale-[0.98] disabled:opacity-50">
               {submitting ? "Menyimpan..." : "Tambah ke Pesanan"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP NOTIFIKASI (pengganti alert) */}
+      {notif && (
+        <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center px-4" onClick={() => setNotif(null)}>
+          <div className="bg-white rounded-3xl overflow-hidden max-w-sm w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className={`px-6 py-6 text-center bg-gradient-to-r ${notif.kind === "error" ? "from-red-500 to-red-600" : "from-[#C8973E] to-[#A67B2E]"}`}>
+              <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                <span className="text-2xl">{notif.kind === "error" ? "✕" : "⚠"}</span>
+              </div>
+              <h3 className="text-white font-bold text-lg font-serif">{notif.title}</h3>
+            </div>
+            <div className="p-6 text-center">
+              <p className="text-[#5C3D1A] text-sm leading-relaxed">{notif.message}</p>
+              <button onClick={() => setNotif(null)}
+                className="w-full mt-5 py-3 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold text-sm transition-all active:scale-[0.98]">
+                Mengerti
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP KONFIRMASI (pengganti confirm) */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center px-4" onClick={() => setConfirmModal(null)}>
+          <div className="bg-white rounded-3xl overflow-hidden max-w-sm w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] px-6 py-6 text-center">
+              <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                <span className="text-2xl">❓</span>
+              </div>
+              <h3 className="text-white font-bold text-lg font-serif">{confirmModal.title}</h3>
+            </div>
+            <div className="p-6 text-center">
+              <p className="text-[#8B7355] text-sm leading-relaxed">{confirmModal.message}</p>
+              <div className="flex gap-3 mt-5">
+                <button onClick={() => setConfirmModal(null)}
+                  className="flex-1 py-3 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-bold text-sm hover:bg-[#FDF6EC] transition-all">
+                  Batal
+                </button>
+                <button onClick={() => { const fn = confirmModal.onConfirm; setConfirmModal(null); fn(); }}
+                  className="flex-1 py-3 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold text-sm transition-all active:scale-[0.98]">
+                  Ya, Lanjutkan
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -218,6 +218,8 @@ function ScanTiketPanel({
 }) {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [cameraStarted, setCameraStarted] = useState(false);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [looking, setLooking] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [wrongOutlet, setWrongOutlet] = useState(false);
@@ -240,6 +242,7 @@ function ScanTiketPanel({
   }
 
   useEffect(() => {
+    if (!cameraStarted) return;
     let cancelled = false;
     let didStart = false;
     (async () => {
@@ -279,10 +282,10 @@ function ScanTiketPanel({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [retryKey]);
+  }, [retryKey, cameraStarted]);
 
   function scanLagi() {
-    setFound(null); setNotFound(false); setWrongOutlet(false);
+    setFound(null); setNotFound(false); setWrongOutlet(false); setSuccessMsg(null);
     try { scannerRef.current?.resume(); } catch { /* noop */ }
   }
 
@@ -292,7 +295,8 @@ function ScanTiketPanel({
     setMarking(true);
     await tandaiHadirByToken(found.token, r.nama_tamu, r.tanggal, r.jam);
     setMarking(false);
-    scanLagi();
+    setFound(null);
+    setSuccessMsg(`${r.nama_tamu} berhasil ditandai hadir!`);
   }
 
   const semuaMejaLabel = found ? found.rows.map((r) => (r.meja_id ? getMejaLabel(r.meja_id) : "—")).join(" + ") : "";
@@ -306,16 +310,41 @@ function ScanTiketPanel({
       </div>
 
       <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-4 overflow-hidden">
-        <div id="scan-tiket-region" className="rounded-xl overflow-hidden" />
-        {cameraError && (
-          <div className="text-center mt-3">
-            <p className="text-red-500 text-sm">⚠ {cameraError}</p>
-            <button onClick={() => setRetryKey((k) => k + 1)} className="mt-2 px-4 py-2 rounded-xl bg-red-500 text-white text-sm font-bold">Coba Lagi</button>
+        {!cameraStarted ? (
+          <div className="py-14 flex flex-col items-center justify-center text-center">
+            <div className="w-16 h-16 rounded-full bg-[#F9F6F2] border-2 border-[#5C1420]/15 flex items-center justify-center mb-4">
+              <span className="text-3xl">📷</span>
+            </div>
+            <p className="text-[#9A8B7A] text-sm mb-4 max-w-xs">Kamera belum aktif. Klik tombol di bawah untuk mulai scan tiket customer.</p>
+            <button onClick={() => setCameraStarted(true)}
+              className="px-6 py-3 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20">
+              Buka Kamera
+            </button>
           </div>
+        ) : (
+          <>
+            <div id="scan-tiket-region" className="rounded-xl overflow-hidden" />
+            {cameraError && (
+              <div className="text-center mt-3">
+                <p className="text-red-500 text-sm">⚠ {cameraError}</p>
+                <button onClick={() => setRetryKey((k) => k + 1)} className="mt-2 px-4 py-2 rounded-xl bg-red-500 text-white text-sm font-bold">Coba Lagi</button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
       {looking && <p className="text-center text-[#9A8B7A] text-sm mt-4">Mencari reservasi...</p>}
+
+      {successMsg && (
+        <div className="bg-emerald-50 border-2 border-emerald-200 rounded-2xl p-5 mt-4 text-center">
+          <div className="w-14 h-14 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-3">
+            <span className="text-white text-2xl">✓</span>
+          </div>
+          <p className="font-bold text-emerald-700">{successMsg}</p>
+          <button onClick={scanLagi} className="mt-4 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold">Scan Tiket Berikutnya</button>
+        </div>
+      )}
 
       {notFound && (
         <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-5 mt-4 text-center">

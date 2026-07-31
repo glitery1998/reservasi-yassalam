@@ -320,7 +320,6 @@ function SpotlightTour({ steps, onFinish }: { steps: { targetId: string; text: s
       <div className="absolute rounded-2xl border-2 border-[#C8973E] transition-all duration-300"
         style={{ top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, boxShadow: "0 0 0 9999px rgba(0,0,0,0.6)" }} />
 
-      {/* eslint-disable-next-line @next/next/no-img-element */}
       <div
         className="absolute transition-all duration-300"
         style={{
@@ -552,7 +551,21 @@ export default function Home() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [sukses, setSukses] = useState(false);
-  const [errors, setErrors] = useState<string[]>([]);
+  const [notif, setNotif] = useState<{ kind: "error" | "warning" | "libur" | "success"; title: string; messages: string[]; onClose?: () => void } | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  function showNotif(kind: "error" | "warning" | "libur" | "success", title: string, messages: string | string[], onClose?: () => void) {
+    setNotif({ kind, title, messages: Array.isArray(messages) ? messages : [messages], onClose });
+  }
+  function closeNotif() {
+    const cb = notif?.onClose;
+    setNotif(null);
+    if (cb) cb();
+  }
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const [outlet, setOutlet] = useState("");
 
@@ -664,8 +677,7 @@ export default function Home() {
         setCountdown("00:00");
         setHoldId(null);
         setHoldExpiry(null);
-        alert("Waktu hold meja telah habis. Silakan mulai ulang.");
-        backToHome();
+        showNotif("warning", "Waktu Habis", "Waktu hold meja telah habis. Silakan mulai ulang.", () => backToHome());
         return;
       }
       const m = Math.floor(diff / 60000);
@@ -867,8 +879,11 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
   }
   async function nextStep() {
     const errs = validateStep(step);
-    setErrors(errs);
-    if (errs.length > 0) return;
+    if (errs.length > 0) {
+      const isLibur = errs.some((e) => e.toLowerCase().includes("libur"));
+      showNotif(isLibur ? "libur" : "warning", isLibur ? "Outlet Sedang Libur" : "Periksa Kembali Form Anda", errs);
+      return;
+    }
 
     if (step === 1) {
       // Honeypot: field ini cuma bisa keisi oleh bot, manusia tidak akan lihat/isi ini
@@ -923,7 +938,7 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
       const { data: existingHolds } = await supabase.from("BookingHold").select("*")
         .eq("meja_id", mejaId).eq("tanggal", tanggal).eq("status", "active").gt("expires_at", new Date().toISOString());
       if (existingHolds && existingHolds.some((h) => isTimeOverlap(jam, computedEnd, h.jam, h.jam_selesai))) {
-        alert("Salah satu meja baru saja di-hold orang lain. Silakan pilih ulang.");
+        showNotif("warning", "Meja Baru Saja Diambil", "Salah satu meja baru saja di-hold orang lain. Silakan pilih ulang.");
         return false;
       }
     }
@@ -935,7 +950,7 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
     }));
 
     const { data, error } = await supabase.from("BookingHold").insert(holdInserts).select();
-    if (error) { alert("Gagal hold meja: " + error.message); return false; }
+    if (error) { showNotif("error", "Gagal Mengunci Meja", error.message); return false; }
     setHoldId(data[0].Id);
     setHoldExpiry(new Date(expiresAt));
     return true;
@@ -962,8 +977,11 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
   // Step 3: Konfirmasi bayar → insert reservation
   async function handleConfirmPayment() {
     const errs = validateStep(3);
-    setErrors(errs);
-    if (errs.length > 0) return;
+    if (errs.length > 0) {
+      const isLibur = errs.some((e) => e.toLowerCase().includes("libur"));
+      showNotif(isLibur ? "libur" : "warning", isLibur ? "Outlet Sedang Libur" : "Periksa Kembali Form Anda", errs);
+      return;
+    }
     setLoading(true);
 
     const dpAmount = selectedGabungan?.dp_minimum || selectedTable?.dp_minimum || 0;
@@ -979,7 +997,7 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
 
     if (error) {
       setLoading(false);
-      alert("Gagal menyimpan reservasi: " + error.message);
+      showNotif("error", "Gagal Menyimpan Reservasi", error.message);
       return;
     }
 
@@ -1013,7 +1031,6 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
     setStep(1);
     setSukses(false);
     setShareToken(null);
-    setErrors([]);
     setSelectedTable(null);
     setAvailableTables([]);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1394,6 +1411,48 @@ useEffect(() => {
             </div>
           </div>
         )}
+
+        {/* Popup notifikasi umum (validasi form, outlet libur, gagal simpan, dsb) */}
+        {notif && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center px-4 py-6 bg-black/60 backdrop-blur-sm" onClick={closeNotif}>
+            <div className="bg-white rounded-3xl overflow-hidden max-w-sm w-full shadow-2xl animate-fadeInUp" onClick={(e) => e.stopPropagation()}>
+              <div className={`px-6 py-6 text-center bg-gradient-to-r ${
+                notif.kind === "error" ? "from-red-500 to-red-600"
+                : notif.kind === "success" ? "from-emerald-500 to-emerald-600"
+                : "from-[#C8973E] to-[#A67B2E]"
+              }`}>
+                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <span className="text-3xl">{notif.kind === "libur" ? "📅" : notif.kind === "error" ? "⚠" : notif.kind === "success" ? "✓" : "⚠"}</span>
+                </div>
+                <h3 className="text-white font-bold text-lg font-serif">{notif.title}</h3>
+              </div>
+              <div className="p-6">
+                {notif.messages.length === 1 ? (
+                  <p className="text-[#5C3D1A] text-sm text-center leading-relaxed">{notif.messages[0]}</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {notif.messages.map((m, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-[#5C3D1A]">
+                        <span className="text-[#C8973E] mt-0.5">•</span><span>{m}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <button onClick={closeNotif}
+                  className="w-full mt-6 py-3 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold text-sm transition-all active:scale-[0.98]">
+                  Mengerti
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Toast kecil — konfirmasi ringan yang hilang sendiri */}
+        {toast && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] bg-[#3D2B14] text-white text-sm font-semibold px-5 py-3 rounded-full shadow-xl animate-fadeInUp flex items-center gap-2">
+            <span className="text-emerald-400">✓</span> {toast}
+          </div>
+        )}
         {/* Lightbox foto meja */}
         {lightboxPhoto && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-6 bg-black/80 backdrop-blur-sm" onClick={() => setLightboxPhoto(null)}>
@@ -1441,12 +1500,6 @@ useEffect(() => {
               })}
             </div>
           </div>
-
-          {errors.length > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6">
-              {errors.map((err, i) => <p key={i} className="text-red-500 text-sm py-1">⚠ {err}</p>)}
-            </div>
-          )}
 
           <div className="bg-white border border-[#C8973E]/12 rounded-3xl p-6 sm:p-8 shadow-lg shadow-[#C8973E]/5">
 
@@ -1588,7 +1641,7 @@ useEffect(() => {
                                 <p className="text-sm text-[#8B7355] mt-1">Muat {t.kapasitas} orang</p>
                                 {t.dp_minimum ? <p className="text-xs text-[#C8973E] mt-1 font-semibold">Uang muka {formatRupiah(t.dp_minimum)}</p> : null}
                                 <button
-                                  onClick={async (e) => { e.stopPropagation(); setSelectedTable(t); setSelectedGabungan(null); setErrors([]); const ok = await createBookingHold([t.Id]); if (ok) setStep(3); }}
+                                  onClick={async (e) => { e.stopPropagation(); setSelectedTable(t); setSelectedGabungan(null); const ok = await createBookingHold([t.Id]); if (ok) setStep(3); }}
                                   className="w-full mt-auto pt-3 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold transition-all active:scale-[0.98] shadow-md shadow-[#C8973E]/20">
                                   <span className="block text-center">Lanjut Booking →</span>
                                 </button>
@@ -1634,7 +1687,7 @@ useEffect(() => {
                               {g.dp_minimum ? <p className="text-xs text-[#C8973E] mt-2 font-semibold">Uang muka {formatRupiah(g.dp_minimum)}</p> : null}
                               {g.minimum_transaksi ? <p className="text-xs text-[#8B7355] mt-0.5">Min. transaksi {formatRupiah(g.minimum_transaksi)}</p> : null}
                               <button
-                                onClick={async (e) => { e.stopPropagation(); setSelectedGabungan(g); setSelectedTable(null); setErrors([]); const ok = await createBookingHold(g.meja_ids); if (ok) setStep(3); }}
+                                onClick={async (e) => { e.stopPropagation(); setSelectedGabungan(g); setSelectedTable(null); const ok = await createBookingHold(g.meja_ids); if (ok) setStep(3); }}
                                 className="w-full mt-3 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-bold transition-all active:scale-[0.98] shadow-md shadow-[#C8973E]/20">
                                 Lanjut Booking →
                               </button>
@@ -1705,7 +1758,7 @@ useEffect(() => {
                     </div>
                     <div className="bg-[#FDF6EC] rounded-lg px-4 py-3 flex items-center justify-between">
                       <span className="font-mono font-bold text-lg text-[#5C3D1A] tracking-wider">1234567890</span>
-                      <button onClick={() => { navigator.clipboard.writeText("1234567890"); alert("Nomor rekening disalin!"); }}
+                      <button onClick={() => { navigator.clipboard.writeText("1234567890"); setToast("Nomor rekening disalin!"); }}
                         className="text-xs font-bold text-[#C8973E] bg-white border border-[#C8973E]/30 rounded-lg px-3 py-1.5 hover:bg-[#C8973E] hover:text-white transition-all">
                         Salin
                       </button>
