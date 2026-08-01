@@ -2,7 +2,7 @@
 import { forwardRef, useState, useRef, useEffect } from "react";
 import HTMLFlipBook from "react-pageflip";
 
-const TOTAL_PAGES = 19;
+const TOTAL_PAGES = 31;
 
 const Page = forwardRef<HTMLDivElement, { image: string; pageNumber: number }>(
   ({ image, pageNumber }, ref) => {
