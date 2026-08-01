@@ -384,13 +384,14 @@ function AreaGalleryModal({ area, tables, gradient, icon, onClose }: {
 }) {
   const photos = tables.filter((t) => t.foto_url);
   const [activeIdx, setActiveIdx] = useState(0);
+  const [autoplay, setAutoplay] = useState(true);
   const activeTable = photos[activeIdx] || null;
 
   useEffect(() => {
-    if (photos.length < 2) return;
+    if (!autoplay || photos.length < 2) return;
     const t = setInterval(() => setActiveIdx((i) => (i + 1) % photos.length), 4000);
     return () => clearInterval(t);
-  }, [photos.length]);
+  }, [photos.length, autoplay]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 bg-black/70 backdrop-blur-sm" onClick={onClose}>
@@ -434,7 +435,7 @@ function AreaGalleryModal({ area, tables, gradient, icon, onClose }: {
               <p className="text-xs font-bold text-[#C8973E] mb-2 px-2 tracking-[0.15em] uppercase">Pilih meja</p>
               <div className="flex md:flex-col gap-2 overflow-x-auto md:overflow-x-visible pb-2 md:pb-0 -mx-1 px-1">
                 {photos.map((t, i) => (
-                  <button key={t.Id} onClick={() => setActiveIdx(i)}
+                  <button key={t.Id} onClick={() => { setActiveIdx(i); setAutoplay(false); }}
                     className={`flex items-center gap-3 shrink-0 md:shrink w-[180px] md:w-full text-left p-2 rounded-xl border transition-all ${i === activeIdx ? "border-[#C8973E] bg-[#C8973E]/10 shadow-sm" : "border-transparent hover:bg-[#C8973E]/5"}`}>
                     <div className="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 ring-1 ring-[#C8973E]/20">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1873,6 +1874,7 @@ useEffect(() => {
           )}
          </div>
       </div>
+
 
       {/* TESTIMONI */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
