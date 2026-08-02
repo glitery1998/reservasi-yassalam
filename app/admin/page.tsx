@@ -78,7 +78,7 @@ function AreaCardImage({ area, tables }: { area: Area; tables: TableData[] }) {
   }, [photos.length]);
   if (photos.length === 0) return (
     <div className="w-full h-full bg-gradient-to-br from-[#E5DDD4] to-[#D4C4A8] flex flex-col items-center justify-center gap-2">
-      <span className="text-3xl text-[#5C1420]/30">📷</span>
+      <Icon name="camera" size={32} className="text-[#5C1420]/30" />
       <span className="text-xs text-[#9A8B7A]">Belum ada foto</span>
     </div>
   );
@@ -106,7 +106,7 @@ function GabunganCardImage({ gabungan, tables }: { gabungan: MejaGabungan; table
   }, [photos.length]);
   if (photos.length === 0) return (
     <div className="w-full h-full bg-gradient-to-br from-[#E5DDD4] to-[#D4C4A8] flex flex-col items-center justify-center gap-1">
-      <span className="text-2xl text-[#5C1420]/30">📷</span>
+      <Icon name="camera" size={24} className="text-[#5C1420]/30" />
       <span className="text-[10px] text-[#9A8B7A]">Belum ada foto meja</span>
     </div>
   );
@@ -225,7 +225,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
           <div className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
             {forgotSent ? (
               <div className="text-center">
-                <p className="text-3xl mb-3">📧</p>
+                <Icon name="mail" size={32} className="text-[#5C1420] mx-auto mb-3" />
                 <h3 className="text-lg font-bold text-[#3D2E1E] font-serif">Email Terkirim</h3>
                 <p className="text-sm text-[#9A8B7A] mt-2 leading-relaxed">Cek inbox <span className="font-semibold text-[#5C1420]">{forgotEmail}</span> untuk link reset password. Jangan lupa cek folder spam kalau tidak muncul.</p>
                 <button onClick={() => setShowForgot(false)} className="w-full h-11 rounded-lg bg-[#5C1420] text-white text-sm font-semibold mt-6">Tutup</button>
@@ -359,7 +359,7 @@ function ScanTiketPanel({
         {!cameraStarted ? (
           <div className="py-14 flex flex-col items-center justify-center text-center">
             <div className="w-16 h-16 rounded-full bg-[#F9F6F2] border-2 border-[#5C1420]/15 flex items-center justify-center mb-4">
-              <span className="text-3xl">📷</span>
+              <Icon name="camera" size={30} className="text-[#5C1420]" />
             </div>
             <p className="text-[#9A8B7A] text-sm mb-4 max-w-xs">Kamera belum aktif. Klik tombol di bawah untuk mulai scan tiket customer.</p>
             <button onClick={() => setCameraStarted(true)}
@@ -372,7 +372,7 @@ function ScanTiketPanel({
             <div id="scan-tiket-region" className="rounded-xl overflow-hidden" />
             {cameraError && (
               <div className="text-center mt-3">
-                <p className="text-red-500 text-sm">⚠ {cameraError}</p>
+                <p className="text-red-500 text-sm inline-flex items-center gap-1"><Icon name="warning" size={14} /> {cameraError}</p>
                 <button onClick={() => setRetryKey((k) => k + 1)} className="mt-2 px-4 py-2 rounded-xl bg-red-500 text-white text-sm font-bold">Coba Lagi</button>
               </div>
             )}
@@ -393,9 +393,7 @@ function ScanTiketPanel({
               : "from-red-500 to-red-600"
             }`}>
               <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-3xl">
-                  {resultPopup.kind === "success" ? "✓" : resultPopup.kind === "already" ? "ℹ" : resultPopup.kind === "notfound" ? "✕" : "⚠"}
-                </span>
+                <Icon name={resultPopup.kind === "success" ? "check" : resultPopup.kind === "already" ? "info" : resultPopup.kind === "notfound" ? "x" : "warning"} size={30} className="text-white" />
               </div>
               <h3 className="text-white font-bold text-lg font-serif">
                 {resultPopup.kind === "success" ? "Kehadiran Dikonfirmasi"
@@ -418,8 +416,8 @@ function ScanTiketPanel({
               {(resultPopup.kind === "success" || resultPopup.kind === "already" || resultPopup.kind === "blocked") && resultPopup.namaTamu && (
                 <div className="bg-[#F9F6F2] border border-[#E5DDD4] rounded-2xl p-4 mt-4 text-left space-y-1.5">
                   <p className="font-bold text-[#3D2E1E] text-base font-serif">{resultPopup.namaTamu}</p>
-                  <p className="text-[#9A8B7A] text-sm">🪑 Meja {resultPopup.mejaLabel} &nbsp;·&nbsp; 🕐 {formatJam(resultPopup.jam || "")}–{formatJam(resultPopup.jamSelesai || "")}</p>
-                  {resultPopup.kind === "success" && <p className="text-emerald-600 text-sm font-semibold pt-1">✓ Tercatat hadir barusan</p>}
+                  <p className="text-[#9A8B7A] text-sm flex items-center gap-1.5 flex-wrap"><Icon name="chair" size={13} /> Meja {resultPopup.mejaLabel} <span className="mx-0.5">·</span> <Icon name="clock" size={13} /> {formatJam(resultPopup.jam || "")}–{formatJam(resultPopup.jamSelesai || "")}</p>
+                  {resultPopup.kind === "success" && <p className="text-emerald-600 text-sm font-semibold pt-1 flex items-center gap-1"><Icon name="check" size={13} /> Tercatat hadir barusan</p>}
                   {resultPopup.kind === "already" && <p className="text-[#C8973E] text-sm font-semibold pt-1">Sudah ditandai hadir sebelumnya</p>}
                 </div>
               )}
@@ -433,6 +431,103 @@ function ScanTiketPanel({
       )}
     </div>
   );
+}
+
+function TrenHarianChart({
+  data, color, formatValue,
+}: {
+  data: { tanggal: string; value: number }[];
+  color: string;
+  formatValue: (n: number) => string;
+}) {
+  const W = 640, H = 210, padL = 8, padR: number = 8, padT = 34, padB = 32;
+  const maxVal = Math.max(...data.map((d) => d.value), 1);
+  const n = data.length;
+  const stepX = n > 1 ? (W - padL - padR) / (n - 1) : 0;
+
+  function xAt(i: number) { return padL + i * stepX; }
+  function yAt(v: number) { return padT + (H - padT - padB) * (1 - v / maxVal); }
+
+  const points = data.map((d, i) => `${xAt(i)},${yAt(d.value)}`).join(" ");
+  const areaPoints = `${padL},${yAt(0)} ${points} ${xAt(n - 1)},${yAt(0)}`;
+
+  // Tampilkan maksimal 5 label tanggal biar gak numpuk kalau rentangnya panjang
+  const labelEvery = Math.max(1, Math.ceil(n / 5));
+  const peakIdx = data.reduce((best, d, i) => (d.value > data[best].value ? i : best), 0);
+  const peakLabel = formatValue(data[peakIdx]?.value || 0);
+  const peakLabelWidth = Math.max(40, peakLabel.length * 6.5);
+  const peakX = Math.min(Math.max(xAt(peakIdx), peakLabelWidth / 2 + 4), W - peakLabelWidth / 2 - 4);
+
+  if (n === 0) return <p className="text-sm text-[#B5A999] text-center py-10">Tidak ada data pada rentang ini.</p>;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[210px]">
+      <line x1={padL} y1={yAt(0)} x2={W - padR} y2={yAt(0)} stroke="#E5DDD4" strokeWidth="1" />
+      <polyline points={areaPoints} fill={color} fillOpacity="0.08" stroke="none" />
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+      {data.map((d, i) => (
+        <circle key={d.tanggal} cx={xAt(i)} cy={yAt(d.value)} r={i === peakIdx ? 4 : 2.5} fill={color} stroke="white" strokeWidth={i === peakIdx ? 1.5 : 1} />
+      ))}
+      {data.map((d, i) => {
+        if (!(i % labelEvery === 0 || i === n - 1)) return null;
+        const anchor = i === 0 ? "start" : i === n - 1 ? "end" : "middle";
+        return (
+          <text key={d.tanggal} x={xAt(i)} y={H - 8} fontSize="12" fontWeight="600" fill="#5C3D1A" textAnchor={anchor}>
+            {new Date(d.tanggal + "T00:00:00").toLocaleDateString("id-ID", { day: "2-digit", month: "2-digit" })}
+          </text>
+        );
+      })}
+      <rect x={peakX - peakLabelWidth / 2} y={Math.max(0, yAt(data[peakIdx]?.value || 0) - 26)} width={peakLabelWidth} height="18" rx="4" fill={color} />
+      <text x={peakX} y={Math.max(13, yAt(data[peakIdx]?.value || 0) - 13)} fontSize="12" fontWeight="700" fill="white" textAnchor="middle">
+        {peakLabel}
+      </text>
+    </svg>
+  );
+}
+
+function Icon({ name, className, size = 16 }: { name: string; className?: string; size?: number }) {
+  const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, className };
+  switch (name) {
+    case "dashboard": return <svg {...common}><path d="M3 12l9-9 9 9" /><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10" /></svg>;
+    case "reservasi": return <svg {...common}><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" /></svg>;
+    case "scan": return <svg {...common}><path d="M4 8V5a1 1 0 0 1 1-1h3M20 8V5a1 1 0 0 1-1-1h-3M4 16v3a1 1 0 0 0 1 1h3M20 16v3a1 1 0 0 1-1 1h-3" /><rect x="9" y="9" width="6" height="6" rx="1" /></svg>;
+    case "kalender": return <svg {...common}><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" /><path d="M9 14h.01M12 14h.01M15 14h.01M9 17h.01M12 17h.01" /></svg>;
+    case "area": return <svg {...common}><path d="M4 21V9l8-6 8 6v12" /><path d="M9 21v-6h6v6" /></svg>;
+    case "gabungan": return <svg {...common}><path d="M9 12a4 4 0 1 0-4 4h2" /><path d="M15 12a4 4 0 1 0 4-4h-2" /><path d="M8 12h8" /></svg>;
+    case "menu": return <svg {...common}><path d="M6 3v18M6 3c3 0 3 3 3 4.5S6 12 6 12" /><path d="M12 3v7a2 2 0 0 0 2 2v9" /><path d="M18 3v18" /></svg>;
+    case "laporan": return <svg {...common}><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg>;
+    case "pelanggan": return <svg {...common}><circle cx="9" cy="8" r="3.2" /><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" /><path d="M16 8.5a2.8 2.8 0 1 1 3.5 2.7" /><path d="M21 20c0-2.5-1.7-4.6-4-5.4" /></svg>;
+    case "kelola-admin": return <svg {...common}><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" /></svg>;
+    case "log": return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" /></svg>;
+    case "pengaturan": return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>;
+    case "camera": return <svg {...common}><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" /><circle cx="12" cy="13" r="3.5" /></svg>;
+    case "mail": return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>;
+    case "warning": return <svg {...common}><path d="M12 3 2 20h20L12 3z" /><path d="M12 10v4M12 17h.01" /></svg>;
+    case "check": return <svg {...common}><path d="M5 13l4 4L19 7" /></svg>;
+    case "check-circle": return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" /></svg>;
+    case "info": return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>;
+    case "x": return <svg {...common}><path d="M6 6l12 12M18 6 6 18" /></svg>;
+    case "x-circle": return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="m9 9 6 6M15 9l-6 6" /></svg>;
+    case "chair": return <svg {...common}><path d="M6 4v9a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4M6 9h12" /><path d="M7 15v5M17 15v5" /></svg>;
+    case "clock": return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" /></svg>;
+    case "chart": return <svg {...common}><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg>;
+    case "hourglass": return <svg {...common}><path d="M6 3h12M6 21h12M7 3c0 5 5 6 5 9s-5 4-5 9M17 3c0 5-5 6-5 9s5 4 5 9" /></svg>;
+    case "party": return <svg {...common}><path d="M4 20l3-9 9-3-2 9-9 3z" /><circle cx="18" cy="6" r="1.3" /><path d="M14 3l1 2M20 9l-2 1" /></svg>;
+    case "ghost": return <svg {...common}><path d="M12 3a6 6 0 0 0-6 6v10l2-1.5L10 19l2-1.5L14 19l2-1.5L18 19V9a6 6 0 0 0-6-6z" /><circle cx="9.5" cy="10" r="1" fill="currentColor" stroke="none" /><circle cx="14.5" cy="10" r="1" fill="currentColor" stroke="none" /></svg>;
+    case "search": return <svg {...common}><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>;
+    case "map-pin": return <svg {...common}><path d="M12 21s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12z" /><circle cx="12" cy="9" r="2.5" /></svg>;
+    case "users": return <svg {...common}><circle cx="9" cy="8" r="3.2" /><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" /><path d="M16 8.5a2.8 2.8 0 1 1 3.5 2.7" /><path d="M21 20c0-2.5-1.7-4.6-4-5.4" /></svg>;
+    case "trash": return <svg {...common}><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z" /></svg>;
+    case "lock": return <svg {...common}><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V7a4 4 0 1 1 8 0v4" /></svg>;
+    case "bell": return <svg {...common}><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></svg>;
+    case "ban": return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="m6 6 12 12" /></svg>;
+    case "download": return <svg {...common}><path d="M12 3v12m0 0-4-4m4 4 4-4M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" /></svg>;
+    case "phone": return <svg {...common}><path d="M4 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L14 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 2 6a2 2 0 0 1 2-2z" /></svg>;
+    case "repeat": return <svg {...common}><path d="M17 2l4 4-4 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 22l-4-4 4-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>;
+    case "zap": return <svg {...common}><path d="M13 2 3 14h7l-1 8 11-13h-7l1-7z" /></svg>;
+    case "star": return <svg {...common}><path d="M12 2l2.9 6.6L22 9.3l-5 4.9 1.2 7-6.2-3.4L5.8 21.2 7 14.2 2 9.3l7.1-.7z" /></svg>;
+    default: return null;
+  }
 }
 
 export default function AdminDashboard() {
@@ -526,7 +621,7 @@ function validatePasswordStrength(password: string): string | null {
     setSession(null);
   }
 
-  const [tab, setTab] = useState<"reservasi" | "scan" | "kalender" | "area" | "gabungan" | "menu" | "laporan" | "admin" | "log" | "pengaturan">("reservasi");
+  const [tab, setTab] = useState<"ringkasan" | "reservasi" | "scan" | "kalender" | "area" | "gabungan" | "menu" | "laporan" | "pelanggan" | "admin" | "log" | "pengaturan">("ringkasan");
   const [openGroup, setOpenGroup] = useState<string>("operasional");
   function toggleGroup(key: string) {
     setOpenGroup((prev) => (prev === key ? "" : key));
@@ -815,6 +910,178 @@ function validatePasswordStrength(password: string): string | null {
     setLoadingLaporan(false);
   }, [lapDari, lapSampai, lapOutlet, lockedOutlet]);
 
+  function exportLaporanCSV() {
+    const menuByReservation: Record<number, number> = {};
+    lapOrders.forEach((o) => { menuByReservation[o.reservation_id] = (menuByReservation[o.reservation_id] || 0) + o.subtotal; });
+
+    const headers = ["Nama Tamu", "No. WhatsApp", "Outlet", "Tanggal", "Jam Mulai", "Jam Selesai", "Jumlah Tamu", "Status", "DP (Rp)", "Total Menu (Rp)", "Total (Rp)"];
+    function escapeCsv(val: string | number) {
+      const s = String(val);
+      return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }
+    const rows = lapReservasi.map((r) => {
+      const menuTotal = menuByReservation[r.Id] || 0;
+      const total = (r.dp_amount || 0) + menuTotal;
+      return [r.nama_tamu, r.no_whatsapp, r.outlet, r.tanggal, formatJam(r.jam), formatJam(r.jam_selesai), r.jumlah_tamu, r.status, r.dp_amount || 0, menuTotal, total]
+        .map(escapeCsv).join(";");
+    });
+    const csvContent = [headers.map(escapeCsv).join(";"), ...rows].join("\n");
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Laporan-Yassalam-${lapDari}_${lapSampai}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+const [pelangganQuery, setPelangganQuery] = useState("");
+  const [loadingPelanggan, setLoadingPelanggan] = useState(false);
+  const [pelangganPage, setPelangganPage] = useState(1);
+  const PELANGGAN_PAGE_SIZE = 10;
+  type PelangganGroup = {
+    phone: string; nama: string; reservations: Reservation[]; orders: ReservationMenuItemT[];
+    totalBelanja: number; totalReservasi: number; completed: number; noshow: number; cancelled: number;
+    avgTamu: number; firstVisit: string; lastVisit: string;
+  };
+  const [pelangganAll, setPelangganAll] = useState<PelangganGroup[]>([]);
+  const [expandedPelangganKeys, setExpandedPelangganKeys] = useState<Set<string>>(new Set());
+
+  const fetchPelanggan = useCallback(async () => {
+    setLoadingPelanggan(true);
+    let query = supabase.from("Reservation").select("*").order("tanggal", { ascending: false }).order("jam", { ascending: false });
+    if (!isSuper && myOutlet) query = query.eq("outlet", myOutlet);
+
+    const { data } = await query;
+    const rows = (data || []) as Reservation[];
+
+    const groups: Record<string, Reservation[]> = {};
+    rows.forEach((r) => {
+      const key = normalizeWhatsapp(r.no_whatsapp);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(r);
+    });
+
+    const resIds = rows.map((r) => r.Id);
+    let orderData: ReservationMenuItemT[] = [];
+    if (resIds.length > 0) {
+      const { data: od } = await supabase.from("ReservationMenuItem").select("*").in("reservation_id", resIds);
+      orderData = (od || []) as ReservationMenuItemT[];
+    }
+
+    const results: PelangganGroup[] = Object.entries(groups).map(([phone, resList]) => {
+      const sorted = [...resList].sort((a, b) => (b.tanggal + b.jam).localeCompare(a.tanggal + a.jam));
+      const ids = new Set(resList.map((r) => r.Id));
+      const orders = orderData.filter((o) => ids.has(o.reservation_id));
+      const totalMenu = orders.reduce((s, o) => s + o.subtotal, 0);
+      const totalDp = resList.reduce((s, r) => s + (r.dp_amount || 0), 0);
+      const tanggalList = resList.map((r) => r.tanggal).sort();
+      return {
+        phone, nama: sorted[0]?.nama_tamu || "", reservations: sorted, orders,
+        totalBelanja: totalDp + totalMenu, totalReservasi: resList.length,
+        completed: resList.filter((r) => r.status === "Completed").length,
+        noshow: resList.filter((r) => r.status === "No-Show").length,
+        cancelled: resList.filter((r) => r.status === "Cancelled").length,
+        avgTamu: resList.reduce((s, r) => s + r.jumlah_tamu, 0) / resList.length,
+        firstVisit: tanggalList[0], lastVisit: tanggalList[tanggalList.length - 1],
+      };
+    }).sort((a, b) => (b.lastVisit || "").localeCompare(a.lastVisit || ""));
+
+    setPelangganAll(results);
+    setLoadingPelanggan(false);
+  }, [isSuper, myOutlet]);
+  const [ringkasanData, setRingkasanData] = useState<{
+    todayCount: number; todayConfirmed: number; pendingCount: number;
+    todayOmset: number; topMeja: { label: string; count: number } | null;
+    upcomingList: Reservation[];
+    totalPelanggan: number; menuBelumDikirim: number; noShowWeek: number;
+    weeklyTrend: { tanggal: string; booking: number; omset: number }[];
+  } | null>(null);
+  const [loadingRingkasan, setLoadingRingkasan] = useState(false);
+  const [dashDari, setDashDari] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 6); return d.toISOString().split("T")[0]; });
+  const [dashSampai, setDashSampai] = useState(() => new Date().toISOString().split("T")[0]);
+  const [dashOutlet, setDashOutlet] = useState("");
+
+  const fetchRingkasan = useCallback(async () => {
+    setLoadingRingkasan(true);
+    const todayStr = new Date().toISOString().split("T")[0];
+    const outletFilter = lockedOutlet || dashOutlet;
+
+    let qToday = supabase.from("Reservation").select("*").eq("tanggal", todayStr);
+    if (outletFilter) qToday = qToday.eq("outlet", outletFilter);
+    const { data: todayRes } = await qToday;
+    const todayRows = (todayRes || []) as Reservation[];
+
+    let qPending = supabase.from("Reservation").select("Id", { count: "exact", head: true }).eq("status", "Pending");
+    if (outletFilter) qPending = qPending.eq("outlet", outletFilter);
+    const { count: pendingCount } = await qPending;
+
+    const resIds = todayRows.map((r) => r.Id);
+    let menuTotal = 0;
+    if (resIds.length > 0) {
+      const { data: orderData } = await supabase.from("ReservationMenuItem").select("subtotal").in("reservation_id", resIds);
+      menuTotal = (orderData || []).reduce((s, o) => s + o.subtotal, 0);
+    }
+    const dpTotal = todayRows.reduce((s, r) => s + (r.dp_amount || 0), 0);
+
+    let qWeekFull = supabase.from("Reservation").select("*").gte("tanggal", dashDari).lte("tanggal", dashSampai);
+    if (outletFilter) qWeekFull = qWeekFull.eq("outlet", outletFilter);
+    const { data: weekFullData } = await qWeekFull;
+    const weekRowsAll = (weekFullData || []) as Reservation[];
+
+    const mejaCounts: Record<number, number> = {};
+    weekRowsAll.forEach((r) => { if (r.status === "Confirmed" || r.status === "Completed") { if (r.meja_id) mejaCounts[r.meja_id] = (mejaCounts[r.meja_id] || 0) + 1; } });
+    const topEntry = Object.entries(mejaCounts).sort((a, b) => b[1] - a[1])[0];
+    let topMeja: { label: string; count: number } | null = null;
+    if (topEntry) {
+      const mejaId = Number(topEntry[0]);
+      const { data: mejaData } = await supabase.from("Tables").select("nama_meja, nomor_meja").eq("Id", mejaId).maybeSingle();
+      topMeja = { label: mejaData ? (mejaData.nama_meja || `Meja ${mejaData.nomor_meja}`) : `Meja #${mejaId}`, count: topEntry[1] };
+    }
+
+    const weekResIds = weekRowsAll.map((r) => r.Id);
+    let weekOrders: { reservation_id: number; subtotal: number }[] = [];
+    if (weekResIds.length > 0) {
+      const { data: weekOrderData } = await supabase.from("ReservationMenuItem").select("reservation_id, subtotal").in("reservation_id", weekResIds);
+      weekOrders = weekOrderData || [];
+    }
+    const resIdToTanggalWeek: Record<number, string> = {};
+    weekRowsAll.forEach((r) => { resIdToTanggalWeek[r.Id] = r.tanggal; });
+
+    const weeklyMap: Record<string, { booking: number; omset: number }> = {};
+    for (let d = new Date(dashDari + "T00:00:00"); d <= new Date(dashSampai + "T00:00:00"); d.setDate(d.getDate() + 1)) {
+      const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
+      weeklyMap[`${y}-${m}-${day}`] = { booking: 0, omset: 0 };
+    }
+    weekRowsAll.forEach((r) => { if (weeklyMap[r.tanggal]) { weeklyMap[r.tanggal].booking += 1; weeklyMap[r.tanggal].omset += (r.dp_amount || 0); } });
+    weekOrders.forEach((o) => { const tgl = resIdToTanggalWeek[o.reservation_id]; if (tgl && weeklyMap[tgl]) weeklyMap[tgl].omset += o.subtotal; });
+    const weeklyTrend = Object.entries(weeklyMap).map(([tanggal, v]) => ({ tanggal, booking: v.booking, omset: v.omset }));
+
+    const noShowWeek = weekRowsAll.filter((r) => r.status === "No-Show").length;
+
+    let qMenuBelum = supabase.from("Reservation").select("Id", { count: "exact", head: true })
+      .not("share_token", "is", null).eq("menu_finalized", false).gte("tanggal", todayStr);
+    if (outletFilter) qMenuBelum = qMenuBelum.eq("outlet", outletFilter);
+    const { count: menuBelumCount } = await qMenuBelum;
+
+    let qAllPhones = supabase.from("Reservation").select("no_whatsapp");
+    if (outletFilter) qAllPhones = qAllPhones.eq("outlet", outletFilter);
+    const { data: phoneRows } = await qAllPhones;
+    const uniquePhones = new Set((phoneRows || []).map((r: { no_whatsapp: string }) => normalizeWhatsapp(r.no_whatsapp)));
+
+    const upcomingList = todayRows.filter((r) => r.status === "Confirmed").sort((a, b) => a.jam.localeCompare(b.jam)).slice(0, 5);
+
+    setRingkasanData({
+      todayCount: todayRows.length,
+      todayConfirmed: todayRows.filter((r) => r.status === "Confirmed").length,
+      pendingCount: pendingCount || 0,
+      todayOmset: dpTotal + menuTotal,
+      topMeja, upcomingList,
+      totalPelanggan: uniquePhones.size,
+      menuBelumDikirim: menuBelumCount || 0,
+      noShowWeek, weeklyTrend,
+    });
+    setLoadingRingkasan(false);
+  }, [lockedOutlet, dashOutlet, dashDari, dashSampai]);
   const [activityLog, setActivityLog] = useState<ActivityLogT[]>([]);
   const [loadingLog, setLoadingLog] = useState(false);
   const fetchActivityLog = useCallback(async () => {
@@ -964,11 +1231,13 @@ function validatePasswordStrength(password: string): string | null {
     if (tab === "gabungan") { void fetchGabungan(); void fetchTables(); }
     if (tab === "menu") { void fetchMenuKategori(); void fetchMenuItems(); }
     if (tab === "laporan") { void fetchLaporan(); }
+    if (tab === "pelanggan") { void fetchPelanggan(); }
+    if (tab === "ringkasan") { void fetchRingkasan(); }
     if (tab === "admin") { void fetchAdminList(); }
     if (tab === "log") { void fetchActivityLog(); }
     if (tab === "pengaturan") { void fetchCutoffSetting(); void fetchLibur(); }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [tab, fetchReservations, fetchKalenderData, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList, fetchLaporan, fetchActivityLog, fetchCustomerHistory, fetchLibur]);
+  }, [tab, fetchReservations, fetchKalenderData, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList, fetchLaporan, fetchPelanggan, fetchRingkasan, fetchActivityLog, fetchCustomerHistory, fetchLibur]);
 
   // ===== REALTIME: reservasi baru otomatis muncul + notifikasi =====
   const notifAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -1496,7 +1765,7 @@ function validatePasswordStrength(password: string): string | null {
   if (profileError) return (
     <div className="min-h-screen bg-[#5C1420] flex items-center justify-center px-6">
       <div className="text-center max-w-sm">
-        <p className="text-5xl mb-4">🔒</p>
+        <Icon name="lock" size={48} className="text-white/70 mx-auto mb-4" />
         <h1 className="text-xl font-bold text-white font-serif">Akses Ditolak</h1>
         <p className="text-[#5C1420]/60 text-sm mt-3">Akun <span className="text-[#5C1420]">{session.user.email}</span> belum terdaftar sebagai admin, atau sudah dinonaktifkan.</p>
         <button onClick={handleLogout} className="mt-6 px-6 py-3 rounded-xl border border-[#5C1420]/40 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/10">Logout</button>
@@ -1508,27 +1777,29 @@ function validatePasswordStrength(password: string): string | null {
     {
       key: "operasional", label: "Operasional",
       items: [
-        { key: "reservasi", label: "Reservasi", icon: "📋" },
-        { key: "scan", label: "Scan Tiket", icon: "📷" },
-        { key: "kalender", label: "Kalender", icon: "📅" },
+        { key: "ringkasan", label: "Dashboard", icon: "dashboard" },
+        { key: "reservasi", label: "Reservasi", icon: "reservasi" },
+        { key: "scan", label: "Scan Tiket", icon: "scan" },
+        { key: "kalender", label: "Kalender", icon: "kalender" },
       ],
     },
     {
       key: "konten", label: "Konten & Katalog",
       items: [
-        { key: "area", label: "Area & Meja", icon: "🏛" },
-        { key: "gabungan", label: "Gabungan", icon: "🔗" },
-        { key: "menu", label: "Menu", icon: "🍽" },
+        { key: "area", label: "Area & Meja", icon: "area" },
+        { key: "gabungan", label: "Gabungan", icon: "gabungan" },
+        { key: "menu", label: "Menu", icon: "menu" },
       ],
     },
     {
       key: "manajemen", label: "Manajemen",
       items: [
-        { key: "laporan", label: "Laporan", icon: "📈" },
+        { key: "laporan", label: "Laporan", icon: "laporan" },
+        { key: "pelanggan", label: "Pelanggan", icon: "pelanggan" },
         ...(isElevated ? [
-          { key: "admin", label: "Kelola Admin", icon: "👤" },
-          { key: "log", label: "Log Aktivitas", icon: "🕘" },
-          { key: "pengaturan", label: "Pengaturan", icon: "🔧" },
+          { key: "admin", label: "Kelola Admin", icon: "kelola-admin" },
+          { key: "log", label: "Log Aktivitas", icon: "log" },
+          { key: "pengaturan", label: "Pengaturan", icon: "pengaturan" },
         ] : []),
       ],
     },
@@ -1582,7 +1853,7 @@ function validatePasswordStrength(password: string): string | null {
           {sidebarGroups.flatMap((g) => g.items).map((item) => (
             <button key={item.key} onClick={() => { playClick(); setTab(item.key as typeof tab); setDrillArea(null); setDrillKategori(null); }}
               className={`shrink-0 flex items-center gap-2.5 whitespace-nowrap px-3.5 py-2.5 rounded-lg text-sm transition-all ${tab === item.key ? "bg-white/15 text-white font-bold shadow-sm" : "text-white/85 hover:text-white hover:bg-white/10 font-medium"}`}>
-              <span>{item.icon}</span> {item.label}
+              <Icon name={item.icon} /> {item.label}
               {item.key === "reservasi" && stats.total > 0 && (
                 <span className="ml-auto text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-bold">{stats.total}</span>
               )}
@@ -1609,7 +1880,7 @@ function validatePasswordStrength(password: string): string | null {
                     {group.items.map((item) => (
                       <button key={item.key} onClick={() => { playClick(); setTab(item.key as typeof tab); setDrillArea(null); setDrillKategori(null); }}
                         className={`flex items-center gap-2.5 whitespace-nowrap px-3.5 py-2.5 rounded-lg text-sm transition-all ${tab === item.key ? "bg-white/15 text-white font-bold shadow-sm" : "text-white/85 hover:text-white hover:bg-white/10 font-medium"}`}>
-                        <span>{item.icon}</span> {item.label}
+                        <Icon name={item.icon} /> {item.label}
                         {item.key === "reservasi" && stats.total > 0 && (
                           <span className="ml-auto text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-bold">{stats.total}</span>
                         )}
@@ -1633,7 +1904,7 @@ function validatePasswordStrength(password: string): string | null {
               <p className="text-white/60 text-[10px]">{isSuper ? "★ Super Admin" : isManajer ? `★ Manajer ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}` : `Admin ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}`}</p>
             </div>
           </div>
-          <button onClick={() => setShowChangePassword(true)} className="w-full mb-2 py-2 rounded-lg border border-white/25 text-white/80 text-xs font-semibold hover:bg-white/5 transition-all">🔒 Ubah Password</button>
+          <button onClick={() => setShowChangePassword(true)} className="w-full mb-2 py-2 rounded-lg border border-white/25 text-white/80 text-xs font-semibold hover:bg-white/5 transition-all inline-flex items-center justify-center gap-1.5"><Icon name="lock" size={13} /> Ubah Password</button>
           <div className="flex gap-2">
             <Link href="/" className="flex-1 text-center py-2 rounded-lg border border-white/25 text-white/80 text-xs font-semibold hover:bg-white/5 transition-all">← Website</Link>
             <button onClick={handleLogout} className="flex-1 py-2 rounded-lg border border-white/25 text-white/80 text-xs font-semibold hover:bg-white/5 transition-all">Logout</button>
@@ -1645,6 +1916,130 @@ function validatePasswordStrength(password: string): string | null {
       <main className="flex-1 min-w-0">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 sm:py-6">
 
+        {/* ========== TAB RINGKASAN ========== */}
+        {tab === "ringkasan" && (
+          <>
+            <div className="mb-6">
+              <h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Dashboard — Selamat Datang, {myNama || "Admin"}</h2>
+              <p className="text-[#9A8B7A] text-sm mt-1">{new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
+            </div>
+
+            {loadingRingkasan || !ringkasanData ? (
+              <p className="text-center text-[#B5A999] py-16">Memuat ringkasan...</p>
+            ) : (
+              <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div className="bg-white border border-[#E5DDD4] rounded-2xl p-5">
+                  <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Reservasi Hari Ini</p>
+                  <p className="text-3xl font-bold text-[#3D2E1E] mt-2">{ringkasanData.todayCount}</p>
+                  <p className="text-xs text-[#9A8B7A] mt-1">{ringkasanData.todayConfirmed} terkonfirmasi</p>
+                </div>
+                <div className="bg-white border-2 border-amber-200 rounded-2xl p-5">
+                  <p className="text-[10px] text-amber-700 uppercase tracking-wider font-bold">Belum Dikonfirmasi</p>
+                  <p className="text-3xl font-bold text-amber-600 mt-2">{ringkasanData.pendingCount}</p>
+                  <p className="text-xs text-[#9A8B7A] mt-1">butuh perhatian</p>
+                </div>
+                <div className="bg-white border-2 border-[#5C1420]/20 rounded-2xl p-5">
+                  <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Omset Hari Ini</p>
+                  <p className="text-2xl font-bold text-[#5C1420] mt-2">{formatRupiah(ringkasanData.todayOmset)}</p>
+                  <p className="text-xs text-[#9A8B7A] mt-1">DP + pesanan menu</p>
+                </div>
+                <div className="bg-white border border-[#E5DDD4] rounded-2xl p-5">
+                  <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Meja Paling Laris</p>
+                  {ringkasanData.topMeja ? (
+                    <>
+                      <p className="text-xl font-bold text-[#3D2E1E] mt-2">{ringkasanData.topMeja.label}</p>
+                      <p className="text-xs text-[#9A8B7A] mt-1">{ringkasanData.topMeja.count}x dalam 7 hari</p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-[#B5A999] mt-2">Belum ada data</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white border border-[#E5DDD4] rounded-xl p-4 mb-6">
+                <div className="flex flex-wrap gap-3 items-end">
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Dari</label>
+                    <input type="date" value={dashDari} onChange={(e) => setDashDari(e.target.value)} className={filterClass} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Sampai</label>
+                    <input type="date" value={dashSampai} onChange={(e) => setDashSampai(e.target.value)} className={filterClass} />
+                  </div>
+                  {isSuper && (
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Outlet</label>
+                      <select value={dashOutlet} onChange={(e) => setDashOutlet(e.target.value)} className={filterClass}>
+                        <option value="">Semua Outlet</option>
+                        <option value="solo">Solo</option>
+                        <option value="jogja">Yogyakarta</option>
+                      </select>
+                    </div>
+                  )}
+                  <button onClick={fetchRingkasan} className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20">Terapkan</button>
+                </div>
+                <p className="text-xs text-[#9A8B7A] mt-3 pt-3 border-t border-[#F0EAE0]">📊 Rentang tanggal ini berlaku untuk statistik pelanggan, tren, dan grafik di bawah — kartu ringkasan hari ini di atas tidak terpengaruh.</p>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                <div className="bg-white border border-[#E5DDD4] rounded-2xl p-5">
+                  <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Total Pelanggan</p>
+                  <p className="text-2xl font-bold text-[#3D2E1E] mt-2">{ringkasanData.totalPelanggan}</p>
+                  <p className="text-xs text-[#9A8B7A] mt-1">nomor WA unik tercatat</p>
+                </div>
+                <div className="bg-white border border-[#E5DDD4] rounded-2xl p-5">
+                  <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Menu Belum Dikirim</p>
+                  <p className="text-2xl font-bold text-sky-600 mt-2">{ringkasanData.menuBelumDikirim}</p>
+                  <p className="text-xs text-[#9A8B7A] mt-1">reservasi aktif, pesanan belum final</p>
+                </div>
+                <div className="bg-white border border-[#E5DDD4] rounded-2xl p-5">
+                  <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">No-Show</p>
+                  <p className="text-2xl font-bold text-red-500 mt-2">{ringkasanData.noShowWeek}</p>
+                  <p className="text-xs text-[#9A8B7A] mt-1">pada rentang terpilih</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                <div className="bg-white border border-[#E5DDD4] rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-sm font-bold text-[#3D2E1E]">Tren Reservasi</p>
+                    <span className="text-[10px] text-[#9A8B7A] bg-[#FBF8F3] px-2.5 py-1 rounded-full border border-[#E5DDD4]">{dashDari} – {dashSampai}</span>
+                  </div>
+                  <TrenHarianChart data={ringkasanData.weeklyTrend.map((d) => ({ tanggal: d.tanggal, value: d.booking }))} color="#5C1420" formatValue={(n) => `${n}`} />
+                </div>
+                <div className="bg-white border border-[#E5DDD4] rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-sm font-bold text-[#3D2E1E]">Tren Omset</p>
+                    <span className="text-[10px] text-[#9A8B7A] bg-[#FBF8F3] px-2.5 py-1 rounded-full border border-[#E5DDD4]">{dashDari} – {dashSampai}</span>
+                  </div>
+                  <TrenHarianChart data={ringkasanData.weeklyTrend.map((d) => ({ tanggal: d.tanggal, value: d.omset }))} color="#C8973E" formatValue={formatRupiah} />
+                </div>
+              </div>
+
+              <div className="bg-white border border-[#E5DDD4] rounded-2xl overflow-hidden">
+                <div className="px-5 py-4 border-b border-[#F0EAE0]"><p className="text-sm font-bold text-[#3D2E1E]">Reservasi Terkonfirmasi Hari Ini</p></div>
+                {ringkasanData.upcomingList.length === 0 ? (
+                  <p className="text-center text-[#B5A999] py-10 text-sm">Belum ada reservasi terkonfirmasi hari ini.</p>
+                ) : (
+                  <div className="divide-y divide-[#F0EAE0]">
+                    {ringkasanData.upcomingList.map((r) => (
+                      <div key={r.Id} className="px-5 py-3.5 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-[#3D2E1E]">{r.nama_tamu}</p>
+                          <p className="text-xs text-[#9A8B7A] mt-0.5">{formatJam(r.jam)}–{formatJam(r.jam_selesai)} · {r.jumlah_tamu} orang · {r.meja_id ? getMejaLabel(r.meja_id) : "—"}</p>
+                        </div>
+                        <span className="text-xs text-[#9A8B7A] capitalize">{r.outlet}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              </>
+            )}
+          </>
+        )}
+
         {/* ========== TAB RESERVASI ========== */}
         {tab === "reservasi" && (<>
           <div className="flex justify-end mb-4">
@@ -1652,15 +2047,15 @@ function validatePasswordStrength(password: string): string | null {
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5 sm:gap-3 mb-6">
             {[
-              { label: "Total", value: stats.total, color: "text-[#3D2E1E]", icon: "📊" },
-              { label: "Pending", value: stats.pending, color: "text-amber-600", icon: "⏳" },
-              { label: "Confirmed", value: stats.confirmed, color: "text-emerald-600", icon: "✅" },
-              { label: "Completed", value: stats.completed, color: "text-blue-600", icon: "🎉" },
-              { label: "No-Show", value: stats.noshow, color: "text-orange-600", icon: "👻" },
-              { label: "Cancelled", value: stats.cancelled, color: "text-red-500", icon: "✕" },
+              { label: "Total", value: stats.total, color: "text-[#3D2E1E]", icon: "chart" },
+              { label: "Pending", value: stats.pending, color: "text-amber-600", icon: "hourglass" },
+              { label: "Confirmed", value: stats.confirmed, color: "text-emerald-600", icon: "check-circle" },
+              { label: "Completed", value: stats.completed, color: "text-blue-600", icon: "party" },
+              { label: "No-Show", value: stats.noshow, color: "text-orange-600", icon: "ghost" },
+              { label: "Cancelled", value: stats.cancelled, color: "text-red-500", icon: "x-circle" },
             ].map((s) => (
               <div key={s.label} className="bg-white border border-[#E5DDD4] rounded-xl p-3 sm:p-4">
-                <span className="text-sm">{s.icon}</span>
+                <Icon name={s.icon} size={16} className={s.color} />
                 <p className={`text-xl sm:text-2xl font-bold mt-1 ${s.color}`}>{s.value}</p>
                 <p className="text-[10px] sm:text-xs text-[#9A8B7A] tracking-wider uppercase mt-0.5">{s.label}</p>
               </div>
@@ -1669,14 +2064,17 @@ function validatePasswordStrength(password: string): string | null {
           <div className="bg-white border border-[#E5DDD4] rounded-xl p-4 mb-4 space-y-2.5">
             <span className="text-[#5C1420] text-xs font-bold tracking-wider uppercase">Filter</span>
             <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3 items-center">
-            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="🔍 Cari nama / no. HP..." className={filterClass + " col-span-2 sm:w-56"} />
+            <div className="relative col-span-2 sm:w-56">
+              <Icon name="search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#B5A999]" />
+              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Cari nama / no. HP..." className={filterClass + " w-full pl-8"} />
+            </div>
             {isSuper ? (
               <select value={filterOutlet} onChange={(e) => setFilterOutlet(e.target.value)} className={filterClass}>
                 <option value="">Semua Outlet</option><option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
               </select>
             ) : (
-              <span className="px-3 py-2 rounded-xl bg-[#5C1420]/10 border border-[#5C1420]/20 text-sm font-bold text-[#5C1420] capitalize">
-                📍 {myOutlet === "solo" ? "Solo" : "Yogyakarta"}
+              <span className="px-3 py-2 rounded-xl bg-[#5C1420]/10 border border-[#5C1420]/20 text-sm font-bold text-[#5C1420] capitalize inline-flex items-center gap-1.5">
+                <Icon name="map-pin" size={14} /> {myOutlet === "solo" ? "Solo" : "Yogyakarta"}
               </span>
             )}
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className={filterClass}>
@@ -1684,8 +2082,8 @@ function validatePasswordStrength(password: string): string | null {
             </select>
             <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className={filterClass} />
             <button onClick={() => setFilterDate(new Date().toISOString().split("T")[0])}
-              className="px-3 py-2 rounded-xl border border-[#5C1420]/30 text-[#5C1420] text-sm font-bold hover:bg-[#5C1420]/5">📅 Hari Ini</button>
-            {(filterOutlet || filterStatus || filterDate || searchQuery) && <button onClick={() => { setFilterOutlet(""); setFilterStatus(""); setFilterDate(""); setSearchQuery(""); }} className="text-sm text-[#5C1420] hover:underline col-span-2 sm:col-span-1">✕ Reset</button>}
+              className="px-3 py-2 rounded-xl border border-[#5C1420]/30 text-[#5C1420] text-sm font-bold hover:bg-[#5C1420]/5 inline-flex items-center gap-1.5"><Icon name="calendar" size={14} /> Hari Ini</button>
+            {(filterOutlet || filterStatus || filterDate || searchQuery) && <button onClick={() => { setFilterOutlet(""); setFilterStatus(""); setFilterDate(""); setSearchQuery(""); }} className="text-sm text-[#5C1420] hover:underline col-span-2 sm:col-span-1 inline-flex items-center gap-1"><Icon name="x" size={12} /> Reset</button>}
             </div>
           </div>
 
@@ -1845,9 +2243,9 @@ function validatePasswordStrength(password: string): string | null {
                               if (!hist || hist.total < Number(thresholdLama)) return null;
                               return (
                                 <>
-                                  <span className="bg-purple-50 text-purple-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-purple-200">👤 Pelanggan Lama · {hist.total}x</span>
+                                  <span className="bg-purple-50 text-purple-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-purple-200 inline-flex items-center gap-1"><Icon name="users" size={11} /> Pelanggan Lama · {hist.total}x</span>
                                   {hist.noShow >= Number(thresholdNoShow) && (
-                                    <span className="bg-orange-50 text-orange-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-orange-200">⚠ {hist.noShow}x No-Show</span>
+                                    <span className="bg-orange-50 text-orange-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-orange-200 inline-flex items-center gap-1"><Icon name="warning" size={11} /> {hist.noShow}x No-Show</span>
                                   )}
                                 </>
                               );
@@ -1922,8 +2320,8 @@ function validatePasswordStrength(password: string): string | null {
                   <div className="px-6 pb-5 pt-3 border-t border-[#E5DDD4]">
                     <button onClick={() => toggleExpandOrders(r)}
                       className="flex items-center gap-2 text-sm font-bold text-[#5C1420] hover:text-[#3D0D14] transition-colors">
-                      <span>{expandedKeys.has(orderKey(r)) ? "▼" : "▶"}</span>
-                      🍽 Pesanan Menu
+                      <Icon name="dashboard" size={12} className={`transition-transform ${expandedKeys.has(orderKey(r)) ? "rotate-90" : ""}`} />
+                      Pesanan Menu
                       {r.menu_finalized ? (
                         <span className="bg-emerald-50 text-emerald-600 border border-emerald-200 text-[10px] px-2 py-0.5 rounded-full font-bold">Terkirim</span>
                       ) : (
@@ -1946,7 +2344,7 @@ function validatePasswordStrength(password: string): string | null {
                                   {getOrderVarianName(o.varian_id) && <p className="text-xs text-[#9A8B7A]">Varian: {getOrderVarianName(o.varian_id)}</p>}
                                   {o.addon_ids?.length > 0 && <p className="text-xs text-[#9A8B7A]">Add-on: {getOrderAddonNames(o.addon_ids)}</p>}
                                   {o.nama_pemesan && <p className="text-xs text-[#5C1420] font-semibold">Pemesan: {o.nama_pemesan}</p>}
-                                  {o.catatan && <p className="text-xs text-[#9A8B7A] italic">📝 {o.catatan}</p>}
+                                  {o.catatan && <p className="text-xs text-[#9A8B7A] italic">&ldquo;{o.catatan}&rdquo;</p>}
                                 </div>
                                 <p className="font-bold text-[#5C1420] text-sm shrink-0">{formatRupiah(o.subtotal)}</p>
                               </div>
@@ -2005,8 +2403,8 @@ function validatePasswordStrength(password: string): string | null {
           </div>
 
           <div className="flex gap-2 mb-5 border-b border-[#E5DDD4]">
-            <button onClick={() => setKalSubTab("harian")} className={`px-4 py-2.5 text-sm font-bold border-b-2 transition-all ${kalSubTab === "harian" ? "border-[#5C1420] text-[#5C1420]" : "border-transparent text-[#9A8B7A] hover:text-[#5C1420]"}`}>📅 Kalender Harian</button>
-            <button onClick={() => setKalSubTab("cari")} className={`px-4 py-2.5 text-sm font-bold border-b-2 transition-all ${kalSubTab === "cari" ? "border-[#5C1420] text-[#5C1420]" : "border-transparent text-[#9A8B7A] hover:text-[#5C1420]"}`}>🔍 Cari Meja</button>
+            <button onClick={() => setKalSubTab("harian")} className={`px-4 py-2.5 text-sm font-bold border-b-2 transition-all inline-flex items-center gap-1.5 ${kalSubTab === "harian" ? "border-[#5C1420] text-[#5C1420]" : "border-transparent text-[#9A8B7A] hover:text-[#5C1420]"}`}><Icon name="calendar" size={15} /> Kalender Harian</button>
+            <button onClick={() => setKalSubTab("cari")} className={`px-4 py-2.5 text-sm font-bold border-b-2 transition-all inline-flex items-center gap-1.5 ${kalSubTab === "cari" ? "border-[#5C1420] text-[#5C1420]" : "border-transparent text-[#9A8B7A] hover:text-[#5C1420]"}`}><Icon name="search" size={15} /> Cari Meja</button>
           </div>
 
           {kalSubTab === "cari" && (
@@ -2113,13 +2511,13 @@ function validatePasswordStrength(password: string): string | null {
             <div className="flex flex-wrap gap-3 items-center">
               <div className="flex items-center gap-2">
                 <button onClick={() => { const d = new Date(kalTanggal); d.setDate(d.getDate() - 1); setKalTanggal(d.toISOString().split("T")[0]); }}
-                  className="w-8 h-8 rounded-lg border border-[#E5DDD4] flex items-center justify-center text-[#3D2E1E] hover:bg-[#F9F6F2]">←</button>
+                  className="w-8 h-8 rounded-lg border border-[#E5DDD4] flex items-center justify-center text-[#3D2E1E] hover:bg-[#F9F6F2]"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg></button>
                 <input type="date" value={kalTanggal} onChange={(e) => setKalTanggal(e.target.value)} className={filterClass} />
                 <button onClick={() => { const d = new Date(kalTanggal); d.setDate(d.getDate() + 1); setKalTanggal(d.toISOString().split("T")[0]); }}
-                  className="w-8 h-8 rounded-lg border border-[#E5DDD4] flex items-center justify-center text-[#3D2E1E] hover:bg-[#F9F6F2]">→</button>
+                  className="w-8 h-8 rounded-lg border border-[#E5DDD4] flex items-center justify-center text-[#3D2E1E] hover:bg-[#F9F6F2]"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg></button>
               </div>
               <button onClick={() => setKalTanggal(new Date().toISOString().split("T")[0])}
-                className="px-3 py-2 rounded-xl border border-[#5C1420]/30 text-[#5C1420] text-sm font-bold hover:bg-[#5C1420]/5">📅 Hari Ini</button>
+                className="px-3 py-2 rounded-xl border border-[#5C1420]/30 text-[#5C1420] text-sm font-bold hover:bg-[#5C1420]/5 inline-flex items-center gap-1.5"><Icon name="calendar" size={14} /> Hari Ini</button>
               {isSuper && (
                 <select value={kalOutlet} onChange={(e) => setKalOutlet(e.target.value)} className={filterClass}>
                   <option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
@@ -2227,7 +2625,7 @@ function validatePasswordStrength(password: string): string | null {
                                       <td key={j} className={`border-b border-[#E5DDD4] bg-sky-400 ${isFirst ? "border-l" : ""}`} style={{ padding: "8px 0" }}>
                                         {isFirst && (
                                           <div className="px-3">
-                                            <p className="text-white text-sm font-bold whitespace-nowrap">🔒 Di-Hold</p>
+                                            <p className="text-white text-sm font-bold whitespace-nowrap inline-flex items-center gap-1"><Icon name="lock" size={13} /> Di-Hold</p>
                                             <p className="text-white/80 text-xs whitespace-nowrap">
                                               {formatJam(hold.jam)} – {formatJam(hold.jam_selesai)} · sisa {sisaMenit}:{String(sisaDetik).padStart(2, "0")}
                                             </p>
@@ -2319,7 +2717,7 @@ function validatePasswordStrength(password: string): string | null {
                     </button>
                     <div className="flex gap-2 pt-1">
                       <button onClick={(e) => { e.stopPropagation(); openAreaForm(a); }} className="flex-1 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-bold hover:bg-[#5C1420]/5">Edit</button>
-                      <button onClick={(e) => { e.stopPropagation(); deleteArea(a.Id); }} className="py-2.5 px-4 rounded-xl border-2 border-red-200 text-red-400 text-sm hover:bg-red-50">🗑</button>
+                      <button onClick={(e) => { e.stopPropagation(); deleteArea(a.Id); }} className="py-2.5 px-4 rounded-xl border-2 border-red-200 text-red-400 text-sm hover:bg-red-50 flex items-center justify-center"><Icon name="trash" size={15} /></button>
                     </div>
                   </div>
                 </div>
@@ -2369,7 +2767,7 @@ function validatePasswordStrength(password: string): string | null {
                   {t.foto_url ? (
                     <Image src={t.foto_url} alt={t.nama_meja || `Meja ${t.nomor_meja}`} fill sizes="(max-width: 768px) 50vw, 300px" className="object-cover group-hover:scale-105 transition-transform duration-500" />
                   ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center gap-2"><span className="text-3xl text-[#5C1420]/20">📷</span><span className="text-xs text-[#9A8B7A]">Belum ada foto</span></div>
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-2"><Icon name="camera" size={30} className="text-[#5C1420]/20" /><span className="text-xs text-[#9A8B7A]">Belum ada foto</span></div>
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
                   <span className="absolute bottom-3 left-3 bg-[#5C1420] text-white text-[10px] px-3 py-1 rounded-full font-bold">
@@ -2384,7 +2782,7 @@ function validatePasswordStrength(password: string): string | null {
                     {t.minimum_transaksi && <span className="text-[#9A8B7A]">Min. trx {formatRupiah(t.minimum_transaksi)}</span>}
                   </div>
                   <label className="inline-block cursor-pointer pt-1">
-                    <span className="text-xs text-[#5C1420] font-semibold hover:text-[#3D0D14]">{uploadingTable ? "⏳ Mengupload..." : t.foto_url ? "📷 Ganti Foto" : "📷 Upload Foto"}</span>
+                    <span className="text-xs text-[#5C1420] font-semibold hover:text-[#3D0D14] inline-flex items-center gap-1">{uploadingTable ? <><Icon name="clock" size={13} /> Mengupload...</> : <><Icon name="camera" size={13} /> {t.foto_url ? "Ganti Foto" : "Upload Foto"}</>}</span>
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadTablePhoto(t.Id, f); }} />
                   </label>
                   <div className="flex gap-2 pt-2">
@@ -2458,7 +2856,7 @@ function validatePasswordStrength(password: string): string | null {
                       ))}
                     </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
-                      <span className="text-[#9A8B7A]">👥 <span className="text-[#3D2E1E]">{g.kapasitas_minimum ? `${g.kapasitas_minimum}–` : ""}{g.kapasitas_total} orang</span></span>
+                      <span className="text-[#9A8B7A] inline-flex items-center gap-1"><Icon name="users" size={12} /> <span className="text-[#3D2E1E]">{g.kapasitas_minimum ? `${g.kapasitas_minimum}–` : ""}{g.kapasitas_total} orang</span></span>
                       {g.dp_minimum && <span className="text-[#5C1420] font-semibold">DP {formatRupiah(g.dp_minimum)}</span>}
                     </div>
                     {g.minimum_transaksi && <p className="text-[11px] text-[#9A8B7A]">Min. trx {formatRupiah(g.minimum_transaksi)}</p>}
@@ -2623,7 +3021,7 @@ function validatePasswordStrength(password: string): string | null {
                   {m.deskripsi && <p className="text-[#9A8B7A] text-xs line-clamp-2">{m.deskripsi}</p>}
                   <p className="text-[#5C1420] font-bold text-sm">{formatRupiah(m.harga)}</p>
                   <label className="inline-block cursor-pointer pt-1">
-                    <span className="text-xs text-[#5C1420] font-semibold hover:text-[#3D0D14]">{uploadingMenuItem ? "⏳ Mengupload..." : m.foto_url ? "📷 Ganti Foto" : "📷 Upload Foto"}</span>
+                    <span className="text-xs text-[#5C1420] font-semibold hover:text-[#3D0D14] inline-flex items-center gap-1">{uploadingMenuItem ? <><Icon name="clock" size={13} /> Mengupload...</> : <><Icon name="camera" size={13} /> {m.foto_url ? "Ganti Foto" : "Upload Foto"}</>}</span>
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMenuItemPhoto(m.Id, f); }} />
                   </label>
                   <div className="flex gap-2 pt-2">
@@ -2665,6 +3063,28 @@ function validatePasswordStrength(password: string): string | null {
 
           const perOutlet: Record<string, number> = {};
           lapReservasi.forEach((r) => { perOutlet[r.outlet] = (perOutlet[r.outlet] || 0) + 1; });
+
+          const resIdToTanggal: Record<number, string> = {};
+          lapReservasi.forEach((r) => { resIdToTanggal[r.Id] = r.tanggal; });
+
+          const dailyMap: Record<string, { booking: number; omset: number }> = {};
+          const dStart = new Date(lapDari + "T00:00:00");
+          const dEnd = new Date(lapSampai + "T00:00:00");
+          for (let d = new Date(dStart); d <= dEnd; d.setDate(d.getDate() + 1)) {
+            const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
+            dailyMap[`${y}-${m}-${day}`] = { booking: 0, omset: 0 };
+          }
+          lapReservasi.forEach((r) => {
+            if (dailyMap[r.tanggal]) {
+              dailyMap[r.tanggal].booking += 1;
+              dailyMap[r.tanggal].omset += (r.dp_amount || 0);
+            }
+          });
+          lapOrders.forEach((o) => {
+            const tgl = resIdToTanggal[o.reservation_id];
+            if (tgl && dailyMap[tgl]) dailyMap[tgl].omset += o.subtotal;
+          });
+          const dailyTrend = Object.entries(dailyMap).map(([tanggal, v]) => ({ tanggal, booking: v.booking, omset: v.omset }));
 
           type Kecurigaan = { phone: string; nama: string; type: "duplicate" | "burst"; items: Reservation[] };
           const suspicious: Kecurigaan[] = [];
@@ -2725,6 +3145,10 @@ function validatePasswordStrength(password: string): string | null {
                   </div>
                 )}
                 <button onClick={fetchLaporan} className="self-end px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20">Terapkan</button>
+                <button onClick={exportLaporanCSV} disabled={lapReservasi.length === 0}
+                  className="self-end px-5 py-2 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-bold hover:bg-[#5C1420]/5 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1.5">
+                  <Icon name="download" size={15} /> Export CSV
+                </button>
               </div>
 
               {loadingLaporan ? <p className="text-center text-[#B5A999] py-16">Memuat laporan...</p> : (
@@ -2760,6 +3184,17 @@ function validatePasswordStrength(password: string): string | null {
                     <div className="bg-white border border-[#E5DDD4] rounded-xl p-5">
                       <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Dari Pesanan Menu</p>
                       <p className="text-xl font-bold text-[#3D2E1E] mt-1">{formatRupiah(totalMenu)}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+                    <div className="bg-white border border-[#E5DDD4] rounded-xl p-5">
+                      <p className="text-sm font-bold text-[#3D2E1E] mb-3">Tren Reservasi Harian</p>
+                      <TrenHarianChart data={dailyTrend.map((d) => ({ tanggal: d.tanggal, value: d.booking }))} color="#5C1420" formatValue={(n) => `${n}`} />
+                    </div>
+                    <div className="bg-white border border-[#E5DDD4] rounded-xl p-5">
+                      <p className="text-sm font-bold text-[#3D2E1E] mb-3">Tren Omset Harian</p>
+                      <TrenHarianChart data={dailyTrend.map((d) => ({ tanggal: d.tanggal, value: d.omset }))} color="#C8973E" formatValue={formatRupiah} />
                     </div>
                   </div>
 
@@ -2802,7 +3237,7 @@ function validatePasswordStrength(password: string): string | null {
                   </div>
 
                   <div className="bg-white border border-[#E5DDD4] rounded-xl p-5 mt-4">
-                    <p className="text-sm font-bold text-[#3D2E1E] mb-1">⚠ Deteksi Nomor WA Duplikat / Spam</p>
+                    <p className="text-sm font-bold text-[#3D2E1E] mb-1 inline-flex items-center gap-1.5"><Icon name="warning" size={15} /> Deteksi Nomor WA Duplikat / Spam</p>
                     <p className="text-xs text-[#9A8B7A] mb-4">Nomor yang booking di jam sama berkali-kali, atau bikin banyak reservasi dalam waktu singkat</p>
                     {suspicious.length === 0 ? (
                       <p className="text-sm text-emerald-600">✓ Tidak ada pola mencurigakan pada periode ini.</p>
@@ -2811,8 +3246,8 @@ function validatePasswordStrength(password: string): string | null {
                         {suspicious.map((s, idx) => (
                           <div key={idx} className={`rounded-xl border p-3 ${s.type === "duplicate" ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
                             <div className="flex items-center justify-between flex-wrap gap-2">
-                              <p className="text-sm font-bold text-[#3D2E1E]">
-                                {s.type === "duplicate" ? "🔁 Duplikat" : "⚡ Burst"} · {s.nama} <span className="text-[#9A8B7A] font-normal">({s.phone})</span>
+                              <p className="text-sm font-bold text-[#3D2E1E] inline-flex items-center gap-1.5 flex-wrap">
+                                <Icon name={s.type === "duplicate" ? "repeat" : "zap"} size={14} /> {s.type === "duplicate" ? "Duplikat" : "Burst"} · {s.nama} <span className="text-[#9A8B7A] font-normal">({s.phone})</span>
                               </p>
                               <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${s.type === "duplicate" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{s.items.length}x</span>
                             </div>
@@ -2831,6 +3266,133 @@ function validatePasswordStrength(password: string): string | null {
                 </>
               )}
             </>
+          );
+        })()}
+{/* ========== TAB PELANGGAN ========== */}
+        {tab === "pelanggan" && (() => {
+          const q = pelangganQuery.trim().toLowerCase();
+          const filtered = q
+            ? pelangganAll.filter((p) => p.nama.toLowerCase().includes(q) || p.phone.includes(q))
+            : pelangganAll;
+          const totalPages = Math.max(1, Math.ceil(filtered.length / PELANGGAN_PAGE_SIZE));
+          const pageSafe = Math.min(pelangganPage, totalPages);
+          const paginated = filtered.slice((pageSafe - 1) * PELANGGAN_PAGE_SIZE, pageSafe * PELANGGAN_PAGE_SIZE);
+
+          return (
+          <>
+            <div className="mb-6"><h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Pelanggan</h2><p className="text-[#9A8B7A] text-sm mt-1">Semua pelanggan yang pernah reservasi, diurutkan dari kunjungan terakhir</p></div>
+
+            <div className="bg-white border border-[#E5DDD4] rounded-xl p-4 mb-6 flex gap-3 items-center">
+              <input value={pelangganQuery} onChange={(e) => { setPelangganQuery(e.target.value); setPelangganPage(1); }}
+                placeholder="Saring berdasarkan nama atau nomor WhatsApp..." className={filterClass + " flex-1"} />
+              <span className="text-xs text-[#9A8B7A] whitespace-nowrap">{filtered.length} pelanggan</span>
+            </div>
+
+            {loadingPelanggan ? (
+              <p className="text-center text-[#B5A999] py-16">Memuat...</p>
+            ) : filtered.length === 0 ? (
+              <p className="text-center text-[#B5A999] py-16">{q ? `Tidak ada pelanggan dengan kata kunci "${pelangganQuery}"` : "Belum ada pelanggan tercatat."}</p>
+            ) : (
+              <>
+              <div className="space-y-5">
+                {paginated.map((p) => {
+                  const isExpanded = expandedPelangganKeys.has(p.phone);
+                  const visibleHistory = isExpanded ? p.reservations : p.reservations.slice(0, 3);
+                  const outletCount: Record<string, number> = {};
+                  p.reservations.forEach((r) => { outletCount[r.outlet] = (outletCount[r.outlet] || 0) + 1; });
+                  const favoriteOutlet = Object.entries(outletCount).sort((a, b) => b[1] - a[1])[0]?.[0];
+                  const initials = p.nama.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+                  const daysSinceFirst = Math.max(0, Math.round((Date.now() - new Date(p.firstVisit + "T00:00:00").getTime()) / (1000 * 60 * 60 * 24)));
+                  const monthsSinceFirst = Math.floor(daysSinceFirst / 30);
+
+                  return (
+                  <div key={p.phone} className="bg-white border border-[#E5DDD4] rounded-2xl overflow-hidden hover:shadow-md hover:shadow-[#5C1420]/5 transition-shadow">
+                    <div className="p-5 flex flex-wrap items-start gap-4 border-b border-[#F0EAE0]">
+                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#5C1420] to-[#3D0D14] flex items-center justify-center text-white font-bold text-lg shrink-0">
+                        {initials || "?"}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-bold text-[#3D2E1E] text-xl font-serif">{p.nama}</h3>
+                          {p.totalReservasi >= 3 && <span className="bg-purple-50 text-purple-700 border border-purple-200 text-[10px] px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><Icon name="star" size={11} /> Pelanggan Setia</span>}
+                          {p.noshow > 0 && <span className="bg-orange-50 text-orange-700 border border-orange-200 text-[10px] px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><Icon name="warning" size={11} /> {p.noshow}x No-Show</span>}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[#9A8B7A] mt-1">
+                          <span className="inline-flex items-center gap-1"><Icon name="phone" size={12} /> {p.phone}</span>
+                          {favoriteOutlet && <span className="capitalize inline-flex items-center gap-1"><Icon name="map-pin" size={12} /> Sering ke {favoriteOutlet}</span>}
+                          <span>{monthsSinceFirst > 0 ? `Pelanggan sejak ${monthsSinceFirst} bulan lalu` : "Pelanggan baru"}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-5 border-b border-[#F0EAE0] bg-[#FBF8F3]">
+                      <div className="bg-white rounded-xl p-3 border border-[#E5DDD4]">
+                        <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Total Reservasi</p>
+                        <p className="text-xl font-bold text-[#3D2E1E] mt-1">{p.totalReservasi}x</p>
+                        <p className="text-[10px] text-[#9A8B7A] mt-0.5">{p.completed} selesai · {p.cancelled} batal</p>
+                      </div>
+                      <div className="bg-white rounded-xl p-3 border-2 border-[#5C1420]/20">
+                        <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Total Belanja</p>
+                        <p className="text-xl font-bold text-[#5C1420] mt-1">{formatRupiah(p.totalBelanja)}</p>
+                        <p className="text-[10px] text-[#9A8B7A] mt-0.5">rata-rata {formatRupiah(Math.round(p.totalBelanja / p.totalReservasi))}/kunjungan</p>
+                      </div>
+                      <div className="bg-white rounded-xl p-3 border border-[#E5DDD4]">
+                        <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Rata-rata Tamu</p>
+                        <p className="text-xl font-bold text-[#3D2E1E] mt-1">{p.avgTamu.toFixed(1)}</p>
+                        <p className="text-[10px] text-[#9A8B7A] mt-0.5">orang per kunjungan</p>
+                      </div>
+                      <div className="bg-white rounded-xl p-3 border border-[#E5DDD4]">
+                        <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider font-bold">Kunjungan Terakhir</p>
+                        <p className="text-xl font-bold text-[#3D2E1E] mt-1">{p.lastVisit}</p>
+                        <p className="text-[10px] text-[#9A8B7A] mt-0.5">pertama kali {p.firstVisit}</p>
+                      </div>
+                    </div>
+
+                    <div className="p-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs font-bold text-[#5C1420] uppercase tracking-wider">Riwayat Reservasi ({p.reservations.length})</p>
+                        {p.reservations.length > 3 && (
+                          <button onClick={() => setExpandedPelangganKeys((prev) => { const n = new Set(prev); if (n.has(p.phone)) n.delete(p.phone); else n.add(p.phone); return n; })}
+                            className="text-xs font-semibold text-[#5C1420] hover:underline">
+                            {isExpanded ? "Tampilkan lebih sedikit" : `Lihat semua (${p.reservations.length})`}
+                          </button>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        {visibleHistory.map((r) => {
+                          const orderTotal = p.orders.filter((o) => o.reservation_id === r.Id).reduce((s, o) => s + o.subtotal, 0);
+                          return (
+                            <div key={r.Id} className="flex flex-wrap items-center justify-between gap-2 border border-[#E5DDD4] rounded-xl px-4 py-2.5 hover:bg-[#FBF8F3] transition-colors">
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <span className="text-sm font-semibold text-[#3D2E1E]">{r.tanggal}</span>
+                                <span className="text-xs text-[#9A8B7A]">{formatJam(r.jam)}–{formatJam(r.jam_selesai)}</span>
+                                <span className="text-xs text-[#9A8B7A] capitalize">{r.outlet}</span>
+                                <span className="text-xs text-[#9A8B7A]">{r.jumlah_tamu} orang</span>
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold uppercase ${statusStyle[r.status] || ""}`}>{r.status}</span>
+                              </div>
+                              <span className="text-sm font-bold text-[#5C1420]">{formatRupiah((r.dp_amount || 0) + orderTotal)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                  );
+                })}
+              </div>
+
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 mt-6">
+                  <button onClick={() => setPelangganPage((pg) => Math.max(1, pg - 1))} disabled={pageSafe === 1}
+                    className="px-3 py-2 rounded-xl border-2 border-[#E5DDD4] text-[#5C1420] text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#F9F6F2]">← Sebelumnya</button>
+                  <span className="text-sm text-[#9A8B7A] px-3">Halaman <span className="font-bold text-[#3D2E1E]">{pageSafe}</span> dari <span className="font-bold text-[#3D2E1E]">{totalPages}</span></span>
+                  <button onClick={() => setPelangganPage((pg) => Math.min(totalPages, pg + 1))} disabled={pageSafe === totalPages}
+                    className="px-3 py-2 rounded-xl border-2 border-[#E5DDD4] text-[#5C1420] text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#F9F6F2]">Selanjutnya →</button>
+                </div>
+              )}
+              </>
+            )}
+          </>
           );
         })()}
 
@@ -2943,7 +3505,7 @@ function validatePasswordStrength(password: string): string | null {
             <div className="mb-6"><h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Pengaturan</h2><p className="text-[#9A8B7A] text-sm mt-1">Pengaturan umum untuk sistem reservasi</p></div>
 
             <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 flex flex-wrap items-center gap-3">
-              <span className="text-[#5C1420] text-xs font-bold tracking-wider uppercase">🔧 Batas Waktu Pesan Menu:</span>
+              <span className="text-[#5C1420] text-xs font-bold tracking-wider uppercase inline-flex items-center gap-1.5"><Icon name="pengaturan" size={13} /> Batas Waktu Pesan Menu:</span>
               <input type="number" min="0" value={cutoffSetting} onChange={(e) => setCutoffSetting(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] text-center" />
               <span className="text-sm text-[#9A8B7A]">jam sebelum jam reservasi</span>
               <button onClick={saveCutoffSetting} disabled={savingCutoff}
@@ -2953,7 +3515,7 @@ function validatePasswordStrength(password: string): string | null {
             </div>
 
             <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
-              <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase mb-3">⏱ Kebijakan Reservasi</p>
+              <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase mb-3 inline-flex items-center gap-1.5"><Icon name="clock" size={13} /> Kebijakan Reservasi</p>
               <div className="flex flex-wrap items-center gap-3 mb-3">
                 <span className="text-sm text-[#3D2E1E] w-56">Durasi hold slot meja</span>
                 <input type="number" min="1" value={holdMinutes} onChange={(e) => setHoldMinutes(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] text-center" />
@@ -2976,7 +3538,7 @@ function validatePasswordStrength(password: string): string | null {
             </div>
 
             <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
-              <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase mb-3">👤 Ambang Batas Badge Pelanggan</p>
+              <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase mb-3 inline-flex items-center gap-1.5"><Icon name="users" size={13} /> Ambang Batas Badge Pelanggan</p>
               <div className="flex flex-wrap items-center gap-3 mb-3">
                 <span className="text-sm text-[#3D2E1E] w-56">Tampilkan &quot;Pelanggan Lama&quot; mulai dari</span>
                 <input type="number" min="1" value={thresholdLama} onChange={(e) => setThresholdLama(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] text-center" />
@@ -2994,7 +3556,7 @@ function validatePasswordStrength(password: string): string | null {
             </div>
 
             <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
-              <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase mb-3">🕐 Jam Operasional Outlet</p>
+              <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase mb-3 inline-flex items-center gap-1.5"><Icon name="clock" size={13} /> Jam Operasional Outlet</p>
               <div className="grid sm:grid-cols-2 gap-4 mb-3">
                 {(isSuper || myOutlet === "solo") && (
                   <div className="flex items-center gap-2">
@@ -3023,7 +3585,7 @@ function validatePasswordStrength(password: string): string | null {
 
             <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4 flex items-center justify-between">
               <div>
-                <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase">🔔 Notifikasi Suara &amp; Browser</p>
+                <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase inline-flex items-center gap-1.5"><Icon name="bell" size={13} /> Notifikasi Suara &amp; Browser</p>
                 <p className="text-xs text-[#9A8B7A] mt-1">Bunyi &amp; popup saat ada reservasi baru masuk (khusus perangkat ini)</p>
               </div>
               <button onClick={toggleNotifSuara}
@@ -3035,7 +3597,7 @@ function validatePasswordStrength(password: string): string | null {
             <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
               <div className="flex justify-between items-center flex-wrap gap-3 mb-4">
                 <div>
-                  <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase">🚫 Libur Outlet</p>
+                  <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase inline-flex items-center gap-1.5"><Icon name="ban" size={13} /> Libur Outlet</p>
                   <p className="text-xs text-[#9A8B7A] mt-1">Customer tidak bisa booking di tanggal yang ditandai libur</p>
                 </div>
                 <button onClick={() => openLiburForm()} className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20">+ Tambah Libur</button>
