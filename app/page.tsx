@@ -633,6 +633,8 @@ export default function Home() {
   const [loadingTables, setLoadingTables] = useState(false);
   const [availableGabungan, setAvailableGabungan] = useState<MejaGabungan[]>([]);
   const [selectedGabungan, setSelectedGabungan] = useState<MejaGabungan | null>(null);
+  const [preselectMejaId, setPreselectMejaId] = useState<number | null>(null);
+  const [preselectTipe, setPreselectTipe] = useState<"tunggal" | "gabungan" | null>(null);
   const [lightboxPhoto, setLightboxPhoto] = useState<{ url: string; nama: string } | null>(null);
   const [showBackConfirm, setShowBackConfirm] = useState(false);
   const [showBigGroupModal, setShowBigGroupModal] = useState(false);
@@ -777,8 +779,8 @@ export default function Home() {
   }, [showWelcome, showForm]);
 
   // Fetch meja tersedia saat masuk step 2
-  async function fetchAvailableTables() {
-    if (!outlet || !tanggal || !jam || !jumlahTamu) return;
+  async function fetchAvailableTables(): Promise<{ available: Table[]; availGab: MejaGabungan[] }> {
+    if (!outlet || !tanggal || !jam || !jumlahTamu) return { available: [], availGab: [] };
     setLoadingTables(true);
     setSelectedGabungan(null);
     const computedEnd = hitungJamSelesai(jam);
@@ -825,6 +827,7 @@ export default function Home() {
     setAvailableGabungan(availGab);
 
     setLoadingTables(false);
+    return { available, availGab };
   }
 
   function formatRupiah(n: number) { return "Rp " + n.toLocaleString("id-ID"); }
@@ -868,14 +871,18 @@ export default function Home() {
     return errs;
   }
 async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
-    const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const { data } = await supabase
-      .from("Reservation")
-      .select("Id")
-      .eq("no_whatsapp", noWaValue)
-      .gte("created_at", cutoff)
-      .limit(1);
-    return (data?.length || 0) > 0;
+    try {
+      const res = await fetch("/api/cek-rate-limit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ noWa: noWaValue }),
+      });
+      if (!res.ok) return false;
+      const json = await res.json();
+      return !!json.limited;
+    } catch {
+      return false;
+    }
   }
   async function nextStep() {
     const errs = validateStep(step);
@@ -907,8 +914,34 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
         setShowBigGroupModal(true);
         return;
       }
-      // Masuk step 2: cari meja tersedia
-      await fetchAvailableTables();
+      // Cari meja tersedia (pakai hasilnya langsung, tanpa nunggu state ke-update)
+      const { available, availGab } = await fetchAvailableTables();
+
+      // Kalau customer sudah pilih meja spesifik dari halaman Cek Ketersediaan,
+      // coba langsung lanjut ke step 3 tanpa suruh customer cari ulang
+      if (preselectMejaId && preselectTipe === "tunggal") {
+        const found = available.find((t) => t.Id === preselectMejaId);
+        if (found) {
+          setSelectedTable(found);
+          setSelectedGabungan(null);
+          const ok = await createBookingHold([found.Id]);
+          if (ok) { setStep(3); return; }
+        }
+      } else if (preselectMejaId && preselectTipe === "gabungan") {
+        const foundG = availGab.find((g) => g.Id === preselectMejaId);
+        if (foundG) {
+          setSelectedGabungan(foundG);
+          setSelectedTable(null);
+          const ok = await createBookingHold(foundG.meja_ids);
+          if (ok) { setStep(3); return; }
+        }
+      }
+
+      if (preselectMejaId) {
+        showNotif("warning", "Meja Pilihan Tidak Tersedia", "Meja yang kamu pilih sebelumnya baru saja tidak tersedia. Silakan pilih meja lain di bawah ini.");
+        setPreselectMejaId(null);
+        setPreselectTipe(null);
+      }
       setStep(2);
     } else if (step === 2) {
       // Masuk step 3: create hold agar meja terkunci selama proses bayar
@@ -1044,6 +1077,8 @@ useEffect(() => {
     const tgl = params.get("tanggal");
     const j = params.get("jam");
     const t = params.get("tamu");
+    const mejaIdParam = params.get("mejaId");
+    const tipeParam = params.get("tipe");
 
     /* eslint-disable react-hooks/set-state-in-effect */
     if (o) setOutlet(o);
@@ -1052,6 +1087,8 @@ useEffect(() => {
     if (tgl) setTanggal(tgl);
     if (j) setJam(j);
     if (t) setJumlahTamu(t);
+    if (mejaIdParam) setPreselectMejaId(Number(mejaIdParam));
+    if (tipeParam === "tunggal" || tipeParam === "gabungan") setPreselectTipe(tipeParam);
     /* eslint-enable react-hooks/set-state-in-effect */
 
     window.history.replaceState({}, "", window.location.pathname);

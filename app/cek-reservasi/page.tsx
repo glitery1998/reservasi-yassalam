@@ -2,8 +2,6 @@
 import { useState } from "react";
 import Link from "next/link";
 
-import { supabase } from "../supabase";
-
 type Reservation = {
   Id: number;
   nama_tamu: string;
@@ -20,14 +18,6 @@ type Reservation = {
 };
 
 type TableData = { Id: number; nama_meja: string | null; nomor_meja: number };
-
-function normalizeWhatsapp(nomor: string) {
-  let n = (nomor || "").replace(/[^0-9]/g, "");
-  if (n.startsWith("0")) n = "62" + n.slice(1);
-  else if (n.startsWith("620")) n = "62" + n.slice(3);
-  else if (!n.startsWith("62")) n = "62" + n;
-  return n;
-}
 
 function formatJam(jam: string) {
   return (jam || "").slice(0, 5);
@@ -65,36 +55,26 @@ export default function CekReservasiPage() {
     setLoading(true);
     setSearched(true);
 
-    const normalized = normalizeWhatsapp(nomorWa);
-    // Cari dengan beberapa kemungkinan format nomor yang mungkin tersimpan
-    const variants = Array.from(new Set([
-      normalized,
-      "0" + normalized.slice(2),
-      normalized.slice(2),
-    ]));
+    try {
+      const res = await fetch("/api/cek-reservasi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nomorWa }),
+      });
+      const json = await res.json();
 
-    const { data, error: err } = await supabase
-      .from("Reservation")
-      .select("*")
-      .in("no_whatsapp", variants)
-      .order("tanggal", { ascending: false })
-      .order("jam", { ascending: false });
+      if (!res.ok) {
+        setError(json.error || "Gagal mengambil data. Coba lagi sebentar ya.");
+        setHasil([]);
+        setTables([]);
+        setLoading(false);
+        return;
+      }
 
-    if (err) {
+      setHasil(json.reservations as Reservation[]);
+      setTables(json.tables as TableData[]);
+    } catch {
       setError("Gagal mengambil data. Coba lagi sebentar ya.");
-      setLoading(false);
-      return;
-    }
-
-    const rows = (data || []) as Reservation[];
-    setHasil(rows);
-
-    const mejaIds = Array.from(new Set(rows.map((r) => r.meja_id).filter((id): id is number => id != null)));
-    if (mejaIds.length > 0) {
-      const { data: tableData } = await supabase.from("Tables").select("Id, nama_meja, nomor_meja").in("Id", mejaIds);
-      setTables((tableData || []) as TableData[]);
-    } else {
-      setTables([]);
     }
 
     setLoading(false);

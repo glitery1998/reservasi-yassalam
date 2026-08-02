@@ -4,24 +4,8 @@ import { useRouter } from "next/navigation";
 
 import { supabase } from "../supabase";
 
-type TableData = {
-  Id: number; outlet: string; nomor_meja: number; nama_meja: string | null;
-  kapasitas: number; posisi: string; kapasitas_minimum: number | null;
-  foto_url: string | null;
-};
-
-type MejaGabungan = {
-  Id: number; outlet: string; nama: string; meja_ids: number[];
-  kapasitas_total: number; kapasitas_minimum: number | null; aktif: boolean;
-};
-
-type MejaInfo = { nama: string; foto_url: string | null };
+type MejaInfo = { id: number; tipe: "tunggal" | "gabungan"; nama: string; foto_url: string | null };
 type HasilTanggal = { tanggal: string; tersedia: boolean; jumlahOpsi: number; daftarMeja: MejaInfo[]; libur: string | null };
-
-function timeToMinutes(t: string) {
-  const [h, m] = (t || "0:0").split(":").map(Number);
-  return h * 60 + m;
-}
 
 // Format tanggal pakai komponen tanggal LOKAL (bukan toISOString yang selalu convert ke UTC dan bisa geser mundur 1 hari di WIB)
 function toDateStr(d: Date) {
@@ -67,86 +51,33 @@ export default function CekKetersediaanPage() {
     if (!jamMulai) { setError("Pilih jam kunjungan dulu ya."); return; }
     if (dariTanggal > sampaiTanggal) { setError('Tanggal "sampai" harus setelah tanggal "dari".'); return; }
 
-    const tamu = Number(jumlahTamu) || 1;
     setLoading(true);
     setHasil(null);
 
-    const [jh, jm] = jamMulai.split(":").map(Number);
-    const startMin = jh * 60 + jm;
-    const endMin = startMin + 120;
+    try {
+      const res = await fetch("/api/cek-ketersediaan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ outlet, jumlahTamu, jamMulai, dariTanggal, sampaiTanggal }),
+      });
+      const json = await res.json();
 
-    const { data: tablesData } = await supabase.from("Tables")
-      .select("Id, outlet, nomor_meja, nama_meja, kapasitas, posisi, kapasitas_minimum, foto_url").eq("outlet", outlet);
-    const { data: gabunganData } = await supabase.from("MejaGabungan")
-      .select("Id, outlet, nama, meja_ids, kapasitas_total, kapasitas_minimum, aktif").eq("outlet", outlet).eq("aktif", true);
-    const { data: liburData } = await supabase.from("LiburOutlet")
-      .select("tanggal_mulai, tanggal_selesai, alasan").eq("outlet", outlet);
-    const liburRows = (liburData || []) as { tanggal_mulai: string; tanggal_selesai: string; alasan: string | null }[];
-
-    const outletTables = ((tablesData || []) as TableData[])
-      .filter((t) => t.kapasitas >= tamu && (!t.kapasitas_minimum || tamu >= t.kapasitas_minimum));
-    const outletGabungan = ((gabunganData || []) as MejaGabungan[])
-      .filter((g) => g.kapasitas_total >= tamu && (!g.kapasitas_minimum || tamu >= g.kapasitas_minimum));
-
-    if (outletTables.length === 0 && outletGabungan.length === 0) {
-      setError(`Tidak ada meja dengan kapasitas cukup untuk ${tamu} orang di outlet ini.`);
-      setLoading(false);
-      return;
-    }
-
-    const { data: resData } = await supabase.from("Reservation").select("meja_id, tanggal, jam, jam_selesai")
-      .eq("outlet", outlet).gte("tanggal", dariTanggal).lte("tanggal", sampaiTanggal)
-      .in("status", ["Pending", "Confirmed"]);
-    const { data: holdData } = await supabase.from("BookingHold").select("meja_id, tanggal, jam, jam_selesai")
-      .gte("tanggal", dariTanggal).lte("tanggal", sampaiTanggal)
-      .not("status", "in", "(completed,cancelled,expired,released)");
-
-    const resRows = (resData || []) as { meja_id: number | null; tanggal: string; jam: string; jam_selesai: string }[];
-    const holdRows = (holdData || []) as { meja_id: number; tanggal: string; jam: string; jam_selesai: string }[];
-
-    const dates: string[] = [];
-    const dari = new Date(dariTanggal + "T00:00:00");
-    const sampai = new Date(sampaiTanggal + "T00:00:00");
-    for (let d = new Date(dari); d <= sampai; d.setDate(d.getDate() + 1)) {
-      dates.push(toDateStr(d));
-    }
-
-    const bookedByDate: Record<string, Set<number>> = {};
-    dates.forEach((tgl) => { bookedByDate[tgl] = new Set<number>(); });
-    resRows.forEach((r) => {
-      if (r.meja_id == null || !bookedByDate[r.tanggal]) return;
-      const rStart = timeToMinutes(r.jam);
-      const rEnd = r.jam_selesai ? timeToMinutes(r.jam_selesai) : rStart + 120;
-      if (startMin < rEnd && endMin > rStart) bookedByDate[r.tanggal].add(r.meja_id);
-    });
-    holdRows.forEach((h) => {
-      if (!bookedByDate[h.tanggal]) return;
-      const hStart = timeToMinutes(h.jam);
-      const hEnd = h.jam_selesai ? timeToMinutes(h.jam_selesai) : hStart + 120;
-      if (startMin < hEnd && endMin > hStart) bookedByDate[h.tanggal].add(h.meja_id);
-    });
-
-    const hasilPerTanggal: HasilTanggal[] = dates.map((tgl) => {
-      const liburInfo = liburRows.find((l) => tgl >= l.tanggal_mulai && tgl <= l.tanggal_selesai);
-      if (liburInfo) {
-        return { tanggal: tgl, tersedia: false, jumlahOpsi: 0, daftarMeja: [], libur: liburInfo.alasan || "Outlet libur" };
+      if (!res.ok || json.error) {
+        setError(json.error || "Gagal mengambil data ketersediaan.");
+        setLoading(false);
+        return;
       }
-      const mejaTersedia = outletTables.filter((t) => !bookedByDate[tgl].has(t.Id));
-      const gabunganTersedia = outletGabungan.filter((g) => g.meja_ids.every((id) => !bookedByDate[tgl].has(id)));
-      const jumlahOpsi = mejaTersedia.length + gabunganTersedia.length;
-      const daftarMeja: MejaInfo[] = [
-        ...mejaTersedia.map((t) => ({ nama: t.nama_meja || `Meja ${t.nomor_meja}`, foto_url: t.foto_url })),
-        ...gabunganTersedia.map((g) => ({ nama: g.nama, foto_url: null })),
-      ];
-      return { tanggal: tgl, tersedia: jumlahOpsi > 0, jumlahOpsi, daftarMeja, libur: null };
-    });
 
-    setHasil(hasilPerTanggal);
+      setHasil(json.hasil as HasilTanggal[]);
+    } catch {
+      setError("Gagal mengambil data ketersediaan.");
+    }
+
     setLoading(false);
   }
 
-  function reservasiTanggalIni(tgl: string) {
-    router.push(`/?outlet=${outlet}&tanggal=${tgl}&jam=${jamMulai}&tamu=${jumlahTamu}&mulai=1`);
+  function pilihMejaIni(tgl: string, meja: MejaInfo) {
+    router.push(`/?outlet=${outlet}&tanggal=${tgl}&jam=${jamMulai}&tamu=${jumlahTamu}&mejaId=${meja.id}&tipe=${meja.tipe}&mulai=1`);
   }
 
   return (
@@ -239,46 +170,46 @@ export default function CekKetersediaanPage() {
           <div className="mt-8">
             <p className="text-xs font-bold text-[#C8973E] mb-3 tracking-[0.15em] uppercase">Hasil pencarian</p>
             <div className="space-y-2.5">
-              {hasil.map((h) => {
-                const batasTampil = 4;
-                const sisanya = h.daftarMeja.length - batasTampil;
-                return (
-                  <div key={h.tanggal} className="bg-white rounded-2xl border border-[#E8DCC8] px-4 py-3.5">
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                      <div>
-                        <p className="text-sm font-semibold text-[#5C3D1A] capitalize">{formatTanggalIndo(h.tanggal)}</p>
-                        <p className="text-xs text-[#8B7355] mt-0.5">
-                          {h.libur ? h.libur : h.tersedia ? `${h.jumlahOpsi} meja tersedia` : "Semua meja penuh jam ini"}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2.5 shrink-0">
-                        <span className={`text-[11px] font-bold px-3 py-1 rounded-full ${h.libur ? "bg-gray-100 text-gray-500" : h.tersedia ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
-                          {h.libur ? "Libur" : h.tersedia ? "Tersedia" : "Penuh"}
-                        </span>
-                        {h.tersedia && !h.libur && (
-                          <button onClick={() => reservasiTanggalIni(h.tanggal)}
-                            className="px-3.5 py-1.5 rounded-lg bg-[#C8973E] text-white text-xs font-semibold hover:bg-[#A67B2E] transition-colors">
-                            Reservasi
-                          </button>
-                        )}
-                      </div>
+              {hasil.map((h) => (
+                <div key={h.tanggal} className="bg-white rounded-2xl border border-[#E8DCC8] px-4 py-3.5">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="text-sm font-semibold text-[#5C3D1A] capitalize">{formatTanggalIndo(h.tanggal)}</p>
+                      <p className="text-xs text-[#8B7355] mt-0.5">
+                        {h.libur ? h.libur : h.tersedia ? `${h.jumlahOpsi} meja tersedia — pilih salah satu di bawah` : "Semua meja penuh jam ini"}
+                      </p>
                     </div>
-                    {h.tersedia && !h.libur && (
-                      <div className="flex flex-wrap gap-1.5 mt-2.5">
-                        {h.daftarMeja.slice(0, batasTampil).map((meja) => (
-                          <button key={meja.nama} onClick={() => meja.foto_url ? setLightboxMeja(meja) : null}
-                            className={`text-[11px] bg-[#FDF6EC] border border-[#E8DCC8] rounded-full px-2.5 py-1 transition-all ${meja.foto_url ? "text-[#C8973E] font-semibold cursor-pointer hover:bg-[#C8973E]/10 hover:border-[#C8973E]/40" : "text-[#8B7355] cursor-default"}`}>
-                            {meja.foto_url && <span className="mr-1">📷</span>}{meja.nama}
-                          </button>
-                        ))}
-                        {sisanya > 0 && (
-                          <span className="text-[11px] text-[#B5A594] px-2.5 py-1">+{sisanya} lainnya</span>
-                        )}
-                      </div>
-                    )}
+                    <span className={`text-[11px] font-bold px-3 py-1 rounded-full shrink-0 ${h.libur ? "bg-gray-100 text-gray-500" : h.tersedia ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+                      {h.libur ? "Libur" : h.tersedia ? "Tersedia" : "Penuh"}
+                    </span>
                   </div>
-                );
-              })}
+                  {h.tersedia && !h.libur && (
+                    <div className="grid gap-2 mt-3.5 pt-3.5 border-t border-[#F0E6D2]">
+                      {h.daftarMeja.map((meja) => (
+                        <div key={`${meja.tipe}-${meja.id}`} className="flex items-center gap-3 bg-[#FDF6EC] border border-[#E8DCC8] rounded-xl p-2.5">
+                          {meja.foto_url ? (
+                            <button onClick={() => setLightboxMeja(meja)} aria-label="Lihat foto meja"
+                              className="w-14 h-14 rounded-lg overflow-hidden shrink-0 border border-[#E8DCC8]">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={meja.foto_url} alt={meja.nama} className="w-full h-full object-cover" />
+                            </button>
+                          ) : (
+                            <div className="w-14 h-14 rounded-lg shrink-0 bg-[#E8DCC8]/40 flex items-center justify-center text-lg">🪑</div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-[#5C3D1A] truncate">{meja.nama}</p>
+                            {meja.foto_url && <p className="text-[11px] text-[#8B7355]">Ketuk foto untuk lihat lebih besar</p>}
+                          </div>
+                          <button onClick={() => pilihMejaIni(h.tanggal, meja)}
+                            className="shrink-0 px-4 py-2.5 rounded-lg bg-[#C8973E] text-white text-xs font-bold hover:bg-[#A67B2E] transition-colors whitespace-nowrap">
+                            Pilih Meja Ini →
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}
