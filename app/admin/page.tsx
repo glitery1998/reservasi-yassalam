@@ -145,6 +145,11 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotSending, setForgotSending] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotError, setForgotError] = useState("");
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -153,6 +158,18 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
     setLoading(false);
     if (err) { setError(err.message); return; }
     onLogin();
+  }
+
+  async function handleForgotPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setForgotError("");
+    setForgotSending(true);
+    const { error: err } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+      redirectTo: `${window.location.origin}/admin/reset-password`,
+    });
+    setForgotSending(false);
+    if (err) { setForgotError(err.message); return; }
+    setForgotSent(true);
   }
 
   return (
@@ -194,9 +211,41 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
             </button>
           </form>
 
+          <button onClick={() => { setShowForgot(true); setForgotEmail(email); setForgotSent(false); setForgotError(""); }}
+            className="text-center text-[#9A8B7A] text-xs mt-4 hover:text-[#5C1420] underline underline-offset-2 w-full">
+            Lupa password?
+          </button>
+
           <p className="text-center text-[#C4B9AB] text-xs mt-8">© 2026 Yassalam Arabian Resto &amp; Catering</p>
         </div>
       </div>
+
+      {showForgot && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4" onClick={() => setShowForgot(false)}>
+          <div className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            {forgotSent ? (
+              <div className="text-center">
+                <p className="text-3xl mb-3">📧</p>
+                <h3 className="text-lg font-bold text-[#3D2E1E] font-serif">Email Terkirim</h3>
+                <p className="text-sm text-[#9A8B7A] mt-2 leading-relaxed">Cek inbox <span className="font-semibold text-[#5C1420]">{forgotEmail}</span> untuk link reset password. Jangan lupa cek folder spam kalau tidak muncul.</p>
+                <button onClick={() => setShowForgot(false)} className="w-full h-11 rounded-lg bg-[#5C1420] text-white text-sm font-semibold mt-6">Tutup</button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotPassword}>
+                <h3 className="text-lg font-bold text-[#3D2E1E] font-serif">Reset Password</h3>
+                <p className="text-sm text-[#9A8B7A] mt-1 mb-4">Masukkan email akun admin kamu, kami kirim link reset password.</p>
+                {forgotError && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-600 text-sm text-center mb-3">{forgotError}</div>}
+                <input type="email" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} required placeholder="admin@yassalam.com"
+                  className="w-full h-11 px-4 rounded-lg border border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] transition-all" />
+                <div className="flex gap-3 mt-5">
+                  <button type="button" onClick={() => setShowForgot(false)} className="flex-1 h-11 rounded-lg border border-[#E5DDD4] text-[#9A8B7A] text-sm font-semibold">Batal</button>
+                  <button type="submit" disabled={forgotSending} className="flex-1 h-11 rounded-lg bg-[#5C1420] text-white text-sm font-semibold disabled:opacity-50">{forgotSending ? "Mengirim..." : "Kirim Link"}</button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -394,6 +443,12 @@ export default function AdminDashboard() {
   const [myOutlet, setMyOutlet] = useState<string | null>(null);
   const [profileError, setProfileError] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [changePasswordError, setChangePasswordError] = useState("");
   const hasSpokenRef = useRef(false);
 
   useEffect(() => {
@@ -443,13 +498,39 @@ export default function AdminDashboard() {
     });
     return () => subscription.unsubscribe();
   }, [loadProfile]);
+function validatePasswordStrength(password: string): string | null {
+    if (password.length < 10) return "Password minimal 10 karakter";
+    if (!/[A-Z]/.test(password)) return "Password harus mengandung minimal 1 huruf besar";
+    if (!/[0-9]/.test(password)) return "Password harus mengandung minimal 1 angka";
+    if (!/[^A-Za-z0-9]/.test(password)) return "Password harus mengandung minimal 1 simbol";
+    return null;
+  }
 
+  async function changeMyPassword() {
+    setChangePasswordError("");
+    const pwErr0 = validatePasswordStrength(newPassword);
+    if (pwErr0) { setChangePasswordError(pwErr0); return; }
+    if (newPassword !== confirmPassword) { setChangePasswordError("Konfirmasi password baru tidak cocok"); return; }
+    setChangingPassword(true);
+    const { error: verifyErr } = await supabase.auth.signInWithPassword({ email: session!.user.email!, password: oldPassword });
+    if (verifyErr) { setChangingPassword(false); setChangePasswordError("Password lama salah"); return; }
+    const { error: updateErr } = await supabase.auth.updateUser({ password: newPassword });
+    setChangingPassword(false);
+    if (updateErr) { setChangePasswordError(updateErr.message); return; }
+    logActivity("Ubah password sendiri");
+    setShowChangePassword(false);
+    setOldPassword(""); setNewPassword(""); setConfirmPassword("");
+  }
   async function handleLogout() {
     await supabase.auth.signOut();
     setSession(null);
   }
 
   const [tab, setTab] = useState<"reservasi" | "scan" | "kalender" | "area" | "gabungan" | "menu" | "laporan" | "admin" | "log" | "pengaturan">("reservasi");
+  const [openGroup, setOpenGroup] = useState<string>("operasional");
+  function toggleGroup(key: string) {
+    setOpenGroup((prev) => (prev === key ? "" : key));
+  }
   const [kalSubTab, setKalSubTab] = useState<"harian" | "cari">("harian");
   const [drillArea, setDrillArea] = useState<Area | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -1423,15 +1504,34 @@ export default function AdminDashboard() {
     </div>
   );
 
-  const sidebarItems = [
-    { key: "reservasi", label: "Reservasi", icon: "📋" },
-    { key: "scan", label: "Scan Tiket", icon: "📷" },
-    { key: "kalender", label: "Kalender", icon: "📅" },
-    { key: "area", label: "Area & Meja", icon: "🏛" },
-    { key: "gabungan", label: "Gabungan", icon: "🔗" },
-    { key: "menu", label: "Menu", icon: "🍽" },
-    { key: "laporan", label: "Laporan", icon: "📈" },
-    ...(isElevated ? [{ key: "admin", label: "Kelola Admin", icon: "👤" }, { key: "log", label: "Log Aktivitas", icon: "🕘" }, { key: "pengaturan", label: "Pengaturan", icon: "🔧" }] : []),
+  const sidebarGroups = [
+    {
+      key: "operasional", label: "Operasional",
+      items: [
+        { key: "reservasi", label: "Reservasi", icon: "📋" },
+        { key: "scan", label: "Scan Tiket", icon: "📷" },
+        { key: "kalender", label: "Kalender", icon: "📅" },
+      ],
+    },
+    {
+      key: "konten", label: "Konten & Katalog",
+      items: [
+        { key: "area", label: "Area & Meja", icon: "🏛" },
+        { key: "gabungan", label: "Gabungan", icon: "🔗" },
+        { key: "menu", label: "Menu", icon: "🍽" },
+      ],
+    },
+    {
+      key: "manajemen", label: "Manajemen",
+      items: [
+        { key: "laporan", label: "Laporan", icon: "📈" },
+        ...(isElevated ? [
+          { key: "admin", label: "Kelola Admin", icon: "👤" },
+          { key: "log", label: "Log Aktivitas", icon: "🕘" },
+          { key: "pengaturan", label: "Pengaturan", icon: "🔧" },
+        ] : []),
+      ],
+    },
   ];
 
   return (
@@ -1477,8 +1577,9 @@ export default function AdminDashboard() {
         </div>
 
         {/* Nav items — horizontal scroll on mobile, vertical on desktop */}
-        <nav className="flex md:flex-col gap-1 px-3 pb-3 md:px-3 md:pb-0 md:flex-1 overflow-x-auto scrollbar-none">
-          {sidebarItems.map((item) => (
+        {/* Nav mobile — tetap flat, scroll horizontal seperti sebelumnya */}
+        <nav className="flex md:hidden gap-1 px-3 pb-3 overflow-x-auto scrollbar-none">
+          {sidebarGroups.flatMap((g) => g.items).map((item) => (
             <button key={item.key} onClick={() => { playClick(); setTab(item.key as typeof tab); setDrillArea(null); setDrillKategori(null); }}
               className={`shrink-0 flex items-center gap-2.5 whitespace-nowrap px-3.5 py-2.5 rounded-lg text-sm transition-all ${tab === item.key ? "bg-white/15 text-white font-bold shadow-sm" : "text-white/85 hover:text-white hover:bg-white/10 font-medium"}`}>
               <span>{item.icon}</span> {item.label}
@@ -1487,6 +1588,38 @@ export default function AdminDashboard() {
               )}
             </button>
           ))}
+        </nav>
+
+        {/* Nav desktop — dikelompokkan per section, bisa dilipat */}
+        <nav className="hidden md:flex md:flex-col gap-1 px-3 md:flex-1 md:overflow-y-auto">
+          {sidebarGroups.map((group) => {
+            const isOpen = openGroup === group.key;
+            return (
+              <div key={group.key} className="mb-1">
+                <button onClick={() => toggleGroup(group.key)}
+                  className="w-full flex items-center justify-between px-2.5 py-2 text-[11px] font-semibold text-white/55 tracking-wide uppercase hover:text-white/80 transition-colors">
+                  {group.label}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                    className={`shrink-0 transition-transform ${isOpen ? "rotate-0" : "-rotate-90"}`}>
+                    <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {isOpen && (
+                  <div className="flex flex-col gap-1 pb-1.5">
+                    {group.items.map((item) => (
+                      <button key={item.key} onClick={() => { playClick(); setTab(item.key as typeof tab); setDrillArea(null); setDrillKategori(null); }}
+                        className={`flex items-center gap-2.5 whitespace-nowrap px-3.5 py-2.5 rounded-lg text-sm transition-all ${tab === item.key ? "bg-white/15 text-white font-bold shadow-sm" : "text-white/85 hover:text-white hover:bg-white/10 font-medium"}`}>
+                        <span>{item.icon}</span> {item.label}
+                        {item.key === "reservasi" && stats.total > 0 && (
+                          <span className="ml-auto text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-bold">{stats.total}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         {/* Bottom section — desktop only */}
@@ -1500,6 +1633,7 @@ export default function AdminDashboard() {
               <p className="text-white/60 text-[10px]">{isSuper ? "★ Super Admin" : isManajer ? `★ Manajer ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}` : `Admin ${myOutlet === "solo" ? "Solo" : "Yogyakarta"}`}</p>
             </div>
           </div>
+          <button onClick={() => setShowChangePassword(true)} className="w-full mb-2 py-2 rounded-lg border border-white/25 text-white/80 text-xs font-semibold hover:bg-white/5 transition-all">🔒 Ubah Password</button>
           <div className="flex gap-2">
             <Link href="/" className="flex-1 text-center py-2 rounded-lg border border-white/25 text-white/80 text-xs font-semibold hover:bg-white/5 transition-all">← Website</Link>
             <button onClick={handleLogout} className="flex-1 py-2 rounded-lg border border-white/25 text-white/80 text-xs font-semibold hover:bg-white/5 transition-all">Logout</button>
@@ -2722,7 +2856,7 @@ export default function AdminDashboard() {
                 </div>
                 <div>
                   <label className={labelClass}>{editAdmin ? "Password Baru (opsional)" : "Password"}</label>
-                  <input type="text" value={auPassword} onChange={(e) => setAuPassword(e.target.value)} placeholder={editAdmin ? "Kosongkan jika tidak diubah" : "Minimal 6 karakter"} className={inputClass} />
+                  <input type="text" value={auPassword} onChange={(e) => setAuPassword(e.target.value)} placeholder={editAdmin ? "Kosongkan jika tidak diubah" : "Minimal 10 karakter, huruf besar, angka, simbol"} className={inputClass} />
                 </div>
                 <div>
                   <label className={labelClass}>Role</label>
@@ -2958,6 +3092,22 @@ export default function AdminDashboard() {
           </>
         )}
       </div>
+
+      {showChangePassword && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white border-2 border-[#5C1420]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl">
+            <div><h3 className="text-xl font-bold text-[#3D2E1E] font-serif">Ubah Password</h3><div className="w-12 h-0.5 bg-[#5C1420] mt-2" /></div>
+            <div><label className={labelClass}>Password Lama</label><input type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} className={inputClass} /></div>
+            <div><label className={labelClass}>Password Baru</label><input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className={inputClass} /><p className="text-xs text-[#B5A999] mt-1.5">Minimal 10 karakter, mengandung huruf besar, angka, dan simbol</p></div>
+            <div><label className={labelClass}>Konfirmasi Password Baru</label><input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className={inputClass} /></div>
+            {changePasswordError && <p className="text-red-500 text-sm">{changePasswordError}</p>}
+            <div className="flex gap-3 pt-3">
+              <button onClick={() => { setShowChangePassword(false); setOldPassword(""); setNewPassword(""); setConfirmPassword(""); setChangePasswordError(""); }} className="flex-1 py-3.5 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Batal</button>
+              <button onClick={changeMyPassword} disabled={changingPassword} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold disabled:opacity-50">{changingPassword ? "Menyimpan..." : "Simpan"}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="border-t border-[#E5DDD4] mt-8">

@@ -75,7 +75,6 @@ export default function PesanMenuPage() {
     if (resData.length === 0) { setNotFound(true); setLoading(false); return; }
     setReservations(resData);
     const outlet = resData[0].outlet;
-    const resIds = resData.map((r: ReservationRow) => r.Id);
 
     const { data: settingData } = await supabase.from("AppSettings").select("value").eq("key", "menu_cutoff_hours").single();
     if (settingData?.value) setCutoffHours(Number(settingData.value) || 4);
@@ -95,8 +94,8 @@ export default function PesanMenuPage() {
       setAddonList(addData || []);
     }
 
-    const { data: orderData } = await supabase.from("ReservationMenuItem").select("*").in("reservation_id", resIds).order("created_at");
-    setOrderedItems(orderData || []);
+    const { data: orderData } = await supabase.rpc("get_order_items_by_token", { p_token: token });
+    setOrderedItems(((orderData || []) as OrderedItem[]).sort((a, b) => a.created_at.localeCompare(b.created_at)));
 
     const mejaIds = resData.map((r: ReservationRow) => r.meja_id).filter((id: number | null): id is number => id !== null);
     if (mejaIds.length > 0) {
@@ -108,11 +107,10 @@ export default function PesanMenuPage() {
   }, [token]);
 
   const refreshOrders = useCallback(async () => {
-    const resIds = reservations.map((r) => r.Id);
-    if (resIds.length === 0) return;
-    const { data: orderData } = await supabase.from("ReservationMenuItem").select("*").in("reservation_id", resIds).order("created_at");
-    setOrderedItems(orderData || []);
-  }, [reservations]);
+    if (!token) return;
+    const { data: orderData } = await supabase.rpc("get_order_items_by_token", { p_token: token });
+    setOrderedItems(((orderData || []) as OrderedItem[]).sort((a, b) => a.created_at.localeCompare(b.created_at)));
+  }, [token]);
 
   async function finalizeOrder() {
     if (!token || !primaryReservation) return;
@@ -178,16 +176,16 @@ export default function PesanMenuPage() {
       return;
     }
     setSubmitting(true);
-    const { error } = await supabase.from("ReservationMenuItem").insert({
-      reservation_id: primaryReservation.Id,
-      menu_id: pickedItem.Id,
-      varian_id: pickVarian,
-      addon_ids: pickAddons,
-      jumlah_porsi: pickQty,
-      harga_satuan: pickSubtotalSatuan,
-      subtotal: pickSubtotalSatuan * pickQty,
-      catatan: pickCatatan || null,
-      nama_pemesan: pickNama || null,
+    const { error } = await supabase.rpc("add_order_item_by_token", {
+      p_token: token,
+      p_menu_id: pickedItem.Id,
+      p_varian_id: pickVarian,
+      p_addon_ids: pickAddons,
+      p_jumlah_porsi: pickQty,
+      p_harga_satuan: pickSubtotalSatuan,
+      p_subtotal: pickSubtotalSatuan * pickQty,
+      p_catatan: pickCatatan || null,
+      p_nama_pemesan: pickNama || null,
     });
     setSubmitting(false);
     if (error) { showNotif("error", "Gagal Menyimpan Pesanan", error.message); return; }
@@ -199,14 +197,14 @@ export default function PesanMenuPage() {
     askConfirm("Hapus Item Ini?", "Item akan dihapus dari daftar pesanan.", () => doDeleteOrderedItem(id));
   }
   async function doDeleteOrderedItem(id: number) {
-    await supabase.from("ReservationMenuItem").delete().eq("Id", id);
+    await supabase.rpc("delete_order_item_by_token", { p_token: token, p_item_id: id });
     refreshOrders();
   }
 
   async function updateOrderedQty(o: OrderedItem, newQty: number) {
     if (newQty < 1) { deleteOrderedItem(o.Id); return; }
     const newSubtotal = o.harga_satuan * newQty;
-    await supabase.from("ReservationMenuItem").update({ jumlah_porsi: newQty, subtotal: newSubtotal }).eq("Id", o.Id);
+    await supabase.rpc("update_order_item_qty_by_token", { p_token: token, p_item_id: o.Id, p_new_qty: newQty, p_new_subtotal: newSubtotal });
     refreshOrders();
   }
 

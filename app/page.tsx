@@ -957,50 +957,42 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
       : selectedTable ? [selectedTable.Id] : []);
     if (mejaIds.length === 0 || !tanggal || !jam) return false;
 
-    // Release hold lama dari session sebelumnya (kalau user kembali dan pilih meja lain)
-    await releaseHold();
-
     const computedEnd = hitungJamSelesai(jam);
-    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const expiresAt = new Date(Date.now() + holdMinutes * 60 * 1000).toISOString();
 
-    await supabase.from("BookingHold").delete().lt("expires_at", new Date().toISOString());
-
-    // Cek conflict untuk semua meja
-    for (const mejaId of mejaIds) {
-      const { data: existingHolds } = await supabase.from("BookingHold").select("*")
-        .eq("meja_id", mejaId).eq("tanggal", tanggal).eq("status", "active").gt("expires_at", new Date().toISOString());
-      if (existingHolds && existingHolds.some((h) => isTimeOverlap(jam, computedEnd, h.jam, h.jam_selesai))) {
-        showNotif("warning", "Meja Baru Saja Diambil", "Salah satu meja baru saja di-hold orang lain. Silakan pilih ulang.");
+    try {
+      const res = await fetch("/api/booking-hold", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mejaIds, tanggal, jam, jamSelesai: computedEnd, holdMinutes,
+          releaseHoldId: holdId || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        showNotif("warning", "Meja Baru Saja Diambil", json.error || "Salah satu meja baru saja di-hold orang lain. Silakan pilih ulang.");
         return false;
       }
+      setHoldId(json.holdId);
+      setHoldExpiry(new Date(json.expiresAt));
+      return true;
+    } catch {
+      showNotif("error", "Gagal Mengunci Meja", "Terjadi kesalahan, coba lagi.");
+      return false;
     }
-
-    // Insert hold untuk semua meja
-    const holdInserts = mejaIds.map((mejaId) => ({
-      meja_id: mejaId, tanggal, jam, jam_selesai: computedEnd,
-      session_id: sessionId, expires_at: expiresAt, status: "active",
-    }));
-
-    const { data, error } = await supabase.from("BookingHold").insert(holdInserts).select();
-    if (error) { showNotif("error", "Gagal Mengunci Meja", error.message); return false; }
-    setHoldId(data[0].Id);
-    setHoldExpiry(new Date(expiresAt));
-    return true;
   }
 
   async function releaseHold() {
-    if (holdId) {
-      // Ambil session_id dari hold pertama, lalu release semua hold dalam session tersebut
-      const { data: holdRow } = await supabase.from("BookingHold").select("session_id").eq("Id", holdId).single();
-      if (holdRow?.session_id) {
-        await supabase.from("BookingHold").update({ status: "released" }).eq("session_id", holdRow.session_id).eq("status", "active");
-      } else {
-        await supabase.from("BookingHold").update({ status: "released" }).eq("Id", holdId);
-      }
-      setHoldId(null);
-      setHoldExpiry(null);
-    }
+    if (!holdId) return;
+    try {
+      await fetch("/api/booking-hold", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ holdId }),
+      });
+    } catch { /* best effort, gak perlu blocking UI */ }
+    setHoldId(null);
+    setHoldExpiry(null);
   }
 
   function generateShareToken() {
@@ -1911,6 +1903,29 @@ useEffect(() => {
       </div>
 
 
+      {/* OUR STORY */}
+      <div className="pt-4 pb-10 md:py-20 px-4 bg-[#FDF6EC]">
+        <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-6 md:gap-12 items-center">
+          <div className="order-2 md:order-1">
+            <p className="text-[#C8973E] text-sm tracking-[0.3em] uppercase font-semibold">Kisah Kami</p>
+            <h2 className="text-3xl sm:text-4xl font-bold text-[#5C3D1A] font-serif mt-3 leading-snug">Warisan Rasa Yang Disajikan Dengan Sepenuh Hati</h2>
+            <p className="text-[#C8973E]/40 mt-4 mb-5">━━ ✦ ━━</p>
+            <p className="text-[#8B7355] leading-relaxed text-[15px]">
+              Di balik setiap hidangan Yassalam, tersimpan sepenggal kisah keluarga yang diwariskan dengan penuh cinta dari generasi ke generasi. Resep yang tersaji hari ini bukan sekadar bumbu dan rempah, melainkan warisan rasa dari Keluarga — dijaga keasliannya, dirawat dengan kesungguhan, dan disempurnakan dengan ketulusan yang sama seperti pertama kali diciptakan.
+            </p>
+            <p className="text-[#8B7355] leading-relaxed text-[15px] mt-4">
+              Tiga hidangan istimewa Yassalam — Nasi Mandhi, Kabsah, dan Kabuli — hadir sebagai bukti nyata dedikasi tersebut. Setiap suapan mengajak Anda menyelami kehangatan cita rasa Timur Tengah yang otentik, tersaji dengan sepenuh hati di dua kota tercinta: Solo dan Yogyakarta.
+            </p>
+            <div className="mt-8 flex items-center gap-6">
+              <div className="flex items-center gap-3"><p className="text-4xl font-bold text-[#C8973E] font-serif leading-none">8+</p><p className="text-xs text-[#8B7355] leading-tight">Tahun<br/>Pengalaman</p></div>
+              <div className="h-10 w-px bg-[#C8973E]/20" />
+              <div className="flex items-center gap-3"><p className="text-4xl font-bold text-[#C8973E] font-serif leading-none">100%</p><p className="text-xs text-[#8B7355] leading-tight">Resep<br/>Autentik</p></div>
+            </div>
+          </div>
+          <div className="overflow-hidden order-1 md:order-2 bg-[#FDF6EC]"><MenuFlipbook /></div>
+        </div>
+      </div>
+
       {/* TESTIMONI */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
         <div className="text-center mb-12">
@@ -1947,29 +1962,6 @@ useEffect(() => {
               </div>
             ))}
           </div>
-        </div>
-      </div>
-
-      {/* OUR STORY */}
-      <div className="pt-4 pb-10 md:py-20 px-4 bg-[#FDF6EC]">
-        <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-6 md:gap-12 items-center">
-          <div className="order-2 md:order-1">
-            <p className="text-[#C8973E] text-sm tracking-[0.3em] uppercase font-semibold">Kisah Kami</p>
-            <h2 className="text-3xl sm:text-4xl font-bold text-[#5C3D1A] font-serif mt-3 leading-snug">Warisan Rasa Yang Disajikan Dengan Sepenuh Hati</h2>
-            <p className="text-[#C8973E]/40 mt-4 mb-5">━━ ✦ ━━</p>
-            <p className="text-[#8B7355] leading-relaxed text-[15px]">
-              Di balik setiap hidangan Yassalam, tersimpan sepenggal kisah keluarga yang diwariskan dengan penuh cinta dari generasi ke generasi. Resep yang tersaji hari ini bukan sekadar bumbu dan rempah, melainkan warisan rasa dari Keluarga — dijaga keasliannya, dirawat dengan kesungguhan, dan disempurnakan dengan ketulusan yang sama seperti pertama kali diciptakan.
-            </p>
-            <p className="text-[#8B7355] leading-relaxed text-[15px] mt-4">
-              Tiga hidangan istimewa Yassalam — Nasi Mandhi, Kabsah, dan Kabuli — hadir sebagai bukti nyata dedikasi tersebut. Setiap suapan mengajak Anda menyelami kehangatan cita rasa Timur Tengah yang otentik, tersaji dengan sepenuh hati di dua kota tercinta: Solo dan Yogyakarta.
-            </p>
-            <div className="mt-8 flex items-center gap-6">
-              <div className="flex items-center gap-3"><p className="text-4xl font-bold text-[#C8973E] font-serif leading-none">8+</p><p className="text-xs text-[#8B7355] leading-tight">Tahun<br/>Pengalaman</p></div>
-              <div className="h-10 w-px bg-[#C8973E]/20" />
-              <div className="flex items-center gap-3"><p className="text-4xl font-bold text-[#C8973E] font-serif leading-none">100%</p><p className="text-xs text-[#8B7355] leading-tight">Resep<br/>Autentik</p></div>
-            </div>
-          </div>
-          <div className="overflow-hidden order-1 md:order-2 bg-[#FDF6EC]"><MenuFlipbook /></div>
         </div>
       </div>
 

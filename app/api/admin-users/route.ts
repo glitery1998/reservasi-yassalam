@@ -14,6 +14,14 @@ function getAdmin() {
   });
 }
 
+function validatePasswordStrength(password: string): string | null {
+  if (password.length < 10) return "Password minimal 10 karakter";
+  if (!/[A-Z]/.test(password)) return "Password harus mengandung minimal 1 huruf besar";
+  if (!/[0-9]/.test(password)) return "Password harus mengandung minimal 1 angka";
+  if (!/[^A-Za-z0-9]/.test(password)) return "Password harus mengandung minimal 1 simbol";
+  return null;
+}
+
 /**
  * Pastikan pemanggil superadmin ATAU manajer outlet.
  * Manajer outlet hanya boleh mengelola admin_outlet di outletnya sendiri —
@@ -83,8 +91,9 @@ export async function POST(req: NextRequest) {
   if (!email || !password || !nama) {
     return NextResponse.json({ error: "Email, password, dan nama wajib diisi" }, { status: 400 });
   }
-  if (password.length < 6) {
-    return NextResponse.json({ error: "Password minimal 6 karakter" }, { status: 400 });
+  const pwErr0 = validatePasswordStrength(password);
+  if (pwErr0) {
+    return NextResponse.json({ error: pwErr0 }, { status: 400 });
   }
 
   // Manajer outlet: paksa role admin_outlet & outlet miliknya sendiri, apa pun yang dikirim client
