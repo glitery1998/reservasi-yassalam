@@ -67,6 +67,10 @@ type LiburOutlet = {
   Id: number; created_at: string; outlet: string;
   tanggal_mulai: string; tanggal_selesai: string; alasan: string | null;
 };
+type MenuBackupT = {
+  Id: number; created_at: string; outlet: string; label: string | null; created_by: string | null;
+  data: { kategori: MenuKategori[]; paket: MenuItem[]; varian: MenuVarian[]; addon: MenuAddon[] };
+};
 
 function AreaCardImage({ area, tables }: { area: Area; tables: TableData[] }) {
   const photos = tables.filter((t) => t.outlet === area.outlet && t.posisi === area.slug && t.foto_url).map((t) => t.foto_url as string);
@@ -526,6 +530,13 @@ function Icon({ name, className, size = 16 }: { name: string; className?: string
     case "repeat": return <svg {...common}><path d="M17 2l4 4-4 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 22l-4-4 4-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>;
     case "zap": return <svg {...common}><path d="M13 2 3 14h7l-1 8 11-13h-7l1-7z" /></svg>;
     case "star": return <svg {...common}><path d="M12 2l2.9 6.6L22 9.3l-5 4.9 1.2 7-6.2-3.4L5.8 21.2 7 14.2 2 9.3l7.1-.7z" /></svg>;
+    case "archive": return <svg {...common}><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" /><path d="M10 12h4" /></svg>;
+    case "chevron-right": return <svg {...common}><path d="M9 18l6-6-6-6" /></svg>;
+    case "chevron-left": return <svg {...common}><path d="M15 18l-6-6 6-6" /></svg>;
+    case "chair": return <svg {...common}><path d="M6 4v9a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4M6 9h12" /><path d="M7 15v5M17 15v5" /></svg>;
+    case "cash": return <svg {...common}><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="3" /><path d="M6 6v-.01M18 18v.01" /></svg>;
+    case "edit": return <svg {...common}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" /></svg>;
+    case "send": return <svg {...common}><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4z" /></svg>;
     default: return null;
   }
 }
@@ -539,6 +550,7 @@ export default function AdminDashboard() {
   const [profileError, setProfileError] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showLogoutMsg, setShowLogoutMsg] = useState(false);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -617,8 +629,11 @@ function validatePasswordStrength(password: string): string | null {
     setOldPassword(""); setNewPassword(""); setConfirmPassword("");
   }
   async function handleLogout() {
-    await supabase.auth.signOut();
-    setSession(null);
+    setShowLogoutMsg(true);
+    setTimeout(async () => {
+      await supabase.auth.signOut();
+      setSession(null);
+    }, 1400);
   }
 
   const [tab, setTab] = useState<"ringkasan" | "reservasi" | "scan" | "kalender" | "area" | "gabungan" | "menu" | "laporan" | "pelanggan" | "admin" | "log" | "pengaturan">("ringkasan");
@@ -641,6 +656,9 @@ function validatePasswordStrength(password: string): string | null {
   const [showReservasiForm, setShowReservasiForm] = useState(false);
   const [editingReservasiId, setEditingReservasiId] = useState<number | null>(null);
   const [editingOriginalShareToken, setEditingOriginalShareToken] = useState<string | null>(null);
+  const [editingOriginalGabunganId, setEditingOriginalGabunganId] = useState<number | null>(null);
+  const [rTipeMeja, setRTipeMeja] = useState<"tunggal" | "gabungan">("tunggal");
+  const [rGabunganId, setRGabunganId] = useState("");
   const [rNama, setRNama] = useState("");
   const [rWhatsapp, setRWhatsapp] = useState("");
   const [rOutlet, setROutlet] = useState("solo");
@@ -681,6 +699,12 @@ function validatePasswordStrength(password: string): string | null {
   const [lSelesai, setLSelesai] = useState("");
   const [lAlasan, setLAlasan] = useState("");
   const [savingLibur, setSavingLibur] = useState(false);
+  const [menuBackups, setMenuBackups] = useState<MenuBackupT[]>([]);
+  const [loadingBackups, setLoadingBackups] = useState(false);
+  const [backupOutlet, setBackupOutlet] = useState("solo");
+  const [backupLabel, setBackupLabel] = useState("");
+  const [savingBackup, setSavingBackup] = useState(false);
+  const [restoringId, setRestoringId] = useState<number | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [loadingOrderKeys, setLoadingOrderKeys] = useState<Set<string>>(new Set());
   const [ordersCache, setOrdersCache] = useState<Record<string, ReservationMenuItemT[]>>({});
@@ -1200,6 +1224,84 @@ const [pelangganQuery, setPelangganQuery] = useState("");
     fetchLibur();
   }
 
+  const fetchMenuBackups = useCallback(async () => {
+    setLoadingBackups(true);
+    const outletAktif = lockedOutlet || backupOutlet;
+    const { data } = await supabase.from("MenuBackup").select("*").eq("outlet", outletAktif).order("created_at", { ascending: false }).limit(20);
+    setMenuBackups((data || []) as MenuBackupT[]);
+    setLoadingBackups(false);
+  }, [lockedOutlet, backupOutlet]);
+
+  async function createMenuBackup() {
+    const outletAktif = lockedOutlet || backupOutlet;
+    setSavingBackup(true);
+    const { data: kategoriData } = await supabase.from("MenuKategori").select("*").eq("outlet", outletAktif);
+    const { data: paketData } = await supabase.from("MenuPaket").select("*").eq("outlet", outletAktif);
+    const menuIds = (paketData || []).map((m) => m.Id);
+    let varianData: MenuVarian[] = [];
+    let addonData: MenuAddon[] = [];
+    if (menuIds.length > 0) {
+      const { data: vd } = await supabase.from("MenuVarian").select("*").in("menu_id", menuIds);
+      const { data: ad } = await supabase.from("MenuAddon").select("*").in("menu_id", menuIds);
+      varianData = vd || []; addonData = ad || [];
+    }
+    const payload = {
+      outlet: outletAktif,
+      label: backupLabel.trim() || null,
+      created_by: myNama || session?.user?.email || null,
+      data: { kategori: kategoriData || [], paket: paketData || [], varian: varianData, addon: addonData },
+    };
+    const { error } = await supabase.from("MenuBackup").insert(payload);
+    setSavingBackup(false);
+    if (error) { alert("Gagal membuat backup: " + error.message); return; }
+    logActivity("Buat backup menu", `${outletAktif} · ${backupLabel || "(tanpa label)"}`);
+    setBackupLabel("");
+    fetchMenuBackups();
+  }
+
+  async function restoreMenuBackup(backup: MenuBackupT) {
+    if (!confirm(`Ini akan MENIMPA seluruh data menu outlet ${backup.outlet === "solo" ? "Solo" : "Yogyakarta"} saat ini dengan kondisi dari backup tanggal ${new Date(backup.created_at).toLocaleString("id-ID")}. Lanjutkan?`)) return;
+    setRestoringId(backup.Id);
+    const outletAktif = backup.outlet;
+
+    const { data: currentPaket } = await supabase.from("MenuPaket").select("Id").eq("outlet", outletAktif);
+    const currentMenuIds = (currentPaket || []).map((m) => m.Id);
+    if (currentMenuIds.length > 0) {
+      await supabase.from("MenuVarian").delete().in("menu_id", currentMenuIds);
+      await supabase.from("MenuAddon").delete().in("menu_id", currentMenuIds);
+    }
+    await supabase.from("MenuPaket").delete().eq("outlet", outletAktif);
+    await supabase.from("MenuKategori").delete().eq("outlet", outletAktif);
+
+    const { kategori, paket, varian, addon } = backup.data;
+    if (kategori.length > 0) await supabase.from("MenuKategori").insert(kategori);
+    if (paket.length > 0) await supabase.from("MenuPaket").insert(paket);
+    if (varian.length > 0) await supabase.from("MenuVarian").insert(varian);
+    if (addon.length > 0) await supabase.from("MenuAddon").insert(addon);
+
+    setRestoringId(null);
+    logActivity("Restore backup menu", `${outletAktif} · backup ${new Date(backup.created_at).toLocaleString("id-ID")}`);
+    alert("Restore selesai. Data menu sudah dikembalikan ke kondisi backup.");
+    fetchMenuKategori(); fetchMenuItems();
+  }
+
+  async function deleteMenuBackup(id: number) {
+    if (!confirm("Hapus backup ini secara permanen?")) return;
+    const { error } = await supabase.from("MenuBackup").delete().eq("Id", id);
+    if (error) { alert("Gagal hapus: " + error.message); return; }
+    fetchMenuBackups();
+  }
+
+  function downloadBackupJSON(backup: MenuBackupT) {
+    const blob = new Blob([JSON.stringify(backup.data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `backup-menu-${backup.outlet}-${backup.created_at.split("T")[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const [customerHistoryMap, setCustomerHistoryMap] = useState<Record<string, { total: number; noShow: number; completed: number }>>({});
   const fetchCustomerHistory = useCallback(async () => {
     const { data } = await supabase.from("Reservation").select("no_whatsapp, status");
@@ -1225,19 +1327,19 @@ const [pelangganQuery, setPelangganQuery] = useState("");
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
-    if (tab === "reservasi") { void fetchReservations(); void fetchAllMenuLookups(); void fetchTables(); void fetchCustomerHistory(); }
+    if (tab === "reservasi") { void fetchReservations(); void fetchAllMenuLookups(); void fetchTables(); void fetchCustomerHistory(); void fetchGabungan(); }
     if (tab === "kalender") { void fetchKalenderData(); void fetchTables(); void fetchAreas(); void fetchGabungan(); }
     if (tab === "area") { void fetchAreas(); void fetchTables(); }
-    if (tab === "gabungan") { void fetchGabungan(); void fetchTables(); }
+    if (tab === "gabungan") { void fetchGabungan(); void fetchTables(); void fetchAreas(); }
     if (tab === "menu") { void fetchMenuKategori(); void fetchMenuItems(); }
     if (tab === "laporan") { void fetchLaporan(); }
     if (tab === "pelanggan") { void fetchPelanggan(); }
     if (tab === "ringkasan") { void fetchRingkasan(); }
     if (tab === "admin") { void fetchAdminList(); }
     if (tab === "log") { void fetchActivityLog(); }
-    if (tab === "pengaturan") { void fetchCutoffSetting(); void fetchLibur(); }
+    if (tab === "pengaturan") { void fetchCutoffSetting(); void fetchLibur(); void fetchMenuBackups(); }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [tab, fetchReservations, fetchKalenderData, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList, fetchLaporan, fetchPelanggan, fetchRingkasan, fetchActivityLog, fetchCustomerHistory, fetchLibur]);
+  }, [tab, fetchReservations, fetchKalenderData, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList, fetchLaporan, fetchPelanggan, fetchRingkasan, fetchActivityLog, fetchCustomerHistory, fetchLibur, fetchMenuBackups]);
 
   // ===== REALTIME: reservasi baru otomatis muncul + notifikasi =====
   const notifAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -1444,25 +1546,42 @@ const [pelangganQuery, setPelangganQuery] = useState("");
       setEditingOriginalShareToken(existing.share_token);
       setRNama(existing.nama_tamu); setRWhatsapp(existing.no_whatsapp); setROutlet(existing.outlet);
       setRTanggal(existing.tanggal); setRJam(formatJam(existing.jam)); setRJamSelesai(formatJam(existing.jam_selesai));
-      setRJumlahTamu(String(existing.jumlah_tamu)); setRMejaId(existing.meja_id ? String(existing.meja_id) : "");
+      setRJumlahTamu(String(existing.jumlah_tamu));
       setRCatatan(existing.catatan || ""); setRDpAmount(existing.dp_amount ? String(existing.dp_amount) : "");
       setRStatus(existing.status); setRAktifkanMenu(!!existing.share_token);
+
+      const siblingMejaIds = existing.share_token
+        ? reservationsRef.current.filter((x) => x.share_token === existing.share_token).map((x) => x.meja_id).filter((id): id is number => id != null).sort((a, b) => a - b)
+        : [];
+      const matchedGabungan = siblingMejaIds.length > 1
+        ? gabunganList.find((g) => g.outlet === existing.outlet && [...g.meja_ids].sort((a, b) => a - b).join(",") === siblingMejaIds.join(","))
+        : undefined;
+
+      if (matchedGabungan) {
+        setRTipeMeja("gabungan"); setRGabunganId(String(matchedGabungan.Id)); setRMejaId("");
+        setEditingOriginalGabunganId(matchedGabungan.Id);
+      } else {
+        setRTipeMeja("tunggal"); setRMejaId(existing.meja_id ? String(existing.meja_id) : ""); setRGabunganId("");
+        setEditingOriginalGabunganId(null);
+      }
     } else {
       setEditingReservasiId(null);
       setEditingOriginalShareToken(null);
+      setEditingOriginalGabunganId(null);
       setRNama(""); setRWhatsapp(""); setROutlet(lockedOutlet || "solo");
       setRTanggal(filterDate || new Date().toISOString().split("T")[0]);
-      setRJam(""); setRJamSelesai(""); setRJumlahTamu("2"); setRMejaId("");
+      setRJam(""); setRJamSelesai(""); setRJumlahTamu("2"); setRMejaId(""); setRGabunganId(""); setRTipeMeja("tunggal");
       setRCatatan(""); setRDpAmount(""); setRStatus("Confirmed"); setRAktifkanMenu(false);
     }
     setShowReservasiForm(true);
-  } 
+  }
 
   async function saveReservasiManual() {
     if (!rNama.trim()) { alert("Isi nama tamu"); return; }
     if (!rWhatsapp.trim()) { alert("Isi nomor WhatsApp"); return; }
     if (!rTanggal) { alert("Isi tanggal"); return; }
     if (!rJam) { alert("Isi jam mulai"); return; }
+    if (rTipeMeja === "gabungan" && !rGabunganId) { alert("Pilih meja gabungan"); return; }
 
     const todayStr = new Date().toISOString().split("T")[0];
     if (rTanggal === todayStr) {
@@ -1482,40 +1601,75 @@ const [pelangganQuery, setPelangganQuery] = useState("");
       return `${hh}:${mm}`;
     })();
 
-    const mejaTerpilih = tables.find((t) => t.Id === Number(rMejaId));
-    if (mejaTerpilih && Number(rJumlahTamu) > mejaTerpilih.kapasitas) {
-      if (!confirm(`Jumlah tamu (${rJumlahTamu}) melebihi kapasitas ${mejaTerpilih.nama_meja || `Meja ${mejaTerpilih.nomor_meja}`} (maks ${mejaTerpilih.kapasitas} orang). Tetap lanjutkan?`)) return;
+    const gabunganTerpilih = rTipeMeja === "gabungan" ? gabunganList.find((g) => String(g.Id) === String(rGabunganId)) : null;
+    const mejaIds: number[] = rTipeMeja === "gabungan" ? (gabunganTerpilih?.meja_ids || []) : (rMejaId ? [Number(rMejaId)] : []);
+
+    if (rTipeMeja === "tunggal") {
+      const mejaTerpilih = tables.find((t) => t.Id === Number(rMejaId));
+      if (mejaTerpilih && Number(rJumlahTamu) > mejaTerpilih.kapasitas) {
+        if (!confirm(`Jumlah tamu (${rJumlahTamu}) melebihi kapasitas ${mejaTerpilih.nama_meja || `Meja ${mejaTerpilih.nomor_meja}`} (maks ${mejaTerpilih.kapasitas} orang). Tetap lanjutkan?`)) return;
+      }
+    } else if (gabunganTerpilih && Number(rJumlahTamu) > gabunganTerpilih.kapasitas_total) {
+      if (!confirm(`Jumlah tamu (${rJumlahTamu}) melebihi kapasitas gabungan ${gabunganTerpilih.nama} (maks ${gabunganTerpilih.kapasitas_total} orang). Tetap lanjutkan?`)) return;
     }
 
-    if (rMejaId) {
-      const { data: existing } = await supabase.from("Reservation").select("Id, jam, jam_selesai, nama_tamu")
-        .eq("meja_id", Number(rMejaId)).eq("tanggal", rTanggal).in("status", ["Pending", "Confirmed"]);
+    if (mejaIds.length > 0) {
+      const siblingIdsSaatIni = editingReservasiId && editingOriginalShareToken
+        ? reservationsRef.current.filter((x) => x.share_token === editingOriginalShareToken).map((x) => x.Id)
+        : [];
       const startMin = timeToMinutes(rJam);
       const endMin = timeToMinutes(jamSelesaiFinal);
-      const bentrok = (existing || []).filter((e) => e.Id !== editingReservasiId).find((e) => {
-        const eStart = timeToMinutes(e.jam);
-        const eEnd = e.jam_selesai ? timeToMinutes(e.jam_selesai) : eStart + 120;
-        return startMin < eEnd && endMin > eStart;
-      });
-      if (bentrok) {
-        if (!confirm(`Meja ini sudah dibooking oleh "${bentrok.nama_tamu}" pada jam yang bentrok. Tetap lanjutkan?`)) return;
+      for (const mejaId of mejaIds) {
+        const { data: existing } = await supabase.from("Reservation").select("Id, jam, jam_selesai, nama_tamu")
+          .eq("meja_id", mejaId).eq("tanggal", rTanggal).in("status", ["Pending", "Confirmed"]);
+        const bentrok = (existing || []).filter((e) => e.Id !== editingReservasiId && !siblingIdsSaatIni.includes(e.Id)).find((e) => {
+          const eStart = timeToMinutes(e.jam);
+          const eEnd = e.jam_selesai ? timeToMinutes(e.jam_selesai) : eStart + 120;
+          return startMin < eEnd && endMin > eStart;
+        });
+        if (bentrok) {
+          if (!confirm(`Salah satu meja sudah dibooking oleh "${bentrok.nama_tamu}" pada jam yang bentrok. Tetap lanjutkan?`)) return;
+          break;
+        }
       }
     }
 
     setSavingReservasi(true);
-    const shareTokenFinal = rAktifkanMenu ? (editingOriginalShareToken || crypto.randomUUID()) : null;
+
+    const shareTokenFinal = rTipeMeja === "gabungan"
+      ? (editingOriginalShareToken || crypto.randomUUID())
+      : (rAktifkanMenu ? (editingOriginalShareToken || crypto.randomUUID()) : null);
+
+    const primaryMejaId = mejaIds.length > 0 ? mejaIds[0] : null;
     const p = {
       nama_tamu: rNama, no_whatsapp: rWhatsapp, outlet: rOutlet, tanggal: rTanggal,
       jam: rJam, jam_selesai: jamSelesaiFinal, jumlah_tamu: Number(rJumlahTamu) || 1,
-      catatan: rCatatan || null, status: rStatus, meja_id: rMejaId ? Number(rMejaId) : null,
+      catatan: rCatatan || null, status: rStatus, meja_id: primaryMejaId,
       dp_amount: rDpAmount ? Number(rDpAmount) : null,
       share_token: shareTokenFinal,
     };
+
     const { error } = editingReservasiId
       ? await supabase.from("Reservation").update(p).eq("Id", editingReservasiId)
       : await supabase.from("Reservation").insert({ ...p, menu_finalized: false });
+    if (error) { setSavingReservasi(false); alert("Gagal simpan: " + error.message); return; }
+
+    if (editingReservasiId && editingOriginalGabunganId !== null && editingOriginalShareToken) {
+      const oldSiblingIds = reservationsRef.current.filter((x) => x.share_token === editingOriginalShareToken && x.Id !== editingReservasiId).map((x) => x.Id);
+      if (oldSiblingIds.length > 0) await supabase.from("Reservation").delete().in("Id", oldSiblingIds);
+    }
+
+    if (mejaIds.length > 1) {
+      const extraInserts = mejaIds.slice(1).map((mid) => ({
+        nama_tamu: rNama, no_whatsapp: rWhatsapp, outlet: rOutlet, tanggal: rTanggal,
+        jam: rJam, jam_selesai: jamSelesaiFinal, jumlah_tamu: Number(rJumlahTamu) || 1,
+        catatan: `[Gabungan: ${gabunganTerpilih?.nama || ""}]`, status: rStatus, meja_id: mid,
+        dp_amount: 0, share_token: shareTokenFinal, menu_finalized: false,
+      }));
+      await supabase.from("Reservation").insert(extraInserts);
+    }
+
     setSavingReservasi(false);
-    if (error) { alert("Gagal simpan: " + error.message); return; }
     logActivity(editingReservasiId ? "Edit reservasi" : "Tambah reservasi manual", `${rNama} · ${rTanggal} ${rJam}`);
     setShowReservasiForm(false);
     setEditingReservasiId(null);
@@ -1602,6 +1756,13 @@ const [pelangganQuery, setPelangganQuery] = useState("");
   async function deleteGabungan(id: number) { if (!confirm("Hapus gabungan ini?")) return; await supabase.from("MejaGabungan").delete().eq("Id", id); fetchGabungan(); }
   async function toggleGabunganAktif(g: MejaGabungan) { await supabase.from("MejaGabungan").update({ aktif: !g.aktif }).eq("Id", g.Id); fetchGabungan(); }
   function getMejaLabel(id: number) { const t = tables.find((t) => t.Id === id); return t ? (t.nama_meja || `Meja ${t.nomor_meja}`) : `#${id}`; }
+  function getReservasiMejaLabel(r: Reservation) {
+    if (!r.meja_id) return "—";
+    if (!r.share_token) return getMejaLabel(r.meja_id);
+    const siblingMejaIds = reservations.filter((x) => x.share_token === r.share_token).map((x) => x.meja_id).filter((id): id is number => id != null);
+    if (siblingMejaIds.length <= 1) return getMejaLabel(r.meja_id);
+    return siblingMejaIds.map((id) => getMejaLabel(id)).join(" & ");
+  }
 
   function orderKey(r: Reservation) { return r.share_token || `id-${r.Id}`; }
   function getOrderMenuName(id: number) { return allMenuItems.find((m) => m.Id === id)?.nama_paket || "Menu"; }
@@ -1758,6 +1919,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
     </div>
   );
   if (!session) return <LoginScreen onLogin={() => {
+    setShowLogoutMsg(false);
     setShowWelcome(true);
     playWelcomeChime();
     supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
@@ -2093,7 +2255,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
                 <div><h3 className="text-xl font-bold text-[#3D2E1E] font-serif">{editingReservasiId ? "Edit Reservasi" : "Reservasi Baru"}</h3><p className="text-[#9A8B7A] text-xs mt-1">{editingReservasiId ? "Ubah detail reservasi yang sudah ada" : "Untuk tamu walk-in atau yang telepon langsung"}</p><div className="w-12 h-0.5 bg-[#5C1420] mt-2" /></div>
 
                 <div><label className={labelClass}>Outlet</label>
-                  <select value={rOutlet} onChange={(e) => { setROutlet(e.target.value); setRMejaId(""); }} disabled={!isSuper} className={inputClass + (!isSuper ? " opacity-60 cursor-not-allowed" : "")}>
+                  <select value={rOutlet} onChange={(e) => { setROutlet(e.target.value); setRMejaId(""); setRGabunganId(""); }} disabled={!isSuper} className={inputClass + (!isSuper ? " opacity-60 cursor-not-allowed" : "")}>
                     <option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
                   </select>
                 </div>
@@ -2171,29 +2333,58 @@ const [pelangganQuery, setPelangganQuery] = useState("");
                   </div>
                 </div>
                 <p className="text-xs text-[#B5A999] -mt-3">Otomatis terisi 2 jam dari jam mulai — bisa diubah manual kalau perlu.</p>
-                <div><label className={labelClass}>Jumlah Tamu</label><input type="number" min="1" value={rJumlahTamu} onChange={(e) => { setRJumlahTamu(e.target.value); setRMejaId(""); }} className={inputClass} /></div>
+                <div><label className={labelClass}>Jumlah Tamu</label><input type="number" min="1" value={rJumlahTamu} onChange={(e) => { setRJumlahTamu(e.target.value); setRMejaId(""); setRGabunganId(""); }} className={inputClass} /></div>
                 <div>
-                  <label className={labelClass}>Pilih Meja <span className="normal-case font-normal text-[#B5A999]">(opsional)</span></label>
-                  {(() => {
-                    const jumlahNum = Number(rJumlahTamu) || 1;
-                    const mejaOutlet = tables.filter((t) => t.outlet === rOutlet);
-                    const mejaCocok = mejaOutlet.filter((t) => t.kapasitas >= jumlahNum);
-                    const daftarMeja = mejaCocok.length > 0 ? mejaCocok : mejaOutlet;
-                    return (
-                      <>
-                        <select value={rMejaId} onChange={(e) => setRMejaId(e.target.value)} className={inputClass}>
-                          <option value="">Belum ditentukan</option>
-                          {daftarMeja.map((t) => (
-                            <option key={t.Id} value={t.Id}>{t.nama_meja || `Meja ${t.nomor_meja}`} · {t.kapasitas} orang{t.kapasitas < jumlahNum ? " (kurang muat)" : ""}</option>
-                          ))}
-                        </select>
-                        {mejaCocok.length === 0 && (
-                          <p className="text-xs text-amber-600 mt-1.5">Tidak ada meja dengan kapasitas cukup untuk {jumlahNum} orang. Semua meja ditampilkan, pertimbangkan meja gabungan.</p>
-                        )}
-                      </>
-                    );
-                  })()}
+                  <label className={labelClass}>Tipe Meja</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => { setRTipeMeja("tunggal"); setRGabunganId(""); }}
+                      className={`py-2.5 rounded-xl border-2 text-sm font-semibold ${rTipeMeja === "tunggal" ? "border-[#5C1420] bg-[#F9F6F2] text-[#5C1420]" : "border-[#E5DDD4] text-[#9A8B7A]"}`}>
+                      Meja Tunggal
+                    </button>
+                    <button type="button" onClick={() => { setRTipeMeja("gabungan"); setRMejaId(""); }}
+                      className={`py-2.5 rounded-xl border-2 text-sm font-semibold ${rTipeMeja === "gabungan" ? "border-[#5C1420] bg-[#F9F6F2] text-[#5C1420]" : "border-[#E5DDD4] text-[#9A8B7A]"}`}>
+                      Meja Gabungan
+                    </button>
+                  </div>
                 </div>
+                {rTipeMeja === "tunggal" ? (
+                  <div>
+                    <label className={labelClass}>Pilih Meja <span className="normal-case font-normal text-[#B5A999]">(opsional)</span></label>
+                    {(() => {
+                      const jumlahNum = Number(rJumlahTamu) || 1;
+                      const mejaOutlet = tables.filter((t) => t.outlet === rOutlet);
+                      const mejaCocok = mejaOutlet.filter((t) => t.kapasitas >= jumlahNum);
+                      const daftarMeja = mejaCocok.length > 0 ? mejaCocok : mejaOutlet;
+                      return (
+                        <>
+                          <select value={rMejaId} onChange={(e) => setRMejaId(e.target.value)} className={inputClass}>
+                            <option value="">Belum ditentukan</option>
+                            {daftarMeja.map((t) => (
+                              <option key={t.Id} value={t.Id}>{t.nama_meja || `Meja ${t.nomor_meja}`} · {t.kapasitas} orang{t.kapasitas < jumlahNum ? " (kurang muat)" : ""}</option>
+                            ))}
+                          </select>
+                          {mejaCocok.length === 0 && (
+                            <p className="text-xs text-amber-600 mt-1.5">Tidak ada meja dengan kapasitas cukup untuk {jumlahNum} orang. Semua meja ditampilkan, pertimbangkan meja gabungan.</p>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <div>
+                    <label className={labelClass}>Pilih Meja Gabungan</label>
+                    <select value={rGabunganId} onChange={(e) => setRGabunganId(e.target.value)} className={inputClass}>
+                      <option value="">Pilih gabungan...</option>
+                      {gabunganList.filter((g) => g.outlet === rOutlet && g.aktif).map((g) => (
+                        <option key={g.Id} value={g.Id}>{g.nama} · {g.kapasitas_total} orang ({g.meja_ids.map((id) => getMejaLabel(id)).join(" + ")})</option>
+                      ))}
+                    </select>
+                    {gabunganList.filter((g) => g.outlet === rOutlet && g.aktif).length === 0 && (
+                      <p className="text-xs text-amber-600 mt-1.5">Belum ada meja gabungan aktif untuk outlet ini. Buat dulu di tab Gabungan.</p>
+                    )}
+                    <p className="text-xs text-[#B5A999] mt-1.5">Link pesan menu otomatis aktif untuk reservasi meja gabungan.</p>
+                  </div>
+                )}
                 <div><label className={labelClass}>Status</label>
                   <select value={rStatus} onChange={(e) => setRStatus(e.target.value)} className={inputClass}>
                     <option value="Confirmed">Confirmed</option>
@@ -2202,10 +2393,12 @@ const [pelangganQuery, setPelangganQuery] = useState("");
                 </div>
                 <div><label className={labelClass}>DP (Rp) <span className="normal-case font-normal text-[#B5A999]">(opsional)</span></label><input type="number" value={rDpAmount} onChange={(e) => setRDpAmount(e.target.value)} placeholder="0" className={inputClass} /></div>
                 <div><label className={labelClass}>Catatan <span className="normal-case font-normal text-[#B5A999]">(opsional)</span></label><textarea value={rCatatan} onChange={(e) => setRCatatan(e.target.value)} rows={2} className={inputClass + " resize-none"} /></div>
-                <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input type="checkbox" checked={rAktifkanMenu} onChange={(e) => setRAktifkanMenu(e.target.checked)} className="w-4 h-4 accent-[#5C1420]" />
-                  <span className="text-sm text-[#3D2E1E]">Aktifkan link pesan menu untuk reservasi ini</span>
-                </label>
+                {rTipeMeja === "tunggal" && (
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input type="checkbox" checked={rAktifkanMenu} onChange={(e) => setRAktifkanMenu(e.target.checked)} className="w-4 h-4 accent-[#5C1420]" />
+                    <span className="text-sm text-[#3D2E1E]">Aktifkan link pesan menu untuk reservasi ini</span>
+                  </label>
+                )}
                 <div className="flex gap-3 pt-3">
                   <button onClick={() => { setShowReservasiForm(false); setEditingReservasiId(null); }} className="flex-1 py-3.5 rounded-xl border-2 border-[#E5DDD4] text-[#9A8B7A] font-semibold hover:bg-[#F9F6F2]">Batal</button>
                   <button onClick={saveReservasiManual} disabled={savingReservasi} className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white font-bold disabled:opacity-50">{savingReservasi ? "Menyimpan..." : "Simpan"}</button>
@@ -2215,10 +2408,23 @@ const [pelangganQuery, setPelangganQuery] = useState("");
           )}
 
           {(() => {
+            // Gabungkan baris-baris yang share_token-nya sama jadi 1 kartu saja
+            // (ambil baris dengan Id terkecil sebagai wakil/representatif dari grup)
+            const dedupedReservations = (() => {
+              const bestByToken = new Map<string, Reservation>();
+              const noToken: Reservation[] = [];
+              for (const r of reservations) {
+                if (!r.share_token) { noToken.push(r); continue; }
+                const existing = bestByToken.get(r.share_token);
+                if (!existing || r.Id < existing.Id) bestByToken.set(r.share_token, r);
+              }
+              return [...bestByToken.values(), ...noToken];
+            })();
+
             const q = searchQuery.trim().toLowerCase();
             const filteredReservations = q
-              ? reservations.filter((r) => r.nama_tamu.toLowerCase().includes(q) || r.no_whatsapp.includes(q))
-              : reservations;
+              ? dedupedReservations.filter((r) => r.nama_tamu.toLowerCase().includes(q) || r.no_whatsapp.includes(q))
+              : dedupedReservations;
             const totalPages = Math.max(1, Math.ceil(filteredReservations.length / PAGE_SIZE));
             const pageSafe = Math.min(currentPage, totalPages);
             const paginatedReservations = filteredReservations.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
@@ -2254,7 +2460,9 @@ const [pelangganQuery, setPelangganQuery] = useState("");
                           <p className="text-xs text-[#9A8B7A] tracking-wide uppercase mt-1 capitalize">{r.outlet} · {r.tanggal}</p>
                         </div>
                         <div className="flex flex-col items-end gap-1">
-                          <span className={`text-[10px] px-3 py-1 rounded-full border-2 font-bold tracking-wider uppercase ${statusStyle[r.status] || ""}`}>{r.status}</span>
+                          <span className={`text-[10px] px-3 py-1 rounded-full border-2 font-bold tracking-wider uppercase ${statusStyle[r.status] || ""}`}>
+                            {r.status === "Pending" ? "Menunggu" : r.status === "Confirmed" ? "Terkonfirmasi" : r.status === "Completed" ? "Selesai" : r.status === "No-Show" ? "Tidak Hadir" : "Dibatalkan"}
+                          </span>
                           {r.status === "Confirmed" && (() => {
                             const info = getWaktuInfo(r);
                             const toneClass = info.tone === "active" ? "text-emerald-600" : info.tone === "overdue" ? "text-[#B5A999]" : "text-[#5C1420]";
@@ -2266,52 +2474,67 @@ const [pelangganQuery, setPelangganQuery] = useState("");
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3 py-4 mt-4 border-y border-[#F0EAE0]">
-                        <div>
-                          <p className="text-[9px] text-[#B5A999] font-bold uppercase tracking-wider mb-0.5">Jam</p>
-                          <p className="text-sm font-semibold text-[#3D2E1E]">{formatJam(r.jam)} – {formatJam(r.jam_selesai)}</p>
+                      <div className="bg-[#FBF8F3] rounded-xl p-4 mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
+                        <div className="flex items-start gap-2.5">
+                          <Icon name="clock" size={17} className="text-[#9A8B7A] mt-0.5 shrink-0" />
+                          <div><p className="text-[11px] text-[#9A8B7A]">Jam kunjungan</p><p className="text-sm font-semibold text-[#3D2E1E] mt-0.5">{formatJam(r.jam)} – {formatJam(r.jam_selesai)}</p></div>
                         </div>
-                        <div>
-                          <p className="text-[9px] text-[#B5A999] font-bold uppercase tracking-wider mb-0.5">Tamu</p>
-                          <p className="text-sm font-semibold text-[#3D2E1E]">{r.jumlah_tamu} orang</p>
+                        <div className="flex items-start gap-2.5">
+                          <Icon name="chair" size={17} className="text-[#9A8B7A] mt-0.5 shrink-0" />
+                          <div><p className="text-[11px] text-[#9A8B7A]">Meja</p><p className="text-sm font-semibold text-[#5C1420] mt-0.5">{getReservasiMejaLabel(r)}</p></div>
                         </div>
-                        <div>
-                          <p className="text-[9px] text-[#B5A999] font-bold uppercase tracking-wider mb-0.5">Meja</p>
-                          <p className="text-sm font-semibold text-[#5C1420]">{r.meja_id ? getMejaLabel(r.meja_id) : "—"}</p>
+                        <div className="flex items-start gap-2.5">
+                          <Icon name="users" size={17} className="text-[#9A8B7A] mt-0.5 shrink-0" />
+                          <div><p className="text-[11px] text-[#9A8B7A]">Jumlah tamu</p><p className="text-sm font-semibold text-[#3D2E1E] mt-0.5">{r.jumlah_tamu} orang</p></div>
                         </div>
-                        <div>
-                          <p className="text-[9px] text-[#B5A999] font-bold uppercase tracking-wider mb-0.5">DP</p>
-                          <p className="text-sm font-semibold text-[#3D2E1E]">{r.dp_amount ? formatRupiah(r.dp_amount) : "Belum bayar"}</p>
+                        <div className="flex items-start gap-2.5">
+                          <Icon name="cash" size={17} className="text-[#9A8B7A] mt-0.5 shrink-0" />
+                          <div><p className="text-[11px] text-[#9A8B7A]">Uang muka</p><p className="text-sm font-semibold text-[#3D2E1E] mt-0.5">{r.dp_amount ? formatRupiah(r.dp_amount) : "Belum bayar"}</p></div>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 text-sm mt-3">
-                        <span className="text-[#9A8B7A]">Kontak</span>
-                        <span className="text-[#3D2E1E] font-medium">{r.no_whatsapp}</span>
+                      <div className="flex items-center gap-2.5 mt-3 border border-[#E5DDD4] rounded-xl px-4 py-2.5">
+                        <Icon name="phone" size={15} className="text-[#9A8B7A] shrink-0" />
+                        <span className="text-sm text-[#3D2E1E]">{r.no_whatsapp}</span>
+                        <a href={`https://wa.me/${normalizeWhatsapp(r.no_whatsapp)}`} target="_blank" rel="noopener noreferrer"
+                          className="ml-auto text-xs text-[#1DA851] font-semibold inline-flex items-center gap-1 hover:underline">
+                          WhatsApp
+                        </a>
                       </div>
+
                       {r.catatan && <p className="text-sm text-[#9A8B7A] italic border-l-2 border-[#5C1420]/30 pl-3 mt-3">&ldquo;{r.catatan}&rdquo;</p>}
                     </div>
 
-                    <div className="lg:w-56 shrink-0 bg-[#FBF8F3] border-t lg:border-t-0 lg:border-l border-[#E5DDD4] p-5 flex flex-row flex-wrap lg:flex-col gap-2">
-                      <button onClick={() => openReservasiForm(r)} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/5">Edit</button>
-                      {r.status === "Pending" && (<>
-                        <button onClick={() => updateStatus(r.Id, "Confirmed")} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 active:scale-[0.98] transition-all">Konfirmasi</button>
-                        <button onClick={() => updateStatus(r.Id, "Cancelled")} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl border-2 border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50">Tolak</button>
-                      </>)}
+                    <div className="lg:w-64 shrink-0 bg-[#FBF8F3] border-t lg:border-t-0 lg:border-l border-[#E5DDD4] p-5 flex flex-col gap-2">
+                      <button onClick={() => openReservasiForm(r)}
+                        className="w-full py-3 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 active:scale-[0.98] transition-all inline-flex items-center justify-center gap-2">
+                        <Icon name="edit" size={16} /> Ubah Reservasi
+                      </button>
+
+                      {r.status === "Pending" && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => updateStatus(r.Id, "Confirmed")} className="py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold active:scale-[0.98] inline-flex items-center justify-center gap-1.5"><Icon name="check" size={15} /> Konfirmasi</button>
+                          <button onClick={() => updateStatus(r.Id, "Cancelled")} className="py-2.5 rounded-xl border-2 border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50 inline-flex items-center justify-center gap-1.5"><Icon name="x" size={14} /> Tolak</button>
+                        </div>
+                      )}
                       {r.status === "Confirmed" && !r.checked_in_at && (
-                        <button onClick={() => tandaiHadir(r.Id)} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold active:scale-[0.98]">✓ Tandai Hadir</button>
+                        <button onClick={() => tandaiHadir(r.Id)} className="w-full py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold active:scale-[0.98] inline-flex items-center justify-center gap-1.5"><Icon name="check" size={15} /> Tandai Hadir</button>
                       )}
                       {r.status === "Confirmed" && (
-                        <button onClick={() => { if (confirm(`Batalkan reservasi ${r.nama_tamu}?`)) updateStatus(r.Id, "Cancelled"); }} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl border-2 border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50">Batalkan</button>
+                        <button onClick={() => { if (confirm(`Batalkan reservasi ${r.nama_tamu}?`)) updateStatus(r.Id, "Cancelled"); }} className="w-full py-2.5 rounded-xl border-2 border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50 inline-flex items-center justify-center gap-1.5"><Icon name="x" size={14} /> Batalkan</button>
                       )}
                       {r.status === "No-Show" && (
-                        <button onClick={() => updateStatus(r.Id, "Confirmed")} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/5">Kembalikan</button>
+                        <button onClick={() => updateStatus(r.Id, "Confirmed")} className="w-full py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/5 inline-flex items-center justify-center gap-1.5"><Icon name="repeat" size={14} /> Kembalikan</button>
                       )}
-                      {r.status === "Cancelled" && <button onClick={() => updateStatus(r.Id, "Pending")} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/5">Kembalikan</button>}
+                      {r.status === "Cancelled" && (
+                        <button onClick={() => updateStatus(r.Id, "Pending")} className="w-full py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/5 inline-flex items-center justify-center gap-1.5"><Icon name="repeat" size={14} /> Kembalikan</button>
+                      )}
+
                       {r.share_token && (
-                        <button onClick={() => sendMenuLinkWA(r)} className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl border-2 border-[#25D366] text-[#1DA851] text-sm font-bold hover:bg-[#25D366]/10">
-                          Kirim Link Menu
-                        </button>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => toggleExpandOrders(r)} className="py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-xs font-bold hover:bg-[#5C1420]/5 inline-flex items-center justify-center gap-1.5"><Icon name="menu" size={14} /> Pesanan Menu</button>
+                          <button onClick={() => sendMenuLinkWA(r)} className="py-2.5 rounded-xl border-2 border-[#25D366] text-[#1DA851] text-xs font-bold hover:bg-[#25D366]/10 inline-flex items-center justify-center gap-1.5"><Icon name="send" size={13} /> Kirim Link</button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2320,7 +2543,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
                   <div className="px-6 pb-5 pt-3 border-t border-[#E5DDD4]">
                     <button onClick={() => toggleExpandOrders(r)}
                       className="flex items-center gap-2 text-sm font-bold text-[#5C1420] hover:text-[#3D0D14] transition-colors">
-                      <Icon name="dashboard" size={12} className={`transition-transform ${expandedKeys.has(orderKey(r)) ? "rotate-90" : ""}`} />
+                      <Icon name="chevron-right" size={12} className={`transition-transform ${expandedKeys.has(orderKey(r)) ? "rotate-90" : ""}`} />
                       Pesanan Menu
                       {r.menu_finalized ? (
                         <span className="bg-emerald-50 text-emerald-600 border border-emerald-200 text-[10px] px-2 py-0.5 rounded-full font-bold">Terkirim</span>
@@ -3629,6 +3852,56 @@ const [pelangganQuery, setPelangganQuery] = useState("");
               })()}
             </div>
 
+            <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
+              <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+                <div>
+                  <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase inline-flex items-center gap-1.5"><Icon name="archive" size={13} /> Backup &amp; Restore Menu</p>
+                  <p className="text-xs text-[#9A8B7A] mt-1">Simpan kondisi menu sekarang, atau kembalikan ke backup sebelumnya kalau ada kesalahan.</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 items-end mb-4 pb-4 border-b border-[#F0EAE0]">
+                {isSuper && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Outlet</label>
+                    <select value={backupOutlet} onChange={(e) => setBackupOutlet(e.target.value)} className={filterClass}>
+                      <option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
+                    </select>
+                  </div>
+                )}
+                <div className="flex-1 min-w-[160px]">
+                  <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Label <span className="normal-case font-normal text-[#B5A999]">(opsional)</span></label>
+                  <input value={backupLabel} onChange={(e) => setBackupLabel(e.target.value)} placeholder="Contoh: Sebelum ubah harga Ramadan" className={filterClass + " w-full"} />
+                </div>
+                <button onClick={createMenuBackup} disabled={savingBackup}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 disabled:opacity-50">
+                  {savingBackup ? "Menyimpan..." : "Buat Backup Sekarang"}
+                </button>
+              </div>
+
+              {loadingBackups ? (
+                <p className="text-center text-[#B5A999] py-8 text-sm">Memuat...</p>
+              ) : menuBackups.length === 0 ? (
+                <p className="text-center text-[#B5A999] py-8 text-sm">Belum ada backup untuk outlet ini.</p>
+              ) : (
+                <div className="space-y-2">
+                  {menuBackups.map((b) => (
+                    <div key={b.Id} className="flex flex-wrap items-center justify-between gap-3 border-2 border-[#E5DDD4] rounded-xl p-3.5">
+                      <div>
+                        <p className="text-sm font-bold text-[#3D2E1E]">{new Date(b.created_at).toLocaleString("id-ID")}</p>
+                        <p className="text-xs text-[#9A8B7A] mt-0.5">{b.label || "(tanpa label)"} · {b.data.kategori.length} kategori · {b.data.paket.length} menu · oleh {b.created_by || "?"}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => downloadBackupJSON(b)} className="px-3 py-1.5 rounded-lg border-2 border-[#E5DDD4] text-[#5C1420] text-xs font-bold hover:bg-[#F9F6F2] inline-flex items-center gap-1"><Icon name="download" size={12} /> Unduh</button>
+                        <button onClick={() => restoreMenuBackup(b)} disabled={restoringId === b.Id} className="px-3 py-1.5 rounded-lg border-2 border-amber-300 text-amber-700 text-xs font-bold hover:bg-amber-50 disabled:opacity-50 inline-flex items-center gap-1"><Icon name="repeat" size={12} /> {restoringId === b.Id ? "Memulihkan..." : "Restore"}</button>
+                        <button onClick={() => deleteMenuBackup(b.Id)} className="px-2.5 py-1.5 rounded-lg border-2 border-red-200 text-red-400 text-xs hover:bg-red-50 flex items-center"><Icon name="trash" size={12} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {showLiburForm && (
               <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
                 <div className="bg-white border-2 border-[#5C1420]/20 rounded-3xl p-8 max-w-md w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -3654,6 +3927,21 @@ const [pelangganQuery, setPelangganQuery] = useState("");
           </>
         )}
       </div>
+
+      {showLogoutMsg && (
+        <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center px-6">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
+            <div className="bg-[#3D0D14] px-8 py-8 text-center">
+              <Image src="/logo.PNG" alt="Yassalam" width={56} height={56} className="mx-auto mb-3" />
+              <div className="w-8 h-px bg-[#C8973E] mx-auto" />
+            </div>
+            <div className="px-8 py-7 text-center">
+              <h2 className="font-serif text-2xl text-[#3D2E1E] mb-2">Sampai Jumpa, {myNama || "Admin"}!</h2>
+              <p className="text-sm text-[#9A8B7A]">Terima kasih sudah bekerja hari ini. Kamu berhasil logout.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showChangePassword && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">

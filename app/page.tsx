@@ -1030,12 +1030,17 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
     if (selectedGabungan) {
       const extraMejaIds = selectedGabungan.meja_ids.slice(1);
       for (const mid of extraMejaIds) {
-        await supabase.from("Reservation").insert({
+        const { error: extraError } = await supabase.from("Reservation").insert({
           nama_tamu: namaTamu, no_whatsapp: noWa, outlet, tanggal, jam, jam_selesai: jamSelesai,
           jumlah_tamu: Number(jumlahTamu), catatan: `[Gabungan: ${selectedGabungan.nama}]`,
           meja_id: mid, menu_paket_id: null, share_token: token,
           dp_amount: 0, dp_status: "sudah_bayar", status: "Confirmed",
         });
+        if (extraError) {
+          setLoading(false);
+          showNotif("error", "Gagal Menyimpan Meja Gabungan", `Meja tambahan (Id: ${mid}) gagal disimpan: ${extraError.message}`);
+          return;
+        }
       }
     }
 
@@ -1793,7 +1798,7 @@ useEffect(() => {
                     </div>
                     <div className="mt-3 bg-[#FDF6EC] rounded-lg px-4 py-3">
                       <p className="text-xs text-[#8B7355]">Jumlah transfer</p>
-                      <p className="font-bold text-lg text-[#C8973E]">{formatRupiah(selectedTable?.dp_minimum || 0)}</p>
+                      <p className="font-bold text-lg text-[#C8973E]">{formatRupiah(selectedGabungan?.dp_minimum || selectedTable?.dp_minimum || 0)}</p>
                     </div>
                   </div>
                   <p className="text-xs text-[#8B7355] mt-3 leading-relaxed">
