@@ -64,8 +64,7 @@ function AreaCardPhotos({ photos, icon, gradient }: { photos: string[]; icon: st
   );
   return <>
     {photos.map((url, i) => (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img key={url} src={url} alt="" className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000" style={{ opacity: i === idx ? 1 : 0 }} />
+      <Image key={url} src={url} alt="" fill sizes="(max-width: 768px) 100vw, 400px" className="object-cover transition-opacity duration-1000" style={{ opacity: i === idx ? 1 : 0 }} />
     ))}
   </>;
 }
@@ -124,7 +123,7 @@ function WelcomeSplash({
         {slides.map((_, i) => <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${i === slideIndex ? "w-6 bg-[#C8973E]" : "w-1.5 bg-[#C8973E]/30"}`} />)}
       </div>
       <div className="relative text-center max-w-md w-full z-10">
-        <Image src="/logo.PNG" alt="Yassalam" width={110} height={110} className="mx-auto drop-shadow-2xl animate-fadeInUp" />
+        <Image src="/logo.PNG" alt="Yassalam" width={110} height={110} priority className="mx-auto drop-shadow-2xl animate-fadeInUp" />
         <p className="text-[#C8973E]/40 mt-6 text-sm tracking-[0.5em] animate-fadeInUp" style={{ animationDelay: "0.1s" }}>━━━ ✦ ━━━</p>
         <h1 className="italic text-[#C8973E] mt-5 text-3xl font-serif animate-fadeInUp" style={{ animationDelay: "0.2s" }}>Marhaba Yassalam!</h1>
         {!pendingAction ? (
@@ -438,8 +437,7 @@ function AreaGalleryModal({ area, tables, gradient, icon, onClose }: {
                   <button key={t.Id} onClick={() => { setActiveIdx(i); setAutoplay(false); }}
                     className={`flex items-center gap-3 shrink-0 md:shrink w-[180px] md:w-full text-left p-2 rounded-xl border transition-all ${i === activeIdx ? "border-[#C8973E] bg-[#C8973E]/10 shadow-sm" : "border-transparent hover:bg-[#C8973E]/5"}`}>
                     <div className="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 ring-1 ring-[#C8973E]/20">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={t.foto_url!} alt="" className="w-full h-full object-cover" />
+                      <Image src={t.foto_url!} alt="" fill sizes="48px" className="object-cover" />
                     </div>
                     <div className="min-w-0">
                       <p className={`text-sm font-bold truncate font-serif ${i === activeIdx ? "text-[#5C3D1A]" : "text-[#5C3D1A]/70"}`}>{t.nama_meja || `Meja ${t.nomor_meja}`}</p>
@@ -455,9 +453,8 @@ function AreaGalleryModal({ area, tables, gradient, icon, onClose }: {
         {/* Panel kanan: foto besar */}
         <div className={`relative flex-1 min-w-0 aspect-[4/3] md:aspect-auto md:h-full bg-gradient-to-br ${gradient} overflow-hidden`}>
           {activeTable?.foto_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={activeTable.foto_url} alt={activeTable.nama_meja || `Meja ${activeTable.nomor_meja}`}
-              className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700" />
+            <Image src={activeTable.foto_url} alt={activeTable.nama_meja || `Meja ${activeTable.nomor_meja}`}
+              fill sizes="(max-width: 768px) 100vw, 600px" className="object-cover transition-opacity duration-700" />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">
               <span className="text-6xl opacity-30 text-white">{icon}</span>
@@ -504,9 +501,8 @@ function GabunganSlideshow({ photos }: { photos: { url: string; label: string }[
   return (
     <div className="relative w-full h-40 rounded-xl overflow-hidden mb-3">
       {photos.map((p, i) => (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img key={p.url} src={p.url} alt={p.label}
-          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700"
+        <Image key={p.url} src={p.url} alt={p.label}
+          fill sizes="(max-width: 768px) 100vw, 400px" className="object-cover transition-opacity duration-700"
           style={{ opacity: i === idx ? 1 : 0 }} />
       ))}
       <div className="absolute bottom-2 left-2 bg-black/50 text-white text-[10px] px-2 py-0.5 rounded-full backdrop-blur-sm">
@@ -755,8 +751,12 @@ export default function Home() {
     if (!outlet) return;
 
     function fetchTablesAndAreas() {
-      supabase.from("Tables").select("*").eq("outlet", outlet).order("nomor_meja").then(({ data }) => setTables(data || []));
-      supabase.from("Areas").select("*").eq("outlet", outlet).order("urutan").then(({ data }) => setAreasData(data || []));
+      supabase.from("Tables")
+        .select("Id, outlet, nomor_meja, nama_meja, kapasitas, posisi, status, foto_url, dp_minimum, kapasitas_minimum, minimum_transaksi, deskripsi")
+        .eq("outlet", outlet).order("nomor_meja").then(({ data }) => setTables(data || []));
+      supabase.from("Areas")
+        .select("Id, outlet, nama, slug, deskripsi, urutan")
+        .eq("outlet", outlet).order("urutan").then(({ data }) => setAreasData(data || []));
     }
 
     fetchTablesAndAreas();
@@ -783,14 +783,18 @@ export default function Home() {
     setSelectedGabungan(null);
     const computedEnd = hitungJamSelesai(jam);
 
-    const { data: resData } = await supabase
-      .from("reservation_slots").select("meja_id, jam, jam_selesai")
-      .eq("tanggal", tanggal);
-
-    const { data: holdData } = await supabase
-      .from("BookingHold").select("meja_id, jam, jam_selesai")
-      .eq("tanggal", tanggal).eq("status", "active")
-      .gt("expires_at", new Date().toISOString());
+    const [{ data: resData }, { data: holdData }, { data: gabData }] = await Promise.all([
+      supabase
+        .from("reservation_slots").select("meja_id, jam, jam_selesai")
+        .eq("tanggal", tanggal),
+      supabase
+        .from("BookingHold").select("meja_id, jam, jam_selesai")
+        .eq("tanggal", tanggal).eq("status", "active")
+        .gt("expires_at", new Date().toISOString()),
+      supabase
+        .from("MejaGabungan").select("*")
+        .eq("outlet", outlet).eq("aktif", true),
+    ]);
 
     const bookedMejaIds = new Set<number>();
     [...(resData || []), ...(holdData || [])].forEach((slot) => {
@@ -808,11 +812,6 @@ export default function Home() {
       (!t.kapasitas_minimum || tamu >= t.kapasitas_minimum)
     );
     setAvailableTables(available);
-
-    // Fetch meja gabungan yang aktif
-    const { data: gabData } = await supabase
-      .from("MejaGabungan").select("*")
-      .eq("outlet", outlet).eq("aktif", true);
 
     const availGab = (gabData || []).filter((g: MejaGabungan) => {
       // Semua meja dalam gabungan harus tersedia
@@ -1628,9 +1627,8 @@ useEffect(() => {
                               <div key={t.Id} onClick={() => { setSelectedTable(t); setSelectedGabungan(null); }}
   className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col ${selectedTable?.Id === t.Id ? "border-[#C8973E] bg-[#FDF6EC] shadow-md" : "border-[#E8DCC8] hover:border-[#C8973E]/50"}`}>
                                 {t.foto_url && (
-  <div className="relative mb-3 group/photo">
-    {/* eslint-disable-next-line @next/next/no-img-element */}
-    <img src={t.foto_url} alt="" className="w-full h-40 object-cover rounded-xl" />
+  <div className="relative mb-3 h-40 group/photo">
+    <Image src={t.foto_url} alt="" fill sizes="(max-width: 768px) 50vw, 300px" className="object-cover rounded-xl" />
     <button
       onClick={(e) => { e.stopPropagation(); setLightboxPhoto({ url: t.foto_url!, nama: t.nama_meja || `Meja ${t.nomor_meja}` }); }}
       className="absolute inset-0 bg-black/0 group-hover/photo:bg-black/30 rounded-xl flex items-center justify-center transition-all">
@@ -1809,7 +1807,7 @@ useEffect(() => {
           <span>←</span> <span>Beranda</span>
         </button>
         <div className="relative text-center px-6 max-w-2xl z-10">
-          <Image src="/logo.PNG" alt="Yassalam" width={150} height={150} className="mx-auto drop-shadow-2xl animate-fadeInUp" />
+          <Image src="/logo.PNG" alt="Yassalam" width={150} height={150} priority className="mx-auto drop-shadow-2xl animate-fadeInUp" />
           <p className="text-[#C8973E]/40 mt-5 text-sm tracking-[0.5em] animate-fadeInUp" style={{ animationDelay: "0.2s" }}>━━━ ✦ ━━━</p>
           <p className="italic text-[#C8973E] mt-5 text-3xl font-serif animate-fadeInUp" style={{ animationDelay: "0.3s" }}>Selamat Datang di Yassalam</p>
           <p className="text-gray-400 mt-4 max-w-md mx-auto text-sm leading-relaxed animate-fadeInUp" style={{ animationDelay: "0.4s" }}>

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { supabase } from "../supabase";
@@ -84,8 +84,7 @@ function AreaCardImage({ area, tables }: { area: Area; tables: TableData[] }) {
   );
   return <>
     {photos.map((url, i) => (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img key={url} src={url} alt={area.nama} className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000" style={{ opacity: i === idx ? 1 : 0 }} />
+      <Image key={url} src={url} alt={area.nama} fill sizes="(max-width: 768px) 100vw, 400px" className="object-cover transition-opacity duration-1000" style={{ opacity: i === idx ? 1 : 0 }} />
     ))}
     {photos.length > 1 && (
       <div className="absolute bottom-3 right-3 flex gap-1 z-10">
@@ -113,8 +112,7 @@ function GabunganCardImage({ gabungan, tables }: { gabungan: MejaGabungan; table
   );
   return <>
     {photos.map((url, i) => (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img key={url} src={url} alt={gabungan.nama} className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000" style={{ opacity: i === idx ? 1 : 0 }} />
+      <Image key={url} src={url} alt={gabungan.nama} fill sizes="(max-width: 768px) 100vw, 400px" className="object-cover transition-opacity duration-1000" style={{ opacity: i === idx ? 1 : 0 }} />
     ))}
     {photos.length > 1 && (
       <div className="absolute bottom-2 right-2 flex gap-1 z-10">
@@ -2235,8 +2233,7 @@ export default function AdminDashboard() {
               <div key={t.Id} className="bg-white border-2 border-[#E5DDD4] rounded-2xl overflow-hidden group hover:border-[#5C1420]/30 hover:shadow-xl hover:shadow-[#5C1420]/5 transition-all">
                 <div className="h-40 bg-[#F9F6F2] relative overflow-hidden">
                   {t.foto_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={t.foto_url} alt={t.nama_meja || `Meja ${t.nomor_meja}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    <Image src={t.foto_url} alt={t.nama_meja || `Meja ${t.nomor_meja}`} fill sizes="(max-width: 768px) 50vw, 300px" className="object-cover group-hover:scale-105 transition-transform duration-500" />
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center gap-2"><span className="text-3xl text-[#5C1420]/20">📷</span><span className="text-xs text-[#9A8B7A]">Belum ada foto</span></div>
                   )}
@@ -2479,8 +2476,7 @@ export default function AdminDashboard() {
               <div key={m.Id} className={`bg-white border-2 rounded-2xl overflow-hidden group transition-all ${m.aktif ? "border-[#E5DDD4] hover:border-[#5C1420]/30 hover:shadow-xl hover:shadow-[#5C1420]/5" : "border-gray-200 opacity-60"}`}>
                 <div className="h-40 bg-[#F9F6F2] relative overflow-hidden">
                   {m.foto_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.foto_url} alt={m.nama_paket} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    <Image src={m.foto_url} alt={m.nama_paket} fill sizes="(max-width: 768px) 50vw, 300px" className="object-cover group-hover:scale-105 transition-transform duration-500" />
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center gap-2"><span className="text-3xl text-[#5C1420]/20">🍽</span><span className="text-xs text-[#9A8B7A]">Belum ada foto</span></div>
                   )}
