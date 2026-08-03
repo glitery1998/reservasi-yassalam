@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import AdminIntroSplash from "../../components/AdminIntroSplash";
 
 export const metadata: Metadata = {
   title: "Yassalam Admin",
@@ -26,5 +25,5 @@ export const viewport: Viewport = {
 };
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  return <AdminIntroSplash>{children}</AdminIntroSplash>;
+  return children;
 }
