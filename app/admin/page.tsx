@@ -1423,6 +1423,81 @@ const [pelangganQuery, setPelangganQuery] = useState("");
     return () => { ctx.close(); };
   }, []);
 
+  // ===== LONCENG NOTIFIKASI — daftar aktivitas terbaru, global, tidak tergantung tab aktif =====
+  const bellAudioRef = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    bellAudioRef.current = new Audio("/bel.mp3");
+    bellAudioRef.current.volume = 0.7;
+  }, []);
+  const [showBellPanel, setShowBellPanel] = useState(false);
+  const [bellItems, setBellItems] = useState<ActivityLogT[]>([]);
+  const [loadingBell, setLoadingBell] = useState(false);
+  const [bellLastSeen, setBellLastSeen] = useState<string>(() => {
+    if (typeof window === "undefined") return new Date(0).toISOString();
+    return localStorage.getItem("yassalam_bell_last_seen") || new Date(0).toISOString();
+  });
+  const bellUnreadCount = bellItems.filter((n) => new Date(n.created_at).getTime() > new Date(bellLastSeen).getTime()).length;
+
+  const fetchBellItems = useCallback(async () => {
+    setLoadingBell(true);
+    const { data } = await supabase.from("ActivityLog").select("*").order("created_at", { ascending: false }).limit(30);
+    setBellItems(data || []);
+    setLoadingBell(false);
+  }, []);
+
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    void fetchBellItems();
+    const bellCh = supabase
+      .channel("admin-bell-updates")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "ActivityLog" }, (payload) => {
+        const newLog = payload.new as ActivityLogT;
+        setBellItems((prev) => [newLog, ...prev].slice(0, 50));
+        // Bunyikan bel — kecuali untuk "Reservasi baru masuk" yang sudah punya suara notif.mp3 sendiri (biar gak dobel bunyi)
+        if (notifSuaraAktif && newLog.action !== "Reservasi baru masuk") {
+          bellAudioRef.current?.play().catch(() => {});
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(bellCh); };
+  }, [fetchBellItems, notifSuaraAktif]);
+
+  function toggleBellPanel() {
+    setShowBellPanel((prev) => {
+      const next = !prev;
+      if (next) {
+        // Begitu panel dibuka, tandai semua sudah dibaca (badge merah hilang), tapi riwayatnya tetap tampil.
+        const now = new Date().toISOString();
+        setBellLastSeen(now);
+        localStorage.setItem("yassalam_bell_last_seen", now);
+      }
+      return next;
+    });
+  }
+
+  function formatWaktuLalu(dateStr: string) {
+    const diffMs = Date.now() - new Date(dateStr).getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return "baru saja";
+    if (diffMin < 60) return `${diffMin} menit lalu`;
+    const diffJam = Math.floor(diffMin / 60);
+    if (diffJam < 24) return `${diffJam} jam lalu`;
+    const diffHari = Math.floor(diffJam / 24);
+    if (diffHari < 7) return `${diffHari} hari lalu`;
+    return new Date(dateStr).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+  }
+
+  function bellIconFor(action: string) {
+    const a = action.toLowerCase();
+    if (a.includes("reservasi baru")) return { icon: "reservasi", color: "text-emerald-600 bg-emerald-50 border-emerald-200" };
+    if (a.includes("hadir")) return { icon: "check", color: "text-emerald-600 bg-emerald-50 border-emerald-200" };
+    if (a.includes("batal")) return { icon: "x", color: "text-red-500 bg-red-50 border-red-200" };
+    if (a.includes("hapus")) return { icon: "trash", color: "text-red-500 bg-red-50 border-red-200" };
+    if (a.includes("edit") || a.includes("ubah")) return { icon: "edit", color: "text-amber-600 bg-amber-50 border-amber-200" };
+    if (a.includes("tambah")) return { icon: "chair", color: "text-sky-600 bg-sky-50 border-sky-200" };
+    return { icon: "bell", color: "text-[#5C1420] bg-[#5C1420]/5 border-[#5C1420]/20" };
+  }
+
   function playClick() {
     const ctx = audioCtxRef.current;
     const buffer = clickBufferRef.current;
@@ -1478,7 +1553,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "Reservation" },
         (payload) => {
-          const newRes = payload.new as { nama_tamu?: string; outlet?: string; tanggal?: string; jam?: string };
+          const newRes = payload.new as { nama_tamu?: string; outlet?: string; tanggal?: string; jam?: string; jumlah_tamu?: number; catatan?: string | null };
           fetchReservations();
           // Bunyikan suara
           if (notifSuaraAktif) notifAudioRef.current?.play().catch(() => {});
@@ -1487,6 +1562,18 @@ const [pelangganQuery, setPelangganQuery] = useState("");
             new Notification("Reservasi Baru!", {
               body: `${newRes.nama_tamu || "Tamu"} — ${newRes.outlet || ""} ${newRes.tanggal || ""} ${newRes.jam || ""}`,
               icon: "/logo.PNG",
+            });
+          }
+          // Catat ke ActivityLog (jadi muncul juga di lonceng notifikasi & tab Log Aktivitas).
+          // Skip baris sibling meja gabungan (sudah punya catatan "[Gabungan: ...]") biar gak dobel per reservasi.
+          const isSiblingGabungan = (newRes.catatan || "").startsWith("[Gabungan:");
+          if (!isSiblingGabungan) {
+            const outletLabel = newRes.outlet === "jogja" ? "Yogyakarta" : "Solo";
+            supabase.from("ActivityLog").insert({
+              admin_email: null,
+              admin_nama: "Sistem (Reservasi Customer)",
+              action: "Reservasi baru masuk",
+              detail: `${newRes.nama_tamu || "Tamu"} • ${outletLabel} • ${newRes.tanggal || ""} ${formatJam(newRes.jam || "")} • ${newRes.jumlah_tamu || "-"} orang`,
             });
           }
         }
@@ -2056,6 +2143,57 @@ const [pelangganQuery, setPelangganQuery] = useState("");
 
   return (
     <div className="min-h-screen bg-[#F9F6F2] md:flex">
+      {/* LONCENG NOTIFIKASI — melayang, selalu kelihatan di semua tab */}
+      <div className="fixed top-3 right-3 sm:top-4 sm:right-4 z-[90]">
+        <button onClick={toggleBellPanel}
+          className="relative w-11 h-11 rounded-full bg-white border-2 border-[#E5DDD4] shadow-lg shadow-black/5 flex items-center justify-center hover:border-[#5C1420]/30 transition-all active:scale-95">
+          <Icon name="bell" size={19} className="text-[#5C1420]" />
+          {bellUnreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center border-2 border-white">
+              {bellUnreadCount > 9 ? "9+" : bellUnreadCount}
+            </span>
+          )}
+        </button>
+
+        {showBellPanel && (
+          <>
+            <div className="fixed inset-0 z-[89]" onClick={() => setShowBellPanel(false)} />
+            <div className="absolute right-0 mt-2 w-[340px] sm:w-[380px] max-h-[70vh] bg-white border border-[#E5DDD4] rounded-2xl shadow-2xl overflow-hidden z-[91] flex flex-col">
+              <div className="px-4 py-3.5 border-b border-[#F0EAE0] flex items-center justify-between shrink-0">
+                <p className="font-bold text-[#3D2E1E] text-sm inline-flex items-center gap-1.5"><Icon name="bell" size={15} /> Notifikasi Aktivitas</p>
+                <button onClick={fetchBellItems} className="text-xs text-[#5C1420] font-semibold hover:underline">Refresh</button>
+              </div>
+              <div className="overflow-y-auto flex-1">
+                {loadingBell ? (
+                  <p className="text-center text-[#B5A999] text-sm py-10">Memuat...</p>
+                ) : bellItems.length === 0 ? (
+                  <p className="text-center text-[#B5A999] text-sm py-10">Belum ada aktivitas tercatat.</p>
+                ) : (
+                  <div className="divide-y divide-[#F0EAE0]">
+                    {bellItems.map((item) => {
+                      const { icon, color } = bellIconFor(item.action);
+                      const isUnread = new Date(item.created_at).getTime() > new Date(bellLastSeen).getTime();
+                      return (
+                        <div key={item.Id} className={`px-4 py-3 flex items-start gap-3 ${isUnread ? "bg-[#FBF8F3]" : ""}`}>
+                          <div className={`w-8 h-8 rounded-full border flex items-center justify-center shrink-0 ${color}`}>
+                            <Icon name={icon} size={14} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-[#3D2E1E]">{item.action}</p>
+                            {item.detail && <p className="text-xs text-[#9A8B7A] mt-0.5 break-words">{item.detail}</p>}
+                            <p className="text-[10px] text-[#B5A999] mt-1">{formatWaktuLalu(item.created_at)} · {item.admin_nama || item.admin_email || "Sistem"}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
       {showWelcome && (() => {
         const jam = new Date().getHours();
         const sapaan = jam < 11 ? "Selamat pagi" : jam < 15 ? "Selamat siang" : jam < 19 ? "Selamat sore" : "Selamat malam";
