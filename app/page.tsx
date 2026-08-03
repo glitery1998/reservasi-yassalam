@@ -1063,6 +1063,7 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
         body: JSON.stringify({
           namaTamu, noWhatsapp: noWa, outlet, tanggal, jam, jamSelesai,
           jumlahTamu: Number(jumlahTamu), mejaLabel: mejaLabelNotif,
+          dpAmount, catatan: catatan || null, status: "Confirmed",
         }),
       }).catch(() => { /* silent — notifikasi WA gagal gak boleh ganggu proses reservasi customer */ });
     })();

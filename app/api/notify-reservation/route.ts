@@ -10,11 +10,29 @@ function formatJamSingkat(j?: string) {
   return (j || "").slice(0, 5);
 }
 
+function formatRupiah(n: number) {
+  return "Rp " + n.toLocaleString("id-ID");
+}
+
+// Normalisasi nomor WA ke format internasional (62xxx) buat bikin link wa.me yang valid
+function normalizeWhatsapp(nomor: string) {
+  let n = (nomor || "").replace(/[^0-9]/g, "");
+  if (n.startsWith("0")) n = "62" + n.slice(1);
+  else if (n.startsWith("620")) n = "62" + n.slice(3);
+  else if (!n.startsWith("62")) n = "62" + n;
+  return n;
+}
+
+const statusLabel: Record<string, string> = {
+  Confirmed: "Terkonfirmasi ✅",
+  Pending: "Menunggu Konfirmasi ⏳",
+};
+
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const {
     namaTamu, noWhatsapp, outlet, tanggal, jam, jamSelesai,
-    jumlahTamu, mejaLabel,
+    jumlahTamu, mejaLabel, dpAmount, catatan, status,
   } = body || {};
 
   if (!namaTamu || !outlet || !tanggal || !jam) {
@@ -40,6 +58,8 @@ export async function POST(request: Request) {
   }
 
   const outletLabel = outlet === "jogja" ? "Yogyakarta" : "Solo";
+  const waLinkCustomer = noWhatsapp ? `https://wa.me/${normalizeWhatsapp(noWhatsapp)}` : null;
+
   const pesan =
     `🔔 *Reservasi Baru Masuk!*\n\n` +
     `Nama: ${namaTamu}\n` +
@@ -48,7 +68,11 @@ export async function POST(request: Request) {
     `Jam: ${formatJamSingkat(jam)}${jamSelesai ? ` – ${formatJamSingkat(jamSelesai)}` : ""}\n` +
     `Jumlah Tamu: ${jumlahTamu || "-"} orang\n` +
     `Meja: ${mejaLabel || "Belum ditentukan"}\n` +
+    `Status: ${statusLabel[status as string] || status || "-"}\n` +
+    (dpAmount ? `Uang Muka: ${formatRupiah(Number(dpAmount))}\n` : `Uang Muka: Belum bayar\n`) +
+    (catatan ? `Catatan: "${catatan}"\n` : "") +
     (noWhatsapp ? `No. WA Tamu: ${noWhatsapp}\n` : "") +
+    (waLinkCustomer ? `\n💬 Chat langsung ke tamu:\n${waLinkCustomer}\n` : "") +
     `\nCek detail lengkap di Dashboard Admin.`;
 
   const results = await Promise.all(
