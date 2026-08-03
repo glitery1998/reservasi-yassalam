@@ -23,6 +23,19 @@ function formatJam(jam: string) {
   return (jam || "").slice(0, 5);
 }
 
+// Gabungkan baris-baris reservasi yang share_token-nya sama jadi 1 entri saja
+// (ambil baris dengan Id terkecil sebagai wakil dari grup meja gabungan).
+function dedupeByShareToken(rows: Reservation[]): Reservation[] {
+  const bestByToken = new Map<string, Reservation>();
+  const noToken: Reservation[] = [];
+  for (const r of rows) {
+    if (!r.share_token) { noToken.push(r); continue; }
+    const existing = bestByToken.get(r.share_token);
+    if (!existing || r.Id < existing.Id) bestByToken.set(r.share_token, r);
+  }
+  return [...bestByToken.values(), ...noToken];
+}
+
 const statusStyle: Record<string, string> = {
   Pending: "bg-amber-50 text-amber-700 border-amber-200",
   Confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -44,7 +57,9 @@ export default function CekReservasiPage() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [hasil, setHasil] = useState<Reservation[]>([]);
+  const [semuaBaris, setSemuaBaris] = useState<Reservation[]>([]); // data mentah (belum di-dedup), buat cari sibling meja gabungan
   const [tables, setTables] = useState<TableData[]>([]);
+  const [showSelesaiModal, setShowSelesaiModal] = useState(false);
   const [error, setError] = useState("");
 
   async function handleCari(e: React.FormEvent) {
@@ -71,7 +86,9 @@ export default function CekReservasiPage() {
         return;
       }
 
-      setHasil(json.reservations as Reservation[]);
+      const rows = json.reservations as Reservation[];
+      setHasil(dedupeByShareToken(rows));
+      setSemuaBaris(rows);
       setTables(json.tables as TableData[]);
     } catch {
       setError("Gagal mengambil data. Coba lagi sebentar ya.");
@@ -85,51 +102,137 @@ export default function CekReservasiPage() {
     const t = tables.find((x) => x.Id === id);
     return t ? (t.nama_meja || `Meja ${t.nomor_meja}`) : null;
   }
-function getMejaNomor(id: number | null) {
-    if (!id) return null;
-    const t = tables.find((x) => x.Id === id);
-    return t ? t.nomor_meja : null;
+  // Untuk reservasi gabungan, gabungkan label semua meja sibling (mis. "Meja 1 & Meja 2")
+  function getReservasiMejaLabel(r: Reservation) {
+    if (!r.meja_id) return null;
+    if (!r.share_token) return getMejaLabel(r.meja_id);
+    const siblingMejaIds = semuaBaris
+      .filter((x) => x.share_token === r.share_token)
+      .map((x) => x.meja_id)
+      .filter((id): id is number => id != null);
+    if (siblingMejaIds.length <= 1) return getMejaLabel(r.meja_id);
+    return siblingMejaIds.map((id) => getMejaLabel(id)).join(" & ");
+  }
+  // Ambil semua nomor meja (bukan Id) untuk reservasi ini — dipakai buat angka besar di stub tiket (mis. "1+2")
+  function getSiblingNomorMeja(r: Reservation): number[] {
+    if (!r.meja_id) return [];
+    if (!r.share_token) {
+      const t = tables.find((x) => x.Id === r.meja_id);
+      return t ? [t.nomor_meja] : [];
+    }
+    const siblingMejaIds = semuaBaris
+      .filter((x) => x.share_token === r.share_token)
+      .map((x) => x.meja_id)
+      .filter((id): id is number => id != null);
+    return siblingMejaIds
+      .map((id) => tables.find((x) => x.Id === id)?.nomor_meja)
+      .filter((n): n is number => n != null);
   }
 
   async function downloadTiket(r: Reservation) {
     const jsPDF = (await import("jspdf")).default;
-    const logoImg = await new Promise<string>((resolve) => {
-      const img = new window.Image(); img.crossOrigin = "anonymous";
-      img.onload = () => { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; c.getContext("2d")!.drawImage(img, 0, 0); resolve(c.toDataURL("image/png")); };
-      img.src = "/logo.PNG";
-    });
-    const pdf = new jsPDF("p", "mm", [120, 220]);
-    const w = 120, h = 220, cx = w / 2;
-    pdf.setFillColor(255, 252, 245); pdf.rect(0, 0, w, h, "F");
-    pdf.setFillColor(200, 151, 62); pdf.rect(0, 0, w, 3, "F"); pdf.rect(0, h - 3, w, 3, "F");
-    pdf.setDrawColor(200, 151, 62); pdf.setLineWidth(0.3); pdf.roundedRect(5, 7, w - 10, h - 14, 3, 3, "S");
-    pdf.addImage(logoImg, "PNG", cx - 14, 14, 28, 28);
-    pdf.setDrawColor(200, 151, 62); pdf.setLineWidth(0.3); pdf.line(25, 48, cx - 4, 48); pdf.line(cx + 4, 48, w - 25, 48);
-    pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.setTextColor(200, 151, 62);
-    pdf.text("TIKET RESERVASI", cx, 57, { align: "center" });
-    pdf.setDrawColor(200, 151, 62); pdf.setLineWidth(0.3); pdf.line(20, 60, w - 20, 60);
-    pdf.setFillColor(253, 246, 236); pdf.roundedRect(12, 65, w - 24, 68, 3, 3, "F");
-    pdf.setDrawColor(220, 195, 150); pdf.setLineWidth(0.2); pdf.roundedRect(12, 65, w - 24, 68, 3, 3, "S");
-    let y = 76; const lx = 18, vx = w - 18, rh = 10;
-    function infoRow(lbl: string, val: string, gold?: boolean) {
-      pdf.setFont("helvetica", "normal"); pdf.setFontSize(6); pdf.setTextColor(160, 140, 115); pdf.text(lbl, lx, y);
-      pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.setTextColor(gold ? 200 : 72, gold ? 151 : 51, gold ? 62 : 26);
-      pdf.text(val, vx, y, { align: "right" }); pdf.setDrawColor(230, 220, 200); pdf.setLineWidth(0.1); pdf.line(lx, y + 3, vx, y + 3); y += rh;
+    const QRCode = (await import("qrcode")).default;
+
+    // Data meja — dukung meja tunggal MAUPUN meja gabungan
+    const siblingNomorMeja = getSiblingNomorMeja(r);
+    const isGabungan = siblingNomorMeja.length > 1;
+    const mejaBigLabel = isGabungan ? (siblingNomorMeja.join("+") || "-") : String(siblingNomorMeja[0] ?? "-");
+    const mejaInfoValue = getReservasiMejaLabel(r) || "-";
+    const kodeTiket = `YSL-${r.outlet.toUpperCase().slice(0, 3)}-${r.tanggal.replace(/-/g, "")}-M${mejaBigLabel}`;
+
+    // QR code asli (bisa discan admin dengan kamera HP biasa) — encode share_token
+    const qrPayload = r.share_token ? `YSL-CHECKIN:${r.share_token}` : null;
+    const qrDataUrl = qrPayload
+      ? await QRCode.toDataURL(qrPayload, { margin: 0, width: 240, color: { dark: "#3D2B14", light: "#FFFFFF" } })
+      : null;
+
+    // Format tiket ala konser: landscape, ada stub sobekan di sisi kanan
+    const pdf = new jsPDF("l", "mm", [200, 85]);
+    const w = 200, h = 85;
+    const stubW = 60, stubX = w - stubW;
+    const cx2 = stubX + stubW / 2;
+
+    const gold: [number, number, number] = [200, 151, 62];
+    const brown1: [number, number, number] = [42, 26, 14];
+    const cream: [number, number, number] = [255, 252, 245];
+    const textDark: [number, number, number] = [72, 51, 26];
+    const textMuted: [number, number, number] = [160, 140, 115];
+
+    pdf.setFillColor(...cream); pdf.rect(0, 0, w, h, "F");
+    pdf.setFillColor(...gold); pdf.rect(0, 0, w, 2, "F"); pdf.rect(0, h - 2, w, 2, "F");
+    pdf.setDrawColor(...gold); pdf.setLineWidth(0.35); pdf.roundedRect(4, 4, w - 8, h - 8, 3, 3, "S");
+    pdf.setDrawColor(220, 195, 150); pdf.setLineWidth(0.15); pdf.roundedRect(10, 7, stubX - 20, 73, 2, 2, "S");
+    pdf.setDrawColor(220, 195, 150); pdf.roundedRect(stubX + 10, 7, stubW - 20, 73, 2, 2, "S");
+
+    function diamond(dx: number, dy: number, s: number) {
+      pdf.setFillColor(...gold);
+      pdf.triangle(dx, dy - s, dx - s, dy, dx, dy + s, "F");
+      pdf.triangle(dx, dy - s, dx + s, dy, dx, dy + s, "F");
     }
-    infoRow("NAMA TAMU", r.nama_tamu); infoRow("OUTLET", r.outlet.charAt(0).toUpperCase() + r.outlet.slice(1));
-    infoRow("TANGGAL", r.tanggal); infoRow("JAM", `${formatJam(r.jam)} - ${formatJam(r.jam_selesai)}`);
-    infoRow("JUMLAH TAMU", `${r.jumlah_tamu} orang`);
-    infoRow("MEJA", getMejaLabel(r.meja_id) || "-", true);
-    const nomorMeja = getMejaNomor(r.meja_id);
-    const tearY = 142;
-    pdf.setFillColor(255, 252, 245); pdf.circle(5, tearY, 4, "F"); pdf.circle(w - 5, tearY, 4, "F");
-    pdf.setDrawColor(200, 151, 62); pdf.setLineDashPattern([1.5, 1.5], 0); pdf.setLineWidth(0.2); pdf.line(10, tearY, w - 10, tearY); pdf.setLineDashPattern([], 0);
-    pdf.setFont("helvetica", "bold"); pdf.setFontSize(6); pdf.setTextColor(200, 151, 62); pdf.text("MEJA", cx, 151, { align: "center" });
-    pdf.setFontSize(36); pdf.text(`${nomorMeja ?? "-"}`, cx, 166, { align: "center" });
-    pdf.setFont("helvetica", "normal"); pdf.setFontSize(6); pdf.setTextColor(160, 140, 115);
-    pdf.text(`${r.outlet.charAt(0).toUpperCase() + r.outlet.slice(1)} - ${r.tanggal} - ${formatJam(r.jam)}`, cx, 173, { align: "center" });
-    pdf.setFontSize(4.5); pdf.setTextColor(180, 165, 140);
-    pdf.text("Tunjukkan tiket ini kepada staff saat tiba di outlet", cx, 190, { align: "center" });
+    diamond(9, 9, 1.4); diamond(w - 9, 9, 1.4); diamond(9, h - 9, 1.4); diamond(w - 9, h - 9, 1.4);
+
+    pdf.setDrawColor(...gold); pdf.setLineDashPattern([1.5, 1.5], 0); pdf.setLineWidth(0.25);
+    pdf.line(stubX, 8, stubX, h - 8); pdf.setLineDashPattern([], 0);
+    pdf.setFillColor(...cream); pdf.circle(stubX, 3, 3, "F"); pdf.circle(stubX, h - 3, 3, "F");
+    pdf.setDrawColor(...gold); pdf.setLineWidth(0.3); pdf.circle(stubX, 3, 3, "S"); pdf.circle(stubX, h - 3, 3, "S");
+
+    /* ===== BAGIAN KIRI ===== */
+    const contentR = stubX - 16;
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(6.5); pdf.setTextColor(...gold);
+    pdf.setCharSpace(0.5); pdf.text("YASSALAM ARABIAN RESTO & CATERING", 16, 18); pdf.setCharSpace(0);
+    pdf.setDrawColor(...gold); pdf.setLineWidth(0.2); pdf.line(16, 22, contentR, 22);
+
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(20); pdf.setTextColor(...brown1);
+    pdf.setCharSpace(0.4); pdf.text("TIKET RESERVASI", 16, 37); pdf.setCharSpace(0);
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(...gold);
+    pdf.text(`a.n. ${r.nama_tamu}`, 16, 45);
+
+    const dcx = (16 + contentR) / 2;
+    pdf.setDrawColor(...gold); pdf.setLineWidth(0.2); pdf.line(16, 51, dcx - 4, 51); pdf.line(dcx + 4, 51, contentR, 51);
+    diamond(dcx, 51, 1.5);
+
+    const col = [16, 16 + (contentR - 16) / 3, 16 + ((contentR - 16) / 3) * 2];
+    const fields: { lbl: string; val: string }[] = [
+      { lbl: "OUTLET", val: r.outlet.charAt(0).toUpperCase() + r.outlet.slice(1) },
+      { lbl: "TANGGAL", val: r.tanggal },
+      { lbl: "JAM", val: `${formatJam(r.jam)} - ${formatJam(r.jam_selesai)}` },
+      { lbl: "JUMLAH TAMU", val: `${r.jumlah_tamu} orang` },
+      { lbl: "MEJA", val: mejaInfoValue },
+    ];
+
+    fields.forEach((f, i) => {
+      const cIdx = i % 3, rIdx = Math.floor(i / 3);
+      const x = col[cIdx], y = 58 + rIdx * 14;
+      pdf.setFillColor(...gold); pdf.circle(x - 3, y - 2, 0.6, "F");
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(5.5); pdf.setTextColor(...textMuted);
+      pdf.text(f.lbl, x, y);
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(f.val.length > 16 ? 7 : 8.5); pdf.setTextColor(...textDark);
+      pdf.text(f.val, x, y + 6);
+    });
+
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(5); pdf.setTextColor(...gold);
+    pdf.text(kodeTiket, 7, h / 2, { align: "center", angle: 90 });
+
+    /* ===== STUB KANAN ===== */
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(7); pdf.setTextColor(...gold);
+    pdf.setCharSpace(0.6); pdf.text("MEJA", cx2, 20, { align: "center" }); pdf.setCharSpace(0);
+    pdf.setFontSize(32); pdf.setTextColor(...brown1);
+    pdf.text(mejaBigLabel, cx2, 37, { align: "center" });
+    pdf.setDrawColor(...gold); pdf.setLineWidth(0.2); pdf.line(cx2 - 12, 41, cx2 + 12, 41);
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(6); pdf.setTextColor(...textMuted);
+    pdf.text(`${r.outlet.charAt(0).toUpperCase() + r.outlet.slice(1)} - ${r.tanggal}`, cx2, 47, { align: "center" });
+
+    if (qrDataUrl) {
+      const qrSize = 23;
+      pdf.setFillColor(255, 255, 255); pdf.roundedRect(cx2 - qrSize / 2 - 1.5, 50, qrSize + 3, qrSize + 3, 2, 2, "F");
+      pdf.setDrawColor(...gold); pdf.setLineWidth(0.25); pdf.roundedRect(cx2 - qrSize / 2 - 1.5, 50, qrSize + 3, qrSize + 3, 2, 2, "S");
+      pdf.addImage(qrDataUrl, "PNG", cx2 - qrSize / 2, 51.5, qrSize, qrSize);
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(4.8); pdf.setTextColor(...textMuted);
+      pdf.text(kodeTiket, cx2, 78, { align: "center" });
+      pdf.setFontSize(4.3); pdf.setTextColor(180, 165, 140);
+      pdf.text("Scan saat tiba di outlet", cx2, 79.5, { align: "center" });
+    }
+
     pdf.save(`Tiket-Reservasi-Yassalam-${r.tanggal}.pdf`);
   }
   return (
@@ -221,7 +324,7 @@ function getMejaNomor(id: number | null) {
                     </div>
                     <div>
                       <p className="text-[10px] text-[#B5A594] uppercase tracking-wide">Meja</p>
-                      <p className="text-sm font-semibold text-[#5C3D1A]">{getMejaLabel(r.meja_id) || "—"}</p>
+                      <p className="text-sm font-semibold text-[#5C3D1A]">{getReservasiMejaLabel(r) || "—"}</p>
                     </div>
                   </div>
 
@@ -231,30 +334,41 @@ function getMejaNomor(id: number | null) {
 
                   {(() => {
                     const isAktif = r.status === "Pending" || r.status === "Confirmed";
+                    const sudahSelesai = r.status === "Completed";
                     const showMenu = !!r.share_token;
                     const showTiket = r.status !== "Cancelled" && r.status !== "No-Show";
                     if (!showMenu && !showTiket) return null;
                     return (
                       <div className="flex gap-2.5 mt-4">
                         {showMenu && (
-                          <Link
-                            href={`/pesan/${r.share_token}`}
-                            className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border text-sm font-semibold transition-colors ${
-                              showTiket
-                                ? "border-[#E8DCC8] text-[#5C3D1A] hover:bg-[#FDF6EC]"
-                                : "border-[#E8DCC8] text-[#8B7355] hover:bg-[#FDF6EC]"
-                            }`}
-                          >
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                              <path d="M4 19.5V4.5a1 1 0 0 1 1-1h9l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" strokeLinecap="round" strokeLinejoin="round" />
-                              <path d="M8 9h8M8 13h8M8 17h5" strokeLinecap="round" />
-                            </svg>
-                            {isAktif ? "Lihat / Ubah Menu" : "Lihat Menu"}
-                          </Link>
+                          sudahSelesai ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowSelesaiModal(true)}
+                              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-[#E8DCC8] text-[#8B7355] text-sm font-semibold hover:bg-[#FDF6EC] transition-colors"
+                            >
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                <path d="M4 19.5V4.5a1 1 0 0 1 1-1h9l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M8 9h8M8 13h8M8 17h5" strokeLinecap="round" />
+                              </svg>
+                              Lihat Menu
+                            </button>
+                          ) : (
+                            <Link
+                              href={`/pesan/${r.share_token}`}
+                              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-[#E8DCC8] text-[#5C3D1A] text-sm font-semibold hover:bg-[#FDF6EC] transition-colors"
+                            >
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                <path d="M4 19.5V4.5a1 1 0 0 1 1-1h9l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M8 9h8M8 13h8M8 17h5" strokeLinecap="round" />
+                              </svg>
+                              {isAktif ? "Lihat / Ubah Menu" : "Lihat Menu"}
+                            </Link>
+                          )
                         )}
                         {showTiket && (
                           <button
-                            onClick={() => downloadTiket(r)}
+                            onClick={() => sudahSelesai ? setShowSelesaiModal(true) : downloadTiket(r)}
                             className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white text-sm font-semibold active:scale-[0.98] transition-all shadow-sm shadow-[#C8973E]/20"
                           >
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -269,6 +383,36 @@ function getMejaNomor(id: number | null) {
                 </div>
               ))
             )}
+          </div>
+        )}
+
+        {showSelesaiModal && (
+          <div
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center px-4"
+            onClick={() => setShowSelesaiModal(false)}
+          >
+            <div
+              className="bg-white rounded-3xl overflow-hidden max-w-sm w-full shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-gradient-to-r from-[#C8973E] to-[#A67B2E] px-6 py-7 text-center">
+                <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <span className="text-2xl">✓</span>
+                </div>
+                <h3 className="text-white font-bold text-lg font-serif">Reservasi Sudah Selesai</h3>
+              </div>
+              <div className="p-6 text-center">
+                <p className="text-[#5C3D1A] text-sm leading-relaxed">
+                  Reservasi ini sudah selesai dan tidak bisa diakses atau diunduh lagi. Terima kasih sudah berkunjung ke Yassalam!
+                </p>
+                <button
+                  onClick={() => setShowSelesaiModal(false)}
+                  className="w-full mt-5 py-3 rounded-xl bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white font-bold text-sm transition-all active:scale-[0.98]"
+                >
+                  Mengerti
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

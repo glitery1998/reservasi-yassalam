@@ -13,7 +13,7 @@ function isTimeOverlap(startA: string, endA: string, startB: string, endB: strin
 /* ===== POST: buat hold baru (dengan cek konflik di server) ===== */
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
-  const { mejaIds, tanggal, jam, jamSelesai, holdMinutes, releaseHoldId } = body || {};
+  const { mejaIds, tanggal, jam, jamSelesai, holdMinutes, releaseHoldId, namaTamu, noWhatsapp } = body || {};
 
   if (!Array.isArray(mejaIds) || mejaIds.length === 0 || !tanggal || !jam || !jamSelesai) {
     return NextResponse.json({ success: false, error: "Data tidak lengkap" }, { status: 400 });
@@ -48,6 +48,7 @@ export async function POST(request: Request) {
   const holdInserts = mejaIds.map((mejaId: number) => ({
     meja_id: mejaId, tanggal, jam, jam_selesai: jamSelesai,
     session_id: sessionId, expires_at: expiresAt, status: "active",
+    nama_tamu: namaTamu || null, no_whatsapp: noWhatsapp || null,
   }));
 
   const { data, error } = await supabaseAdmin.from("BookingHold").insert(holdInserts).select();

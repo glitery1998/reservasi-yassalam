@@ -966,6 +966,7 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
         body: JSON.stringify({
           mejaIds, tanggal, jam, jamSelesai: computedEnd, holdMinutes,
           releaseHoldId: holdId || undefined,
+          namaTamu, noWhatsapp: noWa,
         }),
       });
       const json = await res.json();
@@ -1049,6 +1050,22 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
       await supabase.from("BookingHold").update({ status: "completed" }).eq("tanggal", tanggal).eq("jam", jam).eq("status", "active");
       setHoldId(null); setHoldExpiry(null);
     }
+
+    // Notifikasi WA ke admin — fire-and-forget, jangan sampai bikin customer nunggu / gagal kalau notif error
+    (() => {
+      const isGabunganNotif = !!selectedGabungan;
+      const mejaLabelNotif = isGabunganNotif
+        ? `Gabungan ${selectedGabungan!.nama}`
+        : (selectedTable ? (selectedTable.nama_meja || `Meja ${selectedTable.nomor_meja}`) : "Belum ditentukan");
+      fetch("/api/notify-reservation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          namaTamu, noWhatsapp: noWa, outlet, tanggal, jam, jamSelesai,
+          jumlahTamu: Number(jumlahTamu), mejaLabel: mejaLabelNotif,
+        }),
+      }).catch(() => { /* silent — notifikasi WA gagal gak boleh ganggu proses reservasi customer */ });
+    })();
 
     setShareToken(token);
     setSukses(true);

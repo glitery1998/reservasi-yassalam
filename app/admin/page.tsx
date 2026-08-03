@@ -13,6 +13,21 @@ type Reservation = {
   share_token: string | null; menu_finalized: boolean | null;
   checked_in_at: string | null;
 };
+
+// Gabungkan baris-baris reservasi yang share_token-nya sama jadi 1 entri saja
+// (ambil baris dengan Id terkecil sebagai wakil dari grup meja gabungan).
+// Dipakai supaya statistik & daftar tidak menghitung 1 reservasi gabungan sebagai beberapa.
+function dedupeByShareToken(rows: Reservation[]): Reservation[] {
+  const bestByToken = new Map<string, Reservation>();
+  const noToken: Reservation[] = [];
+  for (const r of rows) {
+    if (!r.share_token) { noToken.push(r); continue; }
+    const existing = bestByToken.get(r.share_token);
+    if (!existing || r.Id < existing.Id) bestByToken.set(r.share_token, r);
+  }
+  return [...bestByToken.values(), ...noToken];
+}
+
 type ReservationMenuItemT = {
   Id: number; reservation_id: number; menu_id: number; varian_id: number | null; addon_ids: number[];
   jumlah_porsi: number; harga_satuan: number; subtotal: number; catatan: string | null; nama_pemesan: string | null;
@@ -32,6 +47,7 @@ type BookingHold = {
   Id: number; created_at: string; meja_id: number; tanggal: string;
   jam: string; jam_selesai: string; session_id: string;
   expires_at: string; status: string;
+  nama_tamu: string | null; no_whatsapp: string | null;
 };
 type MejaGabungan = {
   Id: number; created_at: string; outlet: string; nama: string;
@@ -636,7 +652,7 @@ function validatePasswordStrength(password: string): string | null {
     }, 1400);
   }
 
-  const [tab, setTab] = useState<"ringkasan" | "reservasi" | "scan" | "kalender" | "area" | "gabungan" | "menu" | "laporan" | "pelanggan" | "admin" | "log" | "pengaturan">("ringkasan");
+  const [tab, setTab] = useState<"ringkasan" | "reservasi" | "scan" | "kalender" | "bookinghold" | "area" | "gabungan" | "menu" | "laporan" | "pelanggan" | "admin" | "log" | "pengaturan">("ringkasan");
   const [openGroup, setOpenGroup] = useState<string>("operasional");
   function toggleGroup(key: string) {
     setOpenGroup((prev) => (prev === key ? "" : key));
@@ -686,6 +702,9 @@ function validatePasswordStrength(password: string): string | null {
   const [jamBukaJogja, setJamBukaJogja] = useState("10:00");
   const [jamTutupJogja, setJamTutupJogja] = useState("22:00");
   const [savingJamOperasional, setSavingJamOperasional] = useState(false);
+  const [notifWaSolo, setNotifWaSolo] = useState("");
+  const [notifWaJogja, setNotifWaJogja] = useState("");
+  const [savingNotifWa, setSavingNotifWa] = useState(false);
   const [notifSuaraAktif, setNotifSuaraAktif] = useState(() => {
     if (typeof window === "undefined") return true;
     return localStorage.getItem("yassalam_notif_suara") !== "off";
@@ -841,6 +860,37 @@ function validatePasswordStrength(password: string): string | null {
 
     setLoadingKalender(false);
   }, [kalTanggal, kalOutlet, lockedOutlet]);
+
+  // ===== TAB BOOKING HOLD (khusus) — daftar semua hold aktif, lintas tanggal/outlet, dengan detail lengkap =====
+  const [allHolds, setAllHolds] = useState<BookingHold[]>([]);
+  const [loadingAllHolds, setLoadingAllHolds] = useState(false);
+  const [holdSearchQuery, setHoldSearchQuery] = useState("");
+  const [holdFilterOutlet, setHoldFilterOutlet] = useState("");
+  const [releasingHoldId, setReleasingHoldId] = useState<number | null>(null);
+
+  const fetchAllHolds = useCallback(async () => {
+    setLoadingAllHolds(true);
+    const { data } = await supabase.from("BookingHold").select("*")
+      .not("status", "in", "(completed,cancelled,expired,released)")
+      .gt("expires_at", new Date().toISOString())
+      .order("tanggal", { ascending: true })
+      .order("jam", { ascending: true });
+    setAllHolds(data || []);
+    setLoadingAllHolds(false);
+  }, []);
+
+  async function releaseHoldAdmin(hold: BookingHold) {
+    if (!confirm(`Lepas hold meja ini${hold.nama_tamu ? ` (${hold.nama_tamu})` : ""} sekarang? Meja akan langsung tersedia lagi untuk customer lain.`)) return;
+    setReleasingHoldId(hold.Id);
+    if (hold.session_id) {
+      await supabase.from("BookingHold").update({ status: "released" }).eq("session_id", hold.session_id).eq("status", "active");
+    } else {
+      await supabase.from("BookingHold").update({ status: "released" }).eq("Id", hold.Id);
+    }
+    setReleasingHoldId(null);
+    logActivity("Lepas hold meja (manual admin)", `${hold.nama_tamu || "Tanpa nama"} · Meja #${hold.meja_id} · ${hold.tanggal} ${formatJam(hold.jam)}`);
+    fetchAllHolds();
+  }
 
   function timeToMinutes(t: string) {
     const [h, m] = (t || "0:0").split(":").map(Number);
@@ -1033,7 +1083,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
     let qToday = supabase.from("Reservation").select("*").eq("tanggal", todayStr);
     if (outletFilter) qToday = qToday.eq("outlet", outletFilter);
     const { data: todayRes } = await qToday;
-    const todayRows = (todayRes || []) as Reservation[];
+    const todayRows = dedupeByShareToken((todayRes || []) as Reservation[]);
 
     let qPending = supabase.from("Reservation").select("Id", { count: "exact", head: true }).eq("status", "Pending");
     if (outletFilter) qPending = qPending.eq("outlet", outletFilter);
@@ -1134,7 +1184,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
   }, []);
 
   const fetchCutoffSetting = useCallback(async () => {
-    const keys = ["menu_cutoff_hours", "booking_hold_minutes", "booking_min_hours", "booking_max_days", "threshold_pelanggan_lama", "threshold_no_show", "jam_buka_solo", "jam_tutup_solo", "jam_buka_jogja", "jam_tutup_jogja"];
+    const keys = ["menu_cutoff_hours", "booking_hold_minutes", "booking_min_hours", "booking_max_days", "threshold_pelanggan_lama", "threshold_no_show", "jam_buka_solo", "jam_tutup_solo", "jam_buka_jogja", "jam_tutup_jogja", "admin_notif_wa_solo", "admin_notif_wa_jogja"];
     const { data } = await supabase.from("AppSettings").select("key, value").in("key", keys);
     const map = Object.fromEntries((data || []).map((d: { key: string; value: string }) => [d.key, d.value]));
     if (map.menu_cutoff_hours) setCutoffSetting(map.menu_cutoff_hours);
@@ -1147,7 +1197,19 @@ const [pelangganQuery, setPelangganQuery] = useState("");
     if (map.jam_tutup_solo) setJamTutupSolo(map.jam_tutup_solo);
     if (map.jam_buka_jogja) setJamBukaJogja(map.jam_buka_jogja);
     if (map.jam_tutup_jogja) setJamTutupJogja(map.jam_tutup_jogja);
+    if (map.admin_notif_wa_solo) setNotifWaSolo(map.admin_notif_wa_solo);
+    if (map.admin_notif_wa_jogja) setNotifWaJogja(map.admin_notif_wa_jogja);
   }, []);
+  async function saveNotifWa() {
+    setSavingNotifWa(true);
+    const { error } = await supabase.from("AppSettings").upsert([
+      { key: "admin_notif_wa_solo", value: notifWaSolo },
+      { key: "admin_notif_wa_jogja", value: notifWaJogja },
+    ], { onConflict: "key" });
+    setSavingNotifWa(false);
+    if (error) { alert("Gagal simpan: " + error.message); return; }
+    alert("Pengaturan disimpan.");
+  }
   async function saveCutoffSetting() {
     setSavingCutoff(true);
     const { error } = await supabase.from("AppSettings").upsert({ key: "menu_cutoff_hours", value: cutoffSetting }, { onConflict: "key" });
@@ -1329,6 +1391,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
     /* eslint-disable react-hooks/set-state-in-effect */
     if (tab === "reservasi") { void fetchReservations(); void fetchAllMenuLookups(); void fetchTables(); void fetchCustomerHistory(); void fetchGabungan(); }
     if (tab === "kalender") { void fetchKalenderData(); void fetchTables(); void fetchAreas(); void fetchGabungan(); }
+    if (tab === "bookinghold") { void fetchAllHolds(); void fetchTables(); }
     if (tab === "area") { void fetchAreas(); void fetchTables(); }
     if (tab === "gabungan") { void fetchGabungan(); void fetchTables(); void fetchAreas(); }
     if (tab === "menu") { void fetchMenuKategori(); void fetchMenuItems(); }
@@ -1339,7 +1402,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
     if (tab === "log") { void fetchActivityLog(); }
     if (tab === "pengaturan") { void fetchCutoffSetting(); void fetchLibur(); void fetchMenuBackups(); }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [tab, fetchReservations, fetchKalenderData, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList, fetchLaporan, fetchPelanggan, fetchRingkasan, fetchActivityLog, fetchCustomerHistory, fetchLibur, fetchMenuBackups]);
+  }, [tab, fetchReservations, fetchKalenderData, fetchAllHolds, fetchAreas, fetchTables, fetchGabungan, fetchMenuKategori, fetchMenuItems, fetchAllMenuLookups, fetchCutoffSetting, fetchAdminList, fetchLaporan, fetchPelanggan, fetchRingkasan, fetchActivityLog, fetchCustomerHistory, fetchLibur, fetchMenuBackups]);
 
   // ===== REALTIME: reservasi baru otomatis muncul + notifikasi =====
   const notifAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -1406,8 +1469,9 @@ const [pelangganQuery, setPelangganQuery] = useState("");
     return () => document.removeEventListener("click", handleGlobalClick, true);
   }, []);
 
+  // Realtime notifikasi reservasi baru — sengaja TIDAK bergantung pada `tab`,
+  // supaya tetap aktif walaupun admin lagi buka tab lain (Dashboard, Kalender, dll).
   useEffect(() => {
-    if (tab !== "reservasi") return;
     const resCh = supabase
       .channel("admin-reservation-updates")
       .on(
@@ -1439,7 +1503,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
       )
       .subscribe();
     return () => { supabase.removeChannel(resCh); };
-  }, [tab, fetchReservations, notifSuaraAktif]);
+  }, [fetchReservations, notifSuaraAktif]);
 
   // ===== AUTO-COMPLETE: reservasi Confirmed otomatis jadi Completed atau No-Show setelah lewat jam selesai =====
   useEffect(() => {
@@ -1476,6 +1540,16 @@ const [pelangganQuery, setPelangganQuery] = useState("");
       .subscribe();
     return () => { supabase.removeChannel(kalCh); };
   }, [tab, fetchKalenderData]);
+
+  // ===== REALTIME: tab Booking Hold — update otomatis tanpa refresh =====
+  useEffect(() => {
+    if (tab !== "bookinghold") return;
+    const holdCh = supabase
+      .channel("admin-bookinghold-updates")
+      .on("postgres_changes", { event: "*", schema: "public", table: "BookingHold" }, () => { fetchAllHolds(); })
+      .subscribe();
+    return () => { supabase.removeChannel(holdCh); };
+  }, [tab, fetchAllHolds]);
   // Minta izin notifikasi browser saat pertama kali
   useEffect(() => {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
@@ -1524,13 +1598,24 @@ const [pelangganQuery, setPelangganQuery] = useState("");
 
   async function updateStatus(id: number, s: string) {
     const r = reservationsRef.current.find((x) => x.Id === id);
-    await supabase.from("Reservation").update({ status: s }).eq("Id", id);
+    // Kalau reservasi ini bagian dari meja gabungan (share_token), update SEMUA
+    // baris sibling-nya juga, biar statusnya konsisten di semua meja gabungan.
+    if (r?.share_token) {
+      await supabase.from("Reservation").update({ status: s }).eq("share_token", r.share_token);
+    } else {
+      await supabase.from("Reservation").update({ status: s }).eq("Id", id);
+    }
     if (r) logActivity("Ubah status reservasi", `${r.nama_tamu} (${r.tanggal} ${formatJam(r.jam)}) → ${s}`);
     fetchReservations();
   }
   async function tandaiHadir(id: number) {
     const r = reservationsRef.current.find((x) => x.Id === id);
-    await supabase.from("Reservation").update({ checked_in_at: new Date().toISOString() }).eq("Id", id);
+    // Sama seperti di atas — kalau gabungan, tandai hadir semua baris sibling-nya sekaligus.
+    if (r?.share_token) {
+      await supabase.from("Reservation").update({ checked_in_at: new Date().toISOString() }).eq("share_token", r.share_token);
+    } else {
+      await supabase.from("Reservation").update({ checked_in_at: new Date().toISOString() }).eq("Id", id);
+    }
     if (r) logActivity("Tandai hadir", `${r.nama_tamu} (${r.tanggal} ${formatJam(r.jam)})`);
     fetchReservations();
   }
@@ -1901,7 +1986,8 @@ const [pelangganQuery, setPelangganQuery] = useState("");
     logActivity("Hapus admin", a.nama || a.email);
     fetchAdminList();
   }
-  const stats = { total: reservations.length, pending: reservations.filter((r) => r.status === "Pending").length, confirmed: reservations.filter((r) => r.status === "Confirmed").length, completed: reservations.filter((r) => r.status === "Completed").length, noshow: reservations.filter((r) => r.status === "No-Show").length, cancelled: reservations.filter((r) => r.status === "Cancelled").length };
+  const dedupedReservationsForStats = dedupeByShareToken(reservations);
+  const stats = { total: dedupedReservationsForStats.length, pending: dedupedReservationsForStats.filter((r) => r.status === "Pending").length, confirmed: dedupedReservationsForStats.filter((r) => r.status === "Confirmed").length, completed: dedupedReservationsForStats.filter((r) => r.status === "Completed").length, noshow: dedupedReservationsForStats.filter((r) => r.status === "No-Show").length, cancelled: dedupedReservationsForStats.filter((r) => r.status === "Cancelled").length };
   const visibleAdminList = isSuper ? adminList : adminList.filter((a) => a.outlet === myOutlet);
   const statusStyle: Record<string, string> = { Pending: "bg-amber-50 text-amber-700 border-amber-200", Confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200", Completed: "bg-blue-50 text-blue-700 border-blue-200", Cancelled: "bg-red-50 text-red-600 border-red-200", "No-Show": "bg-orange-50 text-orange-700 border-orange-300" };
 
@@ -1943,6 +2029,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
         { key: "reservasi", label: "Reservasi", icon: "reservasi" },
         { key: "scan", label: "Scan Tiket", icon: "scan" },
         { key: "kalender", label: "Kalender", icon: "kalender" },
+        { key: "bookinghold", label: "Booking Hold", icon: "lock" },
       ],
     },
     {
@@ -2019,6 +2106,9 @@ const [pelangganQuery, setPelangganQuery] = useState("");
               {item.key === "reservasi" && stats.total > 0 && (
                 <span className="ml-auto text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-bold">{stats.total}</span>
               )}
+              {item.key === "bookinghold" && allHolds.length > 0 && (
+                <span className="ml-auto text-[10px] bg-sky-400 text-white px-1.5 py-0.5 rounded-full font-bold">{allHolds.length}</span>
+              )}
             </button>
           ))}
         </nav>
@@ -2045,6 +2135,9 @@ const [pelangganQuery, setPelangganQuery] = useState("");
                         <Icon name={item.icon} /> {item.label}
                         {item.key === "reservasi" && stats.total > 0 && (
                           <span className="ml-auto text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-bold">{stats.total}</span>
+                        )}
+                        {item.key === "bookinghold" && allHolds.length > 0 && (
+                          <span className="ml-auto text-[10px] bg-sky-400 text-white px-1.5 py-0.5 rounded-full font-bold">{allHolds.length}</span>
                         )}
                       </button>
                     ))}
@@ -2618,6 +2711,110 @@ const [pelangganQuery, setPelangganQuery] = useState("");
             tandaiHadirByToken={tandaiHadirByToken}
           />
         )}
+{/* ========== TAB BOOKING HOLD ========== */}
+        {tab === "bookinghold" && (() => {
+          const q = holdSearchQuery.trim().toLowerCase();
+          const enriched = allHolds.map((h) => {
+            const t = tables.find((x) => x.Id === h.meja_id);
+            return { hold: h, table: t, outlet: t?.outlet || "" };
+          });
+          const filtered = enriched.filter(({ hold, outlet }) => {
+            if (holdFilterOutlet && outlet !== holdFilterOutlet) return false;
+            if (!q) return true;
+            return (hold.nama_tamu || "").toLowerCase().includes(q) || (hold.no_whatsapp || "").includes(q);
+          });
+          const outletCounts: Record<string, number> = {};
+          enriched.forEach(({ outlet }) => { if (outlet) outletCounts[outlet] = (outletCounts[outlet] || 0) + 1; });
+
+          return (
+            <>
+              <div className="mb-6">
+                <h2 className="text-xl font-bold text-[#3D2E1E] font-serif">Booking Hold Aktif</h2>
+                <p className="text-[#9A8B7A] text-sm mt-1">Meja yang sedang di-hold customer (belum selesai bayar), lengkap dengan nama & nomor WhatsApp-nya, real-time.</p>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                <div className="bg-white border-2 border-sky-200 rounded-xl p-4">
+                  <p className="text-2xl font-bold text-sky-600">{allHolds.length}</p>
+                  <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider mt-0.5">Total Hold Aktif</p>
+                </div>
+                <div className="bg-white border border-[#E5DDD4] rounded-xl p-4">
+                  <p className="text-2xl font-bold text-[#3D2E1E]">{outletCounts.solo || 0}</p>
+                  <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider mt-0.5">Solo</p>
+                </div>
+                <div className="bg-white border border-[#E5DDD4] rounded-xl p-4">
+                  <p className="text-2xl font-bold text-[#3D2E1E]">{outletCounts.jogja || 0}</p>
+                  <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider mt-0.5">Yogyakarta</p>
+                </div>
+                <div className="bg-white border border-[#E5DDD4] rounded-xl p-4">
+                  <p className="text-2xl font-bold text-[#3D2E1E]">{allHolds.filter((h) => h.nama_tamu).length}</p>
+                  <p className="text-[10px] text-[#9A8B7A] uppercase tracking-wider mt-0.5">Ada Identitas</p>
+                </div>
+              </div>
+
+              <div className="bg-white border border-[#E5DDD4] rounded-xl p-4 mb-6 flex flex-wrap gap-3 items-center">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Icon name="search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#B5A999]" />
+                  <input type="text" value={holdSearchQuery} onChange={(e) => setHoldSearchQuery(e.target.value)} placeholder="Cari nama / no. HP..." className={filterClass + " w-full pl-8"} />
+                </div>
+                {isSuper && (
+                  <select value={holdFilterOutlet} onChange={(e) => setHoldFilterOutlet(e.target.value)} className={filterClass}>
+                    <option value="">Semua Outlet</option><option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
+                  </select>
+                )}
+                <button onClick={fetchAllHolds} className="px-4 py-2 rounded-xl border-2 border-sky-300 text-sky-700 text-sm font-bold hover:bg-sky-50">Refresh</button>
+              </div>
+
+              {loadingAllHolds ? (
+                <p className="text-center text-[#B5A999] py-16">Memuat data hold...</p>
+              ) : filtered.length === 0 ? (
+                <p className="text-center text-[#B5A999] py-16">{q || holdFilterOutlet ? "Tidak ada hold yang cocok dengan filter." : "Tidak ada meja yang sedang di-hold saat ini."}</p>
+              ) : (
+                <div className="space-y-3">
+                  {filtered.map(({ hold, table, outlet }) => {
+                    const sisaMs = new Date(hold.expires_at).getTime() - now.getTime();
+                    const sisaMenit = Math.max(0, Math.floor(sisaMs / 60000));
+                    const sisaDetik = Math.max(0, Math.floor((sisaMs % 60000) / 1000));
+                    const hampirHabis = sisaMs < 60000;
+                    return (
+                      <div key={hold.Id} className={`bg-white border-2 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center gap-4 justify-between ${hampirHabis ? "border-red-200" : "border-sky-200"}`}>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold text-[#3D2E1E] text-lg font-serif">{hold.nama_tamu || <span className="text-[#B5A999] italic font-normal text-base">(Tanpa nama — hold lama)</span>}</p>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${hampirHabis ? "bg-red-50 text-red-600 border-red-200" : "bg-sky-50 text-sky-700 border-sky-200"}`}>
+                              sisa {sisaMenit}:{String(sisaDetik).padStart(2, "0")}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm text-[#9A8B7A]">
+                            <span className="inline-flex items-center gap-1.5"><Icon name="chair" size={14} /> {table ? (table.nama_meja || `Meja ${table.nomor_meja}`) : `#${hold.meja_id}`}</span>
+                            <span className="inline-flex items-center gap-1.5 capitalize"><Icon name="map-pin" size={14} /> {outlet || "—"}</span>
+                            <span className="inline-flex items-center gap-1.5"><Icon name="calendar" size={14} /> {hold.tanggal}</span>
+                            <span className="inline-flex items-center gap-1.5"><Icon name="clock" size={14} /> {formatJam(hold.jam)} – {formatJam(hold.jam_selesai)}</span>
+                          </div>
+                          {hold.no_whatsapp && (
+                            <div className="flex items-center gap-2.5 mt-3 border border-[#E5DDD4] rounded-xl px-4 py-2.5 max-w-sm">
+                              <Icon name="phone" size={15} className="text-[#9A8B7A] shrink-0" />
+                              <span className="text-sm text-[#3D2E1E]">{hold.no_whatsapp}</span>
+                              <a href={`https://wa.me/${normalizeWhatsapp(hold.no_whatsapp)}`} target="_blank" rel="noopener noreferrer"
+                                className="ml-auto text-xs text-[#1DA851] font-semibold inline-flex items-center gap-1 hover:underline">
+                                WhatsApp
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                        <button onClick={() => releaseHoldAdmin(hold)} disabled={releasingHoldId === hold.Id}
+                          className="px-4 py-2.5 rounded-xl border-2 border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 inline-flex items-center justify-center gap-1.5 shrink-0">
+                          <Icon name="x" size={14} /> {releasingHoldId === hold.Id ? "Melepas..." : "Lepas Hold"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          );
+        })()}
+
 {/* ========== TAB KALENDER ========== */}
         {tab === "kalender" && (<>
           <div className="mb-6">
@@ -2845,13 +3042,28 @@ const [pelangganQuery, setPelangganQuery] = useState("");
                                     const sisaMenit = Math.max(0, Math.floor(sisaMs / 60000));
                                     const sisaDetik = Math.max(0, Math.floor((sisaMs % 60000) / 1000));
                                     return (
-                                      <td key={j} className={`border-b border-[#E5DDD4] bg-sky-400 ${isFirst ? "border-l" : ""}`} style={{ padding: "8px 0" }}>
+                                      <td key={j}
+                                        title={hold.nama_tamu ? `${hold.nama_tamu}\n📱 ${hold.no_whatsapp || "-"}\n${formatJam(hold.jam)} – ${formatJam(hold.jam_selesai)}` : undefined}
+                                        className={`border-b border-[#E5DDD4] bg-sky-400 ${isFirst ? "border-l" : ""}`} style={{ padding: "8px 0" }}>
                                         {isFirst && (
                                           <div className="px-3">
-                                            <p className="text-white text-sm font-bold whitespace-nowrap inline-flex items-center gap-1"><Icon name="lock" size={13} /> Di-Hold</p>
+                                            <p className="text-white text-sm font-bold whitespace-nowrap inline-flex items-center gap-1">
+                                              <Icon name="lock" size={13} /> {hold.nama_tamu || "Di-Hold"}
+                                            </p>
                                             <p className="text-white/80 text-xs whitespace-nowrap">
                                               {formatJam(hold.jam)} – {formatJam(hold.jam_selesai)} · sisa {sisaMenit}:{String(sisaDetik).padStart(2, "0")}
                                             </p>
+                                            {hold.no_whatsapp && (
+                                              <a
+                                                href={`https://wa.me/${hold.no_whatsapp.replace(/[^0-9]/g, "").replace(/^0/, "62")}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                                                className="text-white text-[10px] underline whitespace-nowrap inline-block mt-0.5"
+                                              >
+                                                📱 {hold.no_whatsapp}
+                                              </a>
+                                            )}
                                           </div>
                                         )}
                                       </td>
@@ -3802,6 +4014,33 @@ const [pelangganQuery, setPelangganQuery] = useState("");
                 <button onClick={saveJamOperasional} disabled={savingJamOperasional}
                   className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 disabled:opacity-50">
                   {savingJamOperasional ? "Menyimpan..." : "Simpan"}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
+              <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase mb-1 inline-flex items-center gap-1.5"><Icon name="bell" size={13} /> Notifikasi WhatsApp Reservasi Baru</p>
+              <p className="text-xs text-[#9A8B7A] mb-3">Nomor WA yang akan otomatis dikirimi pesan setiap ada reservasi baru dari customer. Pisahkan dengan koma kalau lebih dari 1 nomor (format: 628123456789).</p>
+              <div className="grid sm:grid-cols-2 gap-4 mb-3">
+                {(isSuper || myOutlet === "solo") && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Nomor Admin — Solo</label>
+                    <input type="text" value={notifWaSolo} onChange={(e) => setNotifWaSolo(e.target.value)} placeholder="628123456789, 628987654321"
+                      className="w-full px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420]" />
+                  </div>
+                )}
+                {(isSuper || myOutlet === "jogja") && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#5C1420] mb-1 tracking-[0.2em] uppercase">Nomor Admin — Yogyakarta</label>
+                    <input type="text" value={notifWaJogja} onChange={(e) => setNotifWaJogja(e.target.value)} placeholder="628123456789, 628987654321"
+                      className="w-full px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420]" />
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-end">
+                <button onClick={saveNotifWa} disabled={savingNotifWa}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 disabled:opacity-50">
+                  {savingNotifWa ? "Menyimpan..." : "Simpan"}
                 </button>
               </div>
             </div>
