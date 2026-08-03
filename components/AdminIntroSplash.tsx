@@ -1,11 +1,21 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export default function AdminIntroSplash({ children }: { children: React.ReactNode }) {
-  const [showSplash, setShowSplash] = useState(true);
+  const [showSplash, setShowSplash] = useState(false);
   const [showSkip, setShowSkip] = useState(false);
   const [muted, setMuted] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    // Cek apakah dashboard ini dibuka sebagai aplikasi yang sudah di-install (PWA standalone),
+    // bukan lewat tab browser biasa. Video intro cuma tampil kalau statusnya "app ter-install".
+    const isStandalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    if (isStandalone) setShowSplash(true);
+  }, []);
 
   function handleTimeUpdate() {
     // Tombol "Lewati" muncul setelah 1.5 detik, biar admin gak kelamaan nunggu tiap buka app
@@ -23,7 +33,7 @@ export default function AdminIntroSplash({ children }: { children: React.ReactNo
     <>
       {children}
       {showSplash && (
-        <div className="fixed inset-0 z-[200] bg-[#3D0D14] flex items-center justify-center">
+        <div className="fixed inset-0 z-[200] bg-[#3D0D14] overflow-hidden">
           <video
             ref={videoRef}
             src="/admin-intro.mp4"
@@ -33,7 +43,7 @@ export default function AdminIntroSplash({ children }: { children: React.ReactNo
             onTimeUpdate={handleTimeUpdate}
             onEnded={() => setShowSplash(false)}
             onError={() => setShowSplash(false)}
-            className="max-w-full max-h-full w-auto h-auto object-contain"
+            className="absolute inset-0 w-full h-full object-cover"
           />
           <button
             onClick={toggleMute}
