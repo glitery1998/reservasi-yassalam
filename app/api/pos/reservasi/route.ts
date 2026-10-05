@@ -56,6 +56,12 @@ function todayJakarta() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
 }
 
+// pos_id varian/addon berbentuk "menuPosId:optionId" → ambil optionId-nya
+function optionIdOf(posId: string | null | undefined) {
+  if (!posId) return null;
+  return posId.split(":").pop() ?? null;
+}
+
 export async function GET(request: Request) {
   if (!keyValid(request.headers.get("x-pos-key"))) {
     return NextResponse.json({ error: "Tidak diizinkan" }, { status: 401 });
@@ -128,19 +134,27 @@ export async function GET(request: Request) {
   }
 
   const varianMap = new Map<number, string>();
+  const varianPosMap = new Map<number, string | null>();
   const varianIds = Array.from(
     new Set(items.map((i) => i.varian_id).filter((id): id is number => id != null))
   );
   if (varianIds.length > 0) {
-    const { data } = await supabaseAdmin.from("MenuVarian").select("Id, nama").in("Id", varianIds);
-    (data || []).forEach((v: { Id: number; nama: string }) => varianMap.set(v.Id, v.nama));
+    const { data } = await supabaseAdmin.from("MenuVarian").select("Id, nama, pos_id").in("Id", varianIds);
+    (data || []).forEach((v: { Id: number; nama: string; pos_id: string | null }) => {
+      varianMap.set(v.Id, v.nama);
+      varianPosMap.set(v.Id, optionIdOf(v.pos_id));
+    });
   }
 
   const addonMap = new Map<number, string>();
+  const addonPosMap = new Map<number, string | null>();
   const addonIds = Array.from(new Set(items.flatMap((i) => i.addon_ids || [])));
   if (addonIds.length > 0) {
-    const { data } = await supabaseAdmin.from("MenuAddon").select("Id, nama").in("Id", addonIds);
-    (data || []).forEach((a: { Id: number; nama: string }) => addonMap.set(a.Id, a.nama));
+    const { data } = await supabaseAdmin.from("MenuAddon").select("Id, nama, pos_id").in("Id", addonIds);
+    (data || []).forEach((a: { Id: number; nama: string; pos_id: string | null }) => {
+      addonMap.set(a.Id, a.nama);
+      addonPosMap.set(a.Id, optionIdOf(a.pos_id));
+    });
   }
 
   const itemsByReservation = new Map<number, MenuItemRow[]>();
@@ -181,7 +195,11 @@ export async function GET(request: Request) {
         nama: paketMap.get(i.menu_id) ?? "Menu",
         pos_menu_id: paketPosMap.get(i.menu_id) ?? null,
         varian: i.varian_id != null ? varianMap.get(i.varian_id) ?? null : null,
+        varian_option_id: i.varian_id != null ? varianPosMap.get(i.varian_id) ?? null : null,
         addons: (i.addon_ids || []).map((id) => addonMap.get(id)).filter((n): n is string => !!n),
+        addon_option_ids: (i.addon_ids || [])
+          .map((id) => addonPosMap.get(id))
+          .filter((n): n is string => !!n),
         jumlah_porsi: i.jumlah_porsi,
         harga_satuan: i.harga_satuan,
         subtotal: i.subtotal,
