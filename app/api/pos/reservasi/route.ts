@@ -117,10 +117,14 @@ export async function GET(request: Request) {
   }
 
   const paketMap = new Map<number, string>();
+  const paketPosMap = new Map<number, string | null>();
   const menuIds = Array.from(new Set(items.map((i) => i.menu_id)));
   if (menuIds.length > 0) {
-    const { data } = await supabaseAdmin.from("MenuPaket").select("Id, nama_paket").in("Id", menuIds);
-    (data || []).forEach((p: { Id: number; nama_paket: string }) => paketMap.set(p.Id, p.nama_paket));
+    const { data } = await supabaseAdmin.from("MenuPaket").select("Id, nama_paket, pos_id").in("Id", menuIds);
+    (data || []).forEach((p: { Id: number; nama_paket: string; pos_id: string | null }) => {
+      paketMap.set(p.Id, p.nama_paket);
+      paketPosMap.set(p.Id, p.pos_id);
+    });
   }
 
   const varianMap = new Map<number, string>();
@@ -175,6 +179,7 @@ export async function GET(request: Request) {
       (itemsByReservation.get(r.Id) || []).map((i) => ({
         id: i.Id,
         nama: paketMap.get(i.menu_id) ?? "Menu",
+        pos_menu_id: paketPosMap.get(i.menu_id) ?? null,
         varian: i.varian_id != null ? varianMap.get(i.varian_id) ?? null : null,
         addons: (i.addon_ids || []).map((id) => addonMap.get(id)).filter((n): n is string => !!n),
         jumlah_porsi: i.jumlah_porsi,
