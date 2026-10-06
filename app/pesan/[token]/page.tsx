@@ -462,7 +462,11 @@ export default function PesanMenuPage() {
                   <p className="font-bold text-[#5C3D1A] text-sm">{getMenuName(o.menu_id)}</p>
                   {getVarianName(o.varian_id) && <p className="text-xs text-[#8B7355]">Varian: {getVarianName(o.varian_id)}</p>}
                   {o.addon_ids?.length > 0 && <p className="text-xs text-[#8B7355]">Add-on: {getAddonNames(o.addon_ids)}</p>}
-                  {o.nama_pemesan && <p className="text-xs text-[#C8973E] font-semibold mt-0.5">Pemesan: {o.nama_pemesan}</p>}
+                   {o.nama_pemesan && (
+                    <p className="text-xs text-[#C8973E] font-semibold mt-0.5">
+                      {o.nama_pemesan.endsWith("(POS)") ? "Ditambahkan manual oleh admin" : `Pemesan: ${o.nama_pemesan}`}
+                    </p>
+                  )}
                   {o.catatan && <p className="text-xs text-[#8B7355] italic mt-0.5">📝 {o.catatan}</p>}
                   {!locked && (
                     <div className="flex items-center gap-2 mt-2.5">
