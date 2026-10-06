@@ -64,6 +64,7 @@ export default function PesanMenuPage() {
 
   const [pickedItem, setPickedItem] = useState<MenuItemT | null>(null);
   const [pickVarianCounts, setPickVarianCounts] = useState<Record<number, number>>({});
+  const [pickVarianNotes, setPickVarianNotes] = useState<Record<number, string>>({});
   const [pickAddons, setPickAddons] = useState<number[]>([]);
   const [pickQty, setPickQty] = useState(1);
   const [pickNama, setPickNama] = useState("");
@@ -170,6 +171,7 @@ export default function PesanMenuPage() {
   function openPickItem(item: MenuItemT) {
     setPickedItem(item);
     setPickVarianCounts({});
+    setPickVarianNotes({});
     setPickAddons([]);
     setPickQty(1);
     setPickNama("");
@@ -187,7 +189,7 @@ export default function PesanMenuPage() {
   const pickVarianTotal = sumCounts(pickVarianCounts);
 
   // Satu baris pesanan per varian; porsi yang belum diberi varian dihitung harga dasar
-  const pickRows: { varianId: number | null; qty: number; satuan: number }[] = pickedItem
+  const pickRows: { varianId: number | null; qty: number; satuan: number; catatan: string | null }[] = pickedItem
     ? [
         ...itemVarianList
           .filter((v) => (pickVarianCounts[v.Id] || 0) > 0)
@@ -195,9 +197,15 @@ export default function PesanMenuPage() {
             varianId: v.Id as number | null,
             qty: pickVarianCounts[v.Id],
             satuan: pickedItem.harga + (v.harga_tambahan || 0) + pickAddonExtra,
+            catatan: (pickVarianNotes[v.Id] || "").trim() || pickCatatan.trim() || null,
           })),
         ...(pickQty - pickVarianTotal > 0
-          ? [{ varianId: null as number | null, qty: pickQty - pickVarianTotal, satuan: pickedItem.harga + pickAddonExtra }]
+          ? [{
+              varianId: null as number | null,
+              qty: pickQty - pickVarianTotal,
+              satuan: pickedItem.harga + pickAddonExtra,
+              catatan: pickCatatan.trim() || null,
+            }]
           : []),
       ]
     : [];
@@ -240,7 +248,7 @@ export default function PesanMenuPage() {
         p_jumlah_porsi: r.qty,
         p_harga_satuan: r.satuan,
         p_subtotal: r.satuan * r.qty,
-        p_catatan: pickCatatan || null,
+         p_catatan: r.catatan,
         p_nama_pemesan: pickNama || null,
       });
       if (error) { failedMessage = error.message; break; }
@@ -592,16 +600,26 @@ export default function PesanMenuPage() {
                   {itemVarianList.map((v) => {
                     const count = pickVarianCounts[v.Id] || 0;
                     return (
-                      <div key={v.Id} className={`flex justify-between items-center p-3 rounded-xl border-2 text-sm transition-all ${count > 0 ? "border-[#C8973E] bg-[#FDF6EC]" : "border-[#E8DCC8]"}`}>
-                        <div>
-                          <p className="font-semibold text-[#5C3D1A]">{v.nama}</p>
-                          <p className="text-xs text-[#C8973E]">{v.harga_tambahan > 0 ? `+${formatRupiah(v.harga_tambahan)} / porsi` : "Gratis"}</p>
+                      <div key={v.Id} className={`p-3 rounded-xl border-2 text-sm transition-all ${count > 0 ? "border-[#C8973E] bg-[#FDF6EC]" : "border-[#E8DCC8]"}`}>
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="font-semibold text-[#5C3D1A]">{v.nama}</p>
+                            <p className="text-xs text-[#C8973E]">{v.harga_tambahan > 0 ? `+${formatRupiah(v.harga_tambahan)} / porsi` : "Gratis"}</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <button onClick={() => decVarian(v.Id)} className="w-8 h-8 rounded-lg border-2 border-[#E8DCC8] text-[#5C3D1A] font-bold">−</button>
+                            <span className="font-bold text-[#5C3D1A] w-5 text-center">{count}</span>
+                            <button onClick={() => incVarian(v.Id)} disabled={pickVarianTotal >= pickQty} className="w-8 h-8 rounded-lg bg-[#C8973E] text-white font-bold disabled:opacity-30">+</button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <button onClick={() => decVarian(v.Id)} className="w-8 h-8 rounded-lg border-2 border-[#E8DCC8] text-[#5C3D1A] font-bold">−</button>
-                          <span className="font-bold text-[#5C3D1A] w-5 text-center">{count}</span>
-                          <button onClick={() => incVarian(v.Id)} disabled={pickVarianTotal >= pickQty} className="w-8 h-8 rounded-lg bg-[#C8973E] text-white font-bold disabled:opacity-30">+</button>
-                        </div>
+                        {count > 0 && (
+                          <input
+                            value={pickVarianNotes[v.Id] || ""}
+                            onChange={(e) => setPickVarianNotes((n) => ({ ...n, [v.Id]: e.target.value }))}
+                            placeholder={`Catatan untuk ${v.nama} (opsional)`}
+                            className="mt-2.5 w-full px-3 py-2.5 rounded-lg border-2 border-[#E8DCC8] bg-white outline-none focus:border-[#C8973E] text-xs text-[#5C3D1A]"
+                          />
+                        )}
                       </div>
                     );
                   })}
@@ -632,7 +650,12 @@ export default function PesanMenuPage() {
             </div>
 
             <div>
-              <p className="text-xs font-bold text-[#C8973E] mb-2 tracking-[0.1em] uppercase">Catatan <span className="normal-case font-normal text-[#B8A88A]">(opsional)</span></p>
+               <p className="text-xs font-bold text-[#C8973E] mb-2 tracking-[0.1em] uppercase">
+                {itemVarianList.length > 0 ? "Catatan Umum" : "Catatan"}{" "}
+                <span className="normal-case font-normal text-[#B8A88A]">
+                  (opsional{itemVarianList.length > 0 ? ", dipakai untuk varian yang tidak diisi catatan sendiri" : ""})
+                </span>
+              </p>
               <input value={pickCatatan} onChange={(e) => setPickCatatan(e.target.value)} placeholder="Mis. tidak pedas" className="w-full px-4 py-3 rounded-xl border-2 border-[#E8DCC8] outline-none focus:border-[#C8973E] text-sm text-[#5C3D1A]" />
             </div>
 
