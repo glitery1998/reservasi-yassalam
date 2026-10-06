@@ -54,7 +54,7 @@ function outletLabel(o: string) {
 }
 
 // Ambil satu reservasi (semua baris mejanya). null kalau tidak lengkap atau bukan satu reservasi yang sama.
-export async function loadGrup(ids: number[]): Promise<Grup | null> {
+export async function loadGrup(ids: number[], withMeja = true): Promise<Grup | null> {
   const { data } = await supabaseAdmin
     .from("Reservation")
     .select(
@@ -69,7 +69,7 @@ export async function loadGrup(ids: number[]): Promise<Grup | null> {
 
   const mejaIds = rows.map((r) => r.meja_id).filter((x): x is number => x != null);
   const names = new Map<number, string>();
-  if (mejaIds.length > 0) {
+  if (withMeja && mejaIds.length > 0) {
     const { data: t } = await supabaseAdmin.from("Tables").select("Id, nomor_meja, nama_meja").in("Id", mejaIds);
     (t || []).forEach((x: { Id: number; nomor_meja: number; nama_meja: string | null }) => {
       names.set(x.Id, x.nama_meja || `Meja ${x.nomor_meja}`);

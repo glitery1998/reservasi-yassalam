@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { keyValid, logActivity, supabaseAdmin } from "../../_shared";
 import { loadGrup, parseIds } from "../../_pesan";
 
@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 type MenuRow = { Id: number; nama_paket: string; harga: number; outlet: string; aktif: boolean; punya_varian: boolean };
 type OptRow = { Id: number; nama: string; harga_tambahan: number };
 type Baris = { varian_id: number | null; jumlah_porsi: number; catatan: string | null };
+type Entry = { menu_id: number; addon_ids: number[]; baris: Baris[] };
 
 function parseIntList(raw: unknown): number[] | null {
   if (raw == null) return [];
@@ -33,38 +34,50 @@ function parseBaris(raw: unknown): Baris[] | null {
   return out;
 }
 
-// Validasi pilihan dan hitung harga tiap baris, sama seperti halaman pesan tamu
-async function siapkan(menuId: number, outlet: string, baris: Baris[], addonIds: number[]) {
-  const { data: menuData } = await supabaseAdmin
-    .from("MenuPaket")
-    .select("Id, nama_paket, harga, outlet, aktif, punya_varian")
-    .eq("Id", menuId)
-    .maybeSingle();
-  const menu = menuData as MenuRow | null;
-  if (!menu || menu.outlet !== outlet) return { ok: false as const, error: "Menu tidak ditemukan di outlet ini" };
-  if (!menu.aktif) return { ok: false as const, error: "Menu ini sedang nonaktif" };
+function parseEntries(raw: unknown): Entry[] | null {
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > 30) return null;
+  const out: Entry[] = [];
+  for (const e of raw) {
+    const menuId = Number(e?.menu_id);
+    const addonIds = parseIntList(e?.addon_ids);
+    const baris = parseBaris(e?.baris);
+    if (!Number.isInteger(menuId) || menuId <= 0 || addonIds === null || !baris) return null;
+    out.push({ menu_id: menuId, addon_ids: addonIds, baris });
+  }
+  return out;
+}
 
-  const { data: varData } = await supabaseAdmin
-    .from("MenuVarian")
-    .select("Id, nama, harga_tambahan")
-    .eq("menu_id", menuId)
-    .eq("aktif", true);
-  const varianList = (varData || []) as OptRow[];
+type Siap =
+  | { ok: true; nama: string; rows: (Baris & { harga_satuan: number; subtotal: number })[] }
+  | { ok: false; error: string; nama: string | null };
+
+// Validasi pilihan dan hitung harga tiap baris, sama seperti halaman pesan tamu
+async function siapkan(menuId: number, outlet: string, baris: Baris[], addonIds: number[]): Promise<Siap> {
+  const [menuRes, varRes, addRes] = await Promise.all([
+    supabaseAdmin
+      .from("MenuPaket")
+      .select("Id, nama_paket, harga, outlet, aktif, punya_varian")
+      .eq("Id", menuId)
+      .maybeSingle(),
+    supabaseAdmin.from("MenuVarian").select("Id, nama, harga_tambahan").eq("menu_id", menuId).eq("aktif", true),
+    addonIds.length > 0
+      ? supabaseAdmin.from("MenuAddon").select("Id, nama, harga_tambahan").eq("menu_id", menuId).eq("aktif", true)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const menu = menuRes.data as MenuRow | null;
+  if (!menu || menu.outlet !== outlet) return { ok: false, error: "Menu tidak ditemukan di outlet ini", nama: null };
+  if (!menu.aktif) return { ok: false, error: "Menu ini sedang nonaktif", nama: menu.nama_paket };
+
+  const varianList = (varRes.data || []) as OptRow[];
+  const addonList = (addRes.data || []) as OptRow[];
   const wajibVarian = menu.punya_varian && varianList.length > 0;
 
   let addonExtra = 0;
-  if (addonIds.length > 0) {
-    const { data: addData } = await supabaseAdmin
-      .from("MenuAddon")
-      .select("Id, nama, harga_tambahan")
-      .eq("menu_id", menuId)
-      .eq("aktif", true);
-    const addonList = (addData || []) as OptRow[];
-    for (const id of addonIds) {
-      const a = addonList.find((x) => x.Id === id);
-      if (!a) return { ok: false as const, error: "Addon tidak valid untuk menu ini" };
-      addonExtra += a.harga_tambahan || 0;
-    }
+  for (const id of addonIds) {
+    const a = addonList.find((x) => x.Id === id);
+    if (!a) return { ok: false, error: "Addon tidak valid untuk menu ini", nama: menu.nama_paket };
+    addonExtra += a.harga_tambahan || 0;
   }
 
   const rows: (Baris & { harga_satuan: number; subtotal: number })[] = [];
@@ -72,16 +85,16 @@ async function siapkan(menuId: number, outlet: string, baris: Baris[], addonIds:
     let varianExtra = 0;
     if (b.varian_id != null) {
       const v = varianList.find((x) => x.Id === b.varian_id);
-      if (!v) return { ok: false as const, error: "Varian tidak valid untuk menu ini" };
+      if (!v) return { ok: false, error: "Varian tidak valid untuk menu ini", nama: menu.nama_paket };
       varianExtra = v.harga_tambahan || 0;
     } else if (wajibVarian) {
-      return { ok: false as const, error: "Pilih varian untuk setiap porsi" };
+      return { ok: false, error: "Pilih varian untuk setiap porsi", nama: menu.nama_paket };
     }
     const satuan = (menu.harga || 0) + varianExtra + addonExtra;
     rows.push({ ...b, harga_satuan: satuan, subtotal: satuan * b.jumlah_porsi });
   }
 
-  return { ok: true as const, nama: menu.nama_paket, rows };
+  return { ok: true, nama: menu.nama_paket, rows };
 }
 
 export async function POST(request: Request) {
@@ -94,13 +107,13 @@ export async function POST(request: Request) {
   const ids = parseIds(body?.ids);
   const dibuatOleh = String(body?.dibuat_oleh || "").trim();
 
-  if (!["tambah", "ubah", "hapus"].includes(action)) {
+  if (!["tambah", "tambah_banyak", "ubah", "hapus"].includes(action)) {
     return NextResponse.json({ error: "Aksi tidak dikenal" }, { status: 400 });
   }
   if (!ids) return NextResponse.json({ error: "Daftar reservasi tidak valid" }, { status: 400 });
   if (!dibuatOleh) return NextResponse.json({ error: "Nama petugas wajib diisi" }, { status: 400 });
 
-  const grup = await loadGrup(ids);
+  const grup = await loadGrup(ids, false);
   if (!grup) return NextResponse.json({ error: "Reservasi tidak ditemukan" }, { status: 404 });
   if (!["Pending", "Confirmed"].includes(grup.status)) {
     return NextResponse.json({ error: `Reservasi berstatus ${grup.status}, menu tidak bisa diubah` }, { status: 400 });
@@ -110,6 +123,7 @@ export async function POST(request: Request) {
   }
 
   const label = `${grup.nama_tamu} (${grup.tanggal} ${grup.jam.slice(0, 5)})`;
+  const petugas = `${dibuatOleh} (POS)`;
   const itemId = Number(body?.item_id);
 
   // Pastikan baris menu memang milik reservasi ini
@@ -130,7 +144,49 @@ export async function POST(request: Request) {
     if (!row) return NextResponse.json({ error: "Menu tidak ditemukan di reservasi ini" }, { status: 404 });
     const { error } = await supabaseAdmin.from("ReservationMenuItem").delete().eq("Id", row.Id);
     if (error) return NextResponse.json({ error: "Gagal menghapus menu" }, { status: 500 });
-    await logActivity(`${dibuatOleh} (POS)`, "Ubah menu reservasi (POS)", `${label} · hapus menu`);
+    after(() => logActivity(petugas, "Ubah menu reservasi (POS)", `${label} · hapus menu`));
+    return NextResponse.json({ success: true });
+  }
+
+  if (action === "tambah_banyak") {
+    const entries = parseEntries(body?.entries);
+    if (!entries) return NextResponse.json({ error: "Daftar menu tidak valid" }, { status: 400 });
+
+    const results = await Promise.all(entries.map((e) => siapkan(e.menu_id, grup.outlet, e.baris, e.addon_ids)));
+
+    const payload: Record<string, unknown>[] = [];
+    let totalPorsi = 0;
+    for (let i = 0; i < results.length; i++) {
+      const h = results[i];
+      const e = entries[i];
+      if (!h.ok) {
+        return NextResponse.json(
+          { error: `${h.nama ?? `Menu #${e.menu_id}`}: ${h.error}` },
+          { status: 400 }
+        );
+      }
+      h.rows.forEach((r) => {
+        totalPorsi += r.jumlah_porsi;
+        payload.push({
+          reservation_id: grup.primaryId,
+          menu_id: e.menu_id,
+          varian_id: r.varian_id,
+          addon_ids: e.addon_ids,
+          jumlah_porsi: r.jumlah_porsi,
+          harga_satuan: r.harga_satuan,
+          subtotal: r.subtotal,
+          catatan: r.catatan,
+          nama_pemesan: petugas,
+        });
+      });
+    }
+
+    // Satu perintah insert: semua menu masuk, atau tidak ada sama sekali
+    const { error } = await supabaseAdmin.from("ReservationMenuItem").insert(payload);
+    if (error) return NextResponse.json({ error: "Gagal menambah menu" }, { status: 500 });
+    after(() =>
+      logActivity(petugas, "Ubah menu reservasi (POS)", `${label} · tambah ${entries.length} menu (${totalPorsi} porsi)`)
+    );
     return NextResponse.json({ success: true });
   }
 
@@ -157,12 +213,12 @@ export async function POST(request: Request) {
         harga_satuan: r.harga_satuan,
         subtotal: r.subtotal,
         catatan: r.catatan,
-        nama_pemesan: `${dibuatOleh} (POS)`,
+        nama_pemesan: petugas,
       }))
     );
     if (error) return NextResponse.json({ error: "Gagal menambah menu" }, { status: 500 });
     const total = h.rows.reduce((s, r) => s + r.jumlah_porsi, 0);
-    await logActivity(`${dibuatOleh} (POS)`, "Ubah menu reservasi (POS)", `${label} · tambah ${total}x ${h.nama}`);
+    after(() => logActivity(petugas, "Ubah menu reservasi (POS)", `${label} · tambah ${total}x ${h.nama}`));
     return NextResponse.json({ success: true });
   }
 
@@ -184,7 +240,7 @@ export async function POST(request: Request) {
         harga_satuan: r.harga_satuan,
         subtotal: r.subtotal,
         catatan: r.catatan,
-        nama_pemesan: row.nama_pemesan ?? `${dibuatOleh} (POS)`,
+        nama_pemesan: row.nama_pemesan ?? petugas,
       }))
     )
     .select("Id");
@@ -200,6 +256,6 @@ export async function POST(request: Request) {
   }
 
   const total = h.rows.reduce((s, r) => s + r.jumlah_porsi, 0);
-  await logActivity(`${dibuatOleh} (POS)`, "Ubah menu reservasi (POS)", `${label} · ubah ${total}x ${h.nama}`);
+  after(() => logActivity(petugas, "Ubah menu reservasi (POS)", `${label} · ubah ${total}x ${h.nama}`));
   return NextResponse.json({ success: true });
 }
