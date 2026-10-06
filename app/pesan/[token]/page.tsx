@@ -22,6 +22,25 @@ type OrderedItem = {
 };
 
 function formatRupiah(n: number) { return "Rp " + n.toLocaleString("id-ID"); }
+
+function sumCounts(counts: Record<number, number>) {
+  return Object.values(counts).reduce((s, v) => s + v, 0);
+}
+
+// Kalau jumlah porsi dikurangi, potong pilihan varian dari yang paling akhir
+function clampCounts(counts: Record<number, number>, max: number) {
+  const copy: Record<number, number> = { ...counts };
+  let total = sumCounts(copy);
+  const keys = Object.keys(copy).map(Number).reverse();
+  for (const k of keys) {
+    while (total > max && (copy[k] ?? 0) > 0) {
+      copy[k] -= 1;
+      total -= 1;
+    }
+    if (copy[k] === 0) delete copy[k];
+  }
+  return copy;
+}
 const outletAddress: Record<string, string> = {
   solo: "Jl. Kapten Mulyadi No. 193, Pasar Kliwon, Surakarta",
   jogja: "Jl. Timoho No. 56, Muja Muju, Umbulharjo, DIY",
@@ -44,7 +63,7 @@ export default function PesanMenuPage() {
   const [activeKategori, setActiveKategori] = useState<number | null>(null);
 
   const [pickedItem, setPickedItem] = useState<MenuItemT | null>(null);
-  const [pickVarian, setPickVarian] = useState<number | null>(null);
+  const [pickVarianCounts, setPickVarianCounts] = useState<Record<number, number>>({});
   const [pickAddons, setPickAddons] = useState<number[]>([]);
   const [pickQty, setPickQty] = useState(1);
   const [pickNama, setPickNama] = useState("");
@@ -150,7 +169,7 @@ export default function PesanMenuPage() {
 
   function openPickItem(item: MenuItemT) {
     setPickedItem(item);
-    setPickVarian(null);
+    setPickVarianCounts({});
     setPickAddons([]);
     setPickQty(1);
     setPickNama("");
@@ -163,32 +182,81 @@ export default function PesanMenuPage() {
   const itemVarianList = pickedItem ? varianList.filter((v) => v.menu_id === pickedItem.Id) : [];
   const itemAddonList = pickedItem ? addonList.filter((a) => a.menu_id === pickedItem.Id) : [];
 
-  const pickSubtotalSatuan = pickedItem
-    ? pickedItem.harga
-      + (pickVarian ? (itemVarianList.find((v) => v.Id === pickVarian)?.harga_tambahan || 0) : 0)
-      + pickAddons.reduce((s, id) => s + (itemAddonList.find((a) => a.Id === id)?.harga_tambahan || 0), 0)
-    : 0;
+  const pickAddonExtra = pickAddons.reduce((s, id) => s + (itemAddonList.find((a) => a.Id === id)?.harga_tambahan || 0), 0);
+  const pickVarianWajib = !!pickedItem && pickedItem.punya_varian && itemVarianList.length > 0;
+  const pickVarianTotal = sumCounts(pickVarianCounts);
+
+  // Satu baris pesanan per varian; porsi yang belum diberi varian dihitung harga dasar
+  const pickRows: { varianId: number | null; qty: number; satuan: number }[] = pickedItem
+    ? [
+        ...itemVarianList
+          .filter((v) => (pickVarianCounts[v.Id] || 0) > 0)
+          .map((v) => ({
+            varianId: v.Id as number | null,
+            qty: pickVarianCounts[v.Id],
+            satuan: pickedItem.harga + (v.harga_tambahan || 0) + pickAddonExtra,
+          })),
+        ...(pickQty - pickVarianTotal > 0
+          ? [{ varianId: null as number | null, qty: pickQty - pickVarianTotal, satuan: pickedItem.harga + pickAddonExtra }]
+          : []),
+      ]
+    : [];
+  const pickSubtotal = pickRows.reduce((s, r) => s + r.satuan * r.qty, 0);
+
+  function changePickQty(delta: number) {
+    const next = Math.min(99, Math.max(1, pickQty + delta));
+    setPickQty(next);
+    setPickVarianCounts((c) => clampCounts(c, next));
+  }
+  function incVarian(id: number) {
+    if (pickVarianTotal >= pickQty) return;
+    setPickVarianCounts((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
+  }
+  function decVarian(id: number) {
+    setPickVarianCounts((c) => {
+      if (!c[id]) return c;
+      const copy = { ...c };
+      copy[id] -= 1;
+      if (copy[id] <= 0) delete copy[id];
+      return copy;
+    });
+  }
 
   async function submitOrder() {
     if (!pickedItem || !primaryReservation) return;
-    if (pickedItem.punya_varian && itemVarianList.length > 0 && !pickVarian) {
-      showNotif("warning", "Pilih Varian Dulu", "Silakan pilih salah satu varian sebelum menambahkan ke pesanan.");
+    if (pickVarianWajib && pickVarianTotal !== pickQty) {
+      showNotif("warning", "Pilih Varian Dulu", `Baru dipilih ${pickVarianTotal} dari ${pickQty} porsi. Lengkapi pilihan variannya.`);
       return;
     }
     setSubmitting(true);
-    const { error } = await supabase.rpc("add_order_item_by_token", {
-      p_token: token,
-      p_menu_id: pickedItem.Id,
-      p_varian_id: pickVarian,
-      p_addon_ids: pickAddons,
-      p_jumlah_porsi: pickQty,
-      p_harga_satuan: pickSubtotalSatuan,
-      p_subtotal: pickSubtotalSatuan * pickQty,
-      p_catatan: pickCatatan || null,
-      p_nama_pemesan: pickNama || null,
-    });
+    let added = 0;
+    let failedMessage = "";
+    for (const r of pickRows) {
+      const { error } = await supabase.rpc("add_order_item_by_token", {
+        p_token: token,
+        p_menu_id: pickedItem.Id,
+        p_varian_id: r.varianId,
+        p_addon_ids: pickAddons,
+        p_jumlah_porsi: r.qty,
+        p_harga_satuan: r.satuan,
+        p_subtotal: r.satuan * r.qty,
+        p_catatan: pickCatatan || null,
+        p_nama_pemesan: pickNama || null,
+      });
+      if (error) { failedMessage = error.message; break; }
+      added += 1;
+    }
     setSubmitting(false);
-    if (error) { showNotif("error", "Gagal Menyimpan Pesanan", error.message); return; }
+    if (failedMessage) {
+      if (added > 0) {
+        showNotif("error", "Sebagian Pesanan Tersimpan", `${added} dari ${pickRows.length} pilihan varian sudah masuk ke pesanan, sisanya gagal (${failedMessage}). Cek daftar pesanan, lalu tambahkan sisanya.`);
+        setPickedItem(null);
+        refreshOrders();
+      } else {
+        showNotif("error", "Gagal Menyimpan Pesanan", failedMessage);
+      }
+      return;
+    }
     setPickedItem(null);
     refreshOrders();
   }
@@ -497,17 +565,42 @@ export default function PesanMenuPage() {
             </div>
             {pickedItem.deskripsi && <p className="text-sm text-[#8B7355]">{pickedItem.deskripsi}</p>}
 
+            <div>
+              <p className="text-xs font-bold text-[#C8973E] mb-2 tracking-[0.1em] uppercase">Jumlah</p>
+              <div className="flex items-center gap-4">
+                <button onClick={() => changePickQty(-1)} className="w-10 h-10 rounded-xl border-2 border-[#E8DCC8] text-[#5C3D1A] font-bold">−</button>
+                <span className="font-bold text-[#5C3D1A] text-lg w-8 text-center">{pickQty}</span>
+                <button onClick={() => changePickQty(1)} className="w-10 h-10 rounded-xl border-2 border-[#E8DCC8] text-[#5C3D1A] font-bold">+</button>
+              </div>
+            </div>
+
             {itemVarianList.length > 0 && (
               <div>
-                <p className="text-xs font-bold text-[#C8973E] mb-2 tracking-[0.1em] uppercase">Pilih Varian</p>
+                <p className="text-xs font-bold text-[#C8973E] mb-1 tracking-[0.1em] uppercase">
+                  Pilih Varian {pickVarianWajib ? "(wajib)" : "(opsional)"}
+                </p>
+                <p className={`text-xs mb-2 ${pickVarianWajib && pickVarianTotal === pickQty ? "text-green-700" : "text-[#8B7355]"}`}>
+                  {pickVarianWajib && pickVarianTotal === pickQty
+                    ? "✓ Lengkap"
+                    : `${pickVarianTotal} dari ${pickQty} porsi dipilih. Atur jumlah tiap varian.`}
+                </p>
                 <div className="space-y-2">
-                  {itemVarianList.map((v) => (
-                    <button key={v.Id} onClick={() => setPickVarian(v.Id)}
-                      className={`w-full flex justify-between items-center p-3 rounded-xl border-2 text-sm transition-all ${pickVarian === v.Id ? "border-[#C8973E] bg-[#FDF6EC]" : "border-[#E8DCC8]"}`}>
-                      <span className="font-semibold text-[#5C3D1A]">{v.nama}</span>
-                      <span className="text-[#C8973E]">{v.harga_tambahan > 0 ? `+${formatRupiah(v.harga_tambahan)}` : "Gratis"}</span>
-                    </button>
-                  ))}
+                  {itemVarianList.map((v) => {
+                    const count = pickVarianCounts[v.Id] || 0;
+                    return (
+                      <div key={v.Id} className={`flex justify-between items-center p-3 rounded-xl border-2 text-sm transition-all ${count > 0 ? "border-[#C8973E] bg-[#FDF6EC]" : "border-[#E8DCC8]"}`}>
+                        <div>
+                          <p className="font-semibold text-[#5C3D1A]">{v.nama}</p>
+                          <p className="text-xs text-[#C8973E]">{v.harga_tambahan > 0 ? `+${formatRupiah(v.harga_tambahan)} / porsi` : "Gratis"}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => decVarian(v.Id)} className="w-8 h-8 rounded-lg border-2 border-[#E8DCC8] text-[#5C3D1A] font-bold">−</button>
+                          <span className="font-bold text-[#5C3D1A] w-5 text-center">{count}</span>
+                          <button onClick={() => incVarian(v.Id)} disabled={pickVarianTotal >= pickQty} className="w-8 h-8 rounded-lg bg-[#C8973E] text-white font-bold disabled:opacity-30">+</button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -530,15 +623,6 @@ export default function PesanMenuPage() {
             )}
 
             <div>
-              <p className="text-xs font-bold text-[#C8973E] mb-2 tracking-[0.1em] uppercase">Jumlah</p>
-              <div className="flex items-center gap-4">
-                <button onClick={() => setPickQty((q) => Math.max(1, q - 1))} className="w-10 h-10 rounded-xl border-2 border-[#E8DCC8] text-[#5C3D1A] font-bold">−</button>
-                <span className="font-bold text-[#5C3D1A] text-lg w-8 text-center">{pickQty}</span>
-                <button onClick={() => setPickQty((q) => q + 1)} className="w-10 h-10 rounded-xl border-2 border-[#E8DCC8] text-[#5C3D1A] font-bold">+</button>
-              </div>
-            </div>
-
-            <div>
               <p className="text-xs font-bold text-[#C8973E] mb-2 tracking-[0.1em] uppercase">Nama Pemesan <span className="normal-case font-normal text-[#B8A88A]">(opsional)</span></p>
               <input value={pickNama} onChange={(e) => setPickNama(e.target.value)} placeholder="Mis. Andi" className="w-full px-4 py-3 rounded-xl border-2 border-[#E8DCC8] outline-none focus:border-[#C8973E] text-sm text-[#5C3D1A]" />
             </div>
@@ -550,7 +634,7 @@ export default function PesanMenuPage() {
 
             <div className="flex items-center justify-between pt-2 border-t border-[#E8DCC8]">
               <span className="text-sm text-[#8B7355]">Subtotal</span>
-              <span className="font-bold text-[#C8973E] text-lg">{formatRupiah(pickSubtotalSatuan * pickQty)}</span>
+              <span className="font-bold text-[#C8973E] text-lg">{formatRupiah(pickSubtotal)}</span>
             </div>
 
             <button onClick={submitOrder} disabled={submitting}
