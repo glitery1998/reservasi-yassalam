@@ -38,6 +38,13 @@ export async function GET(request: Request) {
   const jsParam = searchParams.get("jam_selesai") || "";
   const jamSelesai = TIME_RE.test(jsParam) ? jsParam.slice(0, 5) : addMinutes(jamMulai, 120);
 
+  // Saat mengubah reservasi, booking miliknya sendiri tidak dianggap bentrok
+  const abaikan = (searchParams.get("abaikan") || "")
+    .split(",")
+    .map((s) => Number(s))
+    .filter((n) => Number.isInteger(n) && n > 0)
+    .slice(0, 20);
+
   const { data: tablesData, error } = await supabaseAdmin
     .from("Tables")
     .select("Id, nomor_meja, nama_meja, kapasitas, kapasitas_minimum, dp_minimum, posisi")
@@ -57,7 +64,8 @@ export async function GET(request: Request) {
     tables.map((t) => t.Id),
     tanggal,
     jamMulai,
-    jamSelesai
+    jamSelesai,
+    abaikan
   );
 
   const { data: liburData } = await supabaseAdmin
