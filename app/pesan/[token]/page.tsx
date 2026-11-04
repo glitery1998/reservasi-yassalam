@@ -75,7 +75,6 @@ export default function PesanMenuPage() {
   const [finalizing, setFinalizing] = useState(false);
   const [waVerify, setWaVerify] = useState("");
   const [waError, setWaError] = useState("");
-  const [cancelingFinalize, setCancelingFinalize] = useState(false);
   const [notif, setNotif] = useState<{ kind: "error" | "warning"; title: string; message: string } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
   function showNotif(kind: "error" | "warning", title: string, message: string) {
@@ -148,18 +147,6 @@ export default function PesanMenuPage() {
     setReservations((prev) => prev.map((r) => ({ ...r, menu_finalized: true })));
     setShowFinalizeConfirm(false);
     setWaVerify("");
-  }
-
-  function cancelFinalize() {
-    askConfirm("Batalkan Pengiriman Menu?", "Pesanan akan bisa diedit lagi setelah dibatalkan.", doCancelFinalize);
-  }
-  async function doCancelFinalize() {
-    if (!token) return;
-    setCancelingFinalize(true);
-    const { error } = await supabase.rpc("unfinalize_order_by_token", { p_token: token });
-    setCancelingFinalize(false);
-    if (error) { showNotif("error", "Gagal Membatalkan", error.message); return; }
-    setReservations((prev) => prev.map((r) => ({ ...r, menu_finalized: false })));
   }
 
   useEffect(() => {
@@ -374,12 +361,6 @@ export default function PesanMenuPage() {
             </div>
             <h2 className="font-bold text-[#5C3D1A] font-serif">Pesanan Sudah Dikirim</h2>
             <p className="text-[#8B7355] text-sm mt-2">Pesanan menu ini sudah final dan tidak bisa diubah lagi. Tunjukkan halaman ini ke staff saat tiba di outlet.</p>
-            {!timeLocked && (
-              <button onClick={cancelFinalize} disabled={cancelingFinalize}
-                className="mt-4 text-xs font-semibold text-red-500 border border-red-200 rounded-lg px-4 py-2 hover:bg-red-50 transition-all disabled:opacity-50">
-                {cancelingFinalize ? "Membatalkan..." : "↩ Batalkan Pengiriman, Edit Lagi"}
-              </button>
-            )}
           </div>
         </div>
       ) : timeLocked ? (
