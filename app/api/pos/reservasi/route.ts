@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { timingSafeEqual } from "crypto";
+import { expirePendingTransfer } from "../../_expire-transfer";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,7 @@ function optionIdOf(posId: string | null | undefined) {
 }
 
 export async function GET(request: Request) {
+  await expirePendingTransfer();
   if (!keyValid(request.headers.get("x-pos-key"))) {
     return NextResponse.json({ error: "Tidak diizinkan" }, { status: 401 });
   }

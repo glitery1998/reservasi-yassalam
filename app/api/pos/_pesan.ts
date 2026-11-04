@@ -126,6 +126,22 @@ export function pesanKonfirmasi(g: Grup, dp: number) {
   );
 }
 
+// Dikirim otomatis saat admin backoffice mengonfirmasi pembayaran DP (nomor BOT, bukan chat manusia)
+export function pesanKonfirmasiBot(g: Grup) {
+  return (
+    `Assalamu'alaikum Bapak/Ibu ${g.nama_tamu} 🙏\n\n` +
+    `Perkenalkan, ini adalah nomor *BOT Yassalam* — asisten otomatis Yassalam Arabian Resto ${outletLabel(g.outlet)}.\n\n` +
+    `Dengan senang hati kami informasikan bahwa pembayaran uang muka Anda telah kami terima, dan reservasi Anda sudah *TERKONFIRMASI* ✅\n\n` +
+    `*Detail Reservasi*\n` +
+    detailBlok(g, g.dp_amount) +
+    linkMenu(g) +
+    LINK_TIKET +
+    `\nPesan ini dikirim secara otomatis, sehingga mohon maaf kami belum dapat membalas pesan di nomor ini. ` +
+    `Apabila ada pertanyaan atau perubahan reservasi, silakan menghubungi pihak outlet.\n\n` +
+    `Terima kasih atas kepercayaan Anda. Kami menantikan kedatangan Anda di Yassalam 🙏`
+  );
+}
+
 export function pesanLink(g: Grup) {
   return (
     `Halo ${g.nama_tamu}, berikut link untuk reservasi Anda di Yassalam Arabian Resto ${outletLabel(g.outlet)}:\n\n` +

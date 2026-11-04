@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { expirePendingTransfer } from "../_expire-transfer";
 import { createClient } from "@supabase/supabase-js";
 
 // Pakai service role key — kunci penuh yang HANYA boleh dipakai di server,
@@ -17,6 +18,7 @@ function normalizeWhatsapp(nomor: string) {
 }
 
 export async function POST(request: Request) {
+  await expirePendingTransfer();
   const body = await request.json().catch(() => null);
   const nomorWa = body?.nomorWa;
 

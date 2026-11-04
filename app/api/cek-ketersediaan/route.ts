@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { expirePendingTransfer } from "../_expire-transfer";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseAdmin = createClient(
@@ -22,6 +23,7 @@ type MejaGabungan = {
 };
 
 export async function POST(request: Request) {
+  await expirePendingTransfer();
   const body = await request.json().catch(() => null);
   const { outlet, jumlahTamu, jamMulai, dariTanggal, sampaiTanggal } = body || {};
 
@@ -56,7 +58,8 @@ export async function POST(request: Request) {
     .in("status", ["Pending", "Confirmed"]);
   const { data: holdData } = await supabaseAdmin.from("BookingHold").select("meja_id, tanggal, jam, jam_selesai")
     .gte("tanggal", dariTanggal).lte("tanggal", sampaiTanggal)
-    .not("status", "in", "(completed,cancelled,expired,released)");
+    .not("status", "in", "(completed,cancelled,expired,released)")
+    .gt("expires_at", new Date().toISOString()); // hold yang sudah lewat waktu tidak lagi menahan meja
 
   const resRows = (resData || []) as { meja_id: number | null; tanggal: string; jam: string; jam_selesai: string }[];
   const holdRows = (holdData || []) as { meja_id: number; tanggal: string; jam: string; jam_selesai: string }[];

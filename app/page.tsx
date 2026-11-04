@@ -36,6 +36,26 @@ const areaVisuals = [
   { gradient: "from-yellow-800 to-amber-950", icon: "★" },
 ];
 
+// Foto kamera HP bisa 5–10 MB (melebihi batas upload server) — kecilkan dulu. Gagal/tidak perlu → pakai file asli.
+async function kecilkanGambar(file: File): Promise<File> {
+  if (file.size <= 1.5 * 1024 * 1024) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const skala = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * skala);
+    canvas.height = Math.round(bmp.height * skala);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.82));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
 function hitungJamSelesai(jam: string): string {
   if (!jam) return "";
   const [h, m] = jam.split(":").map(Number);
@@ -548,6 +568,10 @@ export default function Home() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [sukses, setSukses] = useState(false);
+  const [menungguVerifikasi, setMenungguVerifikasi] = useState(false);
+  const [buktiFile, setBuktiFile] = useState<File | null>(null);
+  const [buktiPreview, setBuktiPreview] = useState<string | null>(null);
+  const [rekeningMap, setRekeningMap] = useState<Record<string, string>>({});
   const [notif, setNotif] = useState<{ kind: "error" | "warning" | "libur" | "success"; title: string; messages: string[]; onClose?: () => void } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   function showNotif(kind: "error" | "warning" | "libur" | "success", title: string, messages: string | string[], onClose?: () => void) {
@@ -578,9 +602,11 @@ export default function Home() {
   // Ambil semua pengaturan dari admin (jam operasional, kebijakan booking, jadwal libur) sekali saat halaman dibuka
   useEffect(() => {
     async function fetchSettingsAdmin() {
-      const keys = ["booking_hold_minutes", "booking_min_hours", "booking_max_days", "jam_buka_solo", "jam_tutup_solo", "jam_buka_jogja", "jam_tutup_jogja"];
+      const keys = ["booking_hold_minutes", "booking_min_hours", "booking_max_days", "jam_buka_solo", "jam_tutup_solo", "jam_buka_jogja", "jam_tutup_jogja",
+        "rekening_bank_solo", "rekening_nomor_solo", "rekening_nama_solo", "rekening_bank_jogja", "rekening_nomor_jogja", "rekening_nama_jogja"];
       const { data } = await supabase.from("AppSettings").select("key, value").in("key", keys);
       const map = Object.fromEntries((data || []).map((d: { key: string; value: string }) => [d.key, d.value]));
+      setRekeningMap(map);
       if (map.booking_hold_minutes) setHoldMinutes(Number(map.booking_hold_minutes));
       if (map.booking_min_hours) setMinBookingHours(Number(map.booking_min_hours));
       if (map.booking_max_days) setMaxBookingDays(Number(map.booking_max_days));
@@ -867,6 +893,11 @@ export default function Home() {
     }
     if (s === 3) {
       if (!selectedTable && !selectedGabungan) errs.push("Meja belum dipilih");
+      const dp = selectedGabungan?.dp_minimum || selectedTable?.dp_minimum || 0;
+      if (dp > 0) {
+        if (!rekeningMap[`rekening_nomor_${outlet}`]) errs.push("Rekening outlet belum diatur. Hubungi outlet via WhatsApp.");
+        if (!buktiFile) errs.push("Upload bukti transfer terlebih dahulu");
+      }
     }
     return errs;
   }
@@ -996,11 +1027,7 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
     setHoldExpiry(null);
   }
 
-  function generateShareToken() {
-    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-  }
-
-  // Step 3: Konfirmasi bayar → insert reservation
+  // Step 3: Konfirmasi bayar → server menyimpan reservasi (/api/buat-reservasi)
   async function handleConfirmPayment() {
     const errs = validateStep(3);
     if (errs.length > 0) {
@@ -1008,48 +1035,51 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
       showNotif(isLibur ? "libur" : "warning", isLibur ? "Outlet Sedang Libur" : "Periksa Kembali Form Anda", errs);
       return;
     }
+    // Waktu hold habis → meja sudah dibuka untuk orang lain, jangan simpan reservasi (mencegah dobel booking)
+    const holdBerakhirPada = holdExpiry?.getTime() ?? 0;
+    if (!holdId || Date.now() >= holdBerakhirPada) {
+      showNotif("warning", "Waktu Habis", "Batas waktu pembayaran 15 menit sudah lewat dan meja dibuka kembali. Silakan mulai ulang reservasi.", () => backToHome());
+      return;
+    }
     setLoading(true);
 
     const dpAmount = selectedGabungan?.dp_minimum || selectedTable?.dp_minimum || 0;
-    const mejaId = selectedGabungan ? selectedGabungan.meja_ids[0] : selectedTable?.Id;
-    const token = generateShareToken();
 
-    const { error } = await supabase.from("Reservation").insert({
-      nama_tamu: namaTamu, no_whatsapp: noWa, outlet, tanggal, jam, jam_selesai: jamSelesai,
-      jumlah_tamu: Number(jumlahTamu), catatan: catatan || null,
-      meja_id: mejaId, menu_paket_id: null, share_token: token,
-      dp_amount: dpAmount, dp_status: "sudah_bayar", status: "Confirmed",
-    });
-
-    if (error) {
+    // Semua penyimpanan dilakukan di server: server memeriksa hold 15 menit, bentrok jadwal, dan menentukan
+    // meja/DP/status sendiri — browser hanya mengirim data tamu dan bukti transfer.
+    let hasil: { success?: boolean; error?: string; shareToken?: string; status?: string; menungguVerifikasi?: boolean } | null = null;
+    let resOk = false;
+    try {
+      const fd = new FormData();
+      fd.append("holdId", String(holdId));
+      fd.append("namaTamu", namaTamu);
+      fd.append("noWhatsapp", noWa);
+      fd.append("jumlahTamu", String(jumlahTamu));
+      fd.append("catatan", catatan || "");
+      if (selectedGabungan) fd.append("gabunganId", String(selectedGabungan.Id));
+      if (buktiFile) fd.append("file", buktiFile);
+      const res = await fetch("/api/buat-reservasi", { method: "POST", body: fd });
+      resOk = res.ok;
+      hasil = await res.json().catch(() => null);
+    } catch {
       setLoading(false);
-      showNotif("error", "Gagal Menyimpan Reservasi", error.message);
+      showNotif("error", "Koneksi Bermasalah", "Periksa koneksi internet Anda lalu coba lagi.");
       return;
     }
 
-    // Kalau gabungan, hold/book semua meja component (token sama biar satu bill)
-    if (selectedGabungan) {
-      const extraMejaIds = selectedGabungan.meja_ids.slice(1);
-      for (const mid of extraMejaIds) {
-        const { error: extraError } = await supabase.from("Reservation").insert({
-          nama_tamu: namaTamu, no_whatsapp: noWa, outlet, tanggal, jam, jam_selesai: jamSelesai,
-          jumlah_tamu: Number(jumlahTamu), catatan: `[Gabungan: ${selectedGabungan.nama}]`,
-          meja_id: mid, menu_paket_id: null, share_token: token,
-          dp_amount: 0, dp_status: "sudah_bayar", status: "Confirmed",
-        });
-        if (extraError) {
-          setLoading(false);
-          showNotif("error", "Gagal Menyimpan Meja Gabungan", `Meja tambahan (Id: ${mid}) gagal disimpan: ${extraError.message}`);
-          return;
-        }
-      }
+    if (!resOk || !hasil?.success || !hasil.shareToken) {
+      setLoading(false);
+      const pesan = hasil?.error || "Terjadi kesalahan, coba lagi.";
+      // Hold habis atau meja bentrok → tidak bisa dilanjutkan, kembali ke awal
+      const fatal = /waktu pembayaran|mulai ulang|baru saja dipesan/i.test(pesan);
+      showNotif(fatal ? "warning" : "error", fatal ? "Reservasi Tidak Dapat Dilanjutkan" : "Gagal Menyimpan Reservasi", pesan, fatal ? () => backToHome() : undefined);
+      return;
     }
 
-    if (holdId) {
-      // Release semua holds dari session ini
-      await supabase.from("BookingHold").update({ status: "completed" }).eq("tanggal", tanggal).eq("jam", jam).eq("status", "active");
-      setHoldId(null); setHoldExpiry(null);
-    }
+    const token = hasil.shareToken;
+    const statusBaru = hasil.status || "Pending";
+    const perluVerifikasi = !!hasil.menungguVerifikasi;
+    setHoldId(null); setHoldExpiry(null);
 
     // Notifikasi WA ke admin — fire-and-forget, jangan sampai bikin customer nunggu / gagal kalau notif error
     (() => {
@@ -1063,12 +1093,13 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
         body: JSON.stringify({
           namaTamu, noWhatsapp: noWa, outlet, tanggal, jam, jamSelesai,
           jumlahTamu: Number(jumlahTamu), mejaLabel: mejaLabelNotif,
-          dpAmount, catatan: catatan || null, status: "Confirmed",
+          dpAmount, catatan: catatan || null, status: statusBaru,
         }),
       }).catch(() => { /* silent — notifikasi WA gagal gak boleh ganggu proses reservasi customer */ });
     })();
 
     setShareToken(token);
+    setMenungguVerifikasi(perluVerifikasi);
     setSukses(true);
     setLoading(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1078,6 +1109,9 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
     setShowForm(true);
     setStep(1);
     setSukses(false);
+    setMenungguVerifikasi(false);
+    setBuktiFile(null);
+    setBuktiPreview(null);
     setShareToken(null);
     setSelectedTable(null);
     setAvailableTables([]);
@@ -1313,9 +1347,11 @@ useEffect(() => {
             <div className="w-20 h-20 bg-gradient-to-br from-[#C8973E] to-[#A67B2E] rounded-full flex items-center justify-center mx-auto shadow-lg shadow-[#C8973E]/20">
               <span className="text-white text-3xl">✓</span>
             </div>
-            <h1 className="text-2xl font-bold text-[#5C3D1A] font-serif mt-5">Reservasi Berhasil!</h1>
+            <h1 className="text-2xl font-bold text-[#5C3D1A] font-serif mt-5">{menungguVerifikasi ? "Bukti Transfer Terkirim!" : "Reservasi Berhasil!"}</h1>
             <p className="text-[#C8973E]/50 mt-1 text-sm">━━ ✦ ━━</p>
-            <p className="text-[#8B7355] mt-3 text-sm">Meja Anda sudah terkonfirmasi. Simpan tiket sebagai bukti reservasi.</p>
+            <p className="text-[#8B7355] mt-3 text-sm">{menungguVerifikasi
+              ? "Reservasi Anda menunggu konfirmasi admin setelah pembayaran diperiksa. Jika tidak dikonfirmasi dalam 15 menit, reservasi dibatalkan otomatis dan hubungi outlet via WhatsApp. Status bisa dicek di menu Cek Reservasi."
+              : "Meja Anda sudah terkonfirmasi. Simpan tiket sebagai bukti reservasi."}</p>
             <div className="bg-[#FDF6EC] border border-[#C8973E]/15 rounded-2xl p-5 mt-6 text-left text-sm space-y-2">
               <div className="flex justify-between"><span className="text-[#8B7355]">Outlet</span><span className="font-semibold text-[#5C3D1A] capitalize">{outlet}</span></div>
               <div className="flex justify-between"><span className="text-[#8B7355]">Tanggal</span><span className="font-semibold text-[#5C3D1A]">{tanggal}</span></div>
@@ -1344,9 +1380,11 @@ useEffect(() => {
             </div>
 
             <div className="flex flex-col gap-3 mt-6">
+              {!menungguVerifikasi && (
               <button onClick={downloadTiket} className="w-full bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white px-8 py-4 rounded-xl font-bold transition-all active:scale-[0.98] shadow-lg shadow-[#C8973E]/20 flex items-center justify-center gap-2">
                 <span>📄</span> Download Tiket Reservasi
               </button>
+              )}
               <button onClick={backToHome} className="w-full border-2 border-[#E8DCC8] text-[#8B7355] px-8 py-3 rounded-xl font-semibold hover:bg-[#FDF6EC] transition-all">
                 Kembali ke Beranda
               </button>
@@ -1794,22 +1832,23 @@ useEffect(() => {
                   </div>
                 </div>
 
-                {/* Instruksi pembayaran */}
+                {/* Instruksi pembayaran — rekening diatur admin per outlet */}
+                {(selectedGabungan?.dp_minimum || selectedTable?.dp_minimum || 0) > 0 ? (() => {
+                  const bank = rekeningMap[`rekening_bank_${outlet}`];
+                  const nomor = rekeningMap[`rekening_nomor_${outlet}`];
+                  const atasNama = rekeningMap[`rekening_nama_${outlet}`];
+                  return (
                 <div className="bg-[#FDF6EC] border-2 border-[#C8973E]/20 rounded-2xl p-5">
                   <p className="text-xs font-bold text-[#C8973E] mb-3 tracking-[0.15em] uppercase">Transfer ke rekening berikut</p>
+                  {nomor ? (
                   <div className="bg-white rounded-xl p-4 border border-[#E8DCC8]">
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-10 h-10 bg-[#003D79] rounded-lg flex items-center justify-center">
-                        <span className="text-white font-bold text-sm">BCA</span>
-                      </div>
-                      <div>
-                        <p className="font-bold text-[#5C3D1A]">Bank BCA</p>
-                        <p className="text-xs text-[#8B7355]">a.n. Yassalam Catering</p>
-                      </div>
+                    <div className="mb-3">
+                      <p className="font-bold text-[#5C3D1A]">{bank || "Bank"}</p>
+                      {atasNama && <p className="text-xs text-[#8B7355]">a.n. {atasNama}</p>}
                     </div>
                     <div className="bg-[#FDF6EC] rounded-lg px-4 py-3 flex items-center justify-between">
-                      <span className="font-mono font-bold text-lg text-[#5C3D1A] tracking-wider">1234567890</span>
-                      <button onClick={() => { navigator.clipboard.writeText("1234567890"); setToast("Nomor rekening disalin!"); }}
+                      <span className="font-mono font-bold text-lg text-[#5C3D1A] tracking-wider">{nomor}</span>
+                      <button onClick={() => { navigator.clipboard.writeText(nomor); setToast("Nomor rekening disalin!"); }}
                         className="text-xs font-bold text-[#C8973E] bg-white border border-[#C8973E]/30 rounded-lg px-3 py-1.5 hover:bg-[#C8973E] hover:text-white transition-all">
                         Salin
                       </button>
@@ -1819,10 +1858,45 @@ useEffect(() => {
                       <p className="font-bold text-lg text-[#C8973E]">{formatRupiah(selectedGabungan?.dp_minimum || selectedTable?.dp_minimum || 0)}</p>
                     </div>
                   </div>
+                  ) : (
+                    <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl p-4">Nomor rekening outlet ini belum tersedia. Silakan hubungi outlet lewat WhatsApp.</p>
+                  )}
+
+                  <div className="mt-4">
+                    <p className="text-xs font-bold text-[#C8973E] mb-2 tracking-[0.15em] uppercase">Upload Bukti Transfer <span className="text-red-500">*</span></p>
+                    <label className="block cursor-pointer bg-white border-2 border-dashed border-[#C8973E]/40 rounded-xl p-4 text-center hover:bg-[#FEFCF8] transition-all">
+                      {buktiPreview ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={buktiPreview} alt="Pratinjau bukti transfer" className="max-h-56 mx-auto rounded-lg" />
+                      ) : (
+                        <span className="text-sm text-[#8B7355]">Ketuk untuk pilih foto/screenshot bukti transfer (JPG, PNG, WEBP)</span>
+                      )}
+                      <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                        onChange={async (e) => {
+                          const asli = e.target.files?.[0] || null;
+                          e.target.value = "";
+                          if (!asli) return;
+                          if (!["image/jpeg", "image/png", "image/webp"].includes(asli.type)) { showNotif("warning", "Format Tidak Didukung", "Gunakan gambar JPG, PNG, atau WEBP."); return; }
+                          const f = await kecilkanGambar(asli);
+                          if (f.size > 4 * 1024 * 1024) { showNotif("warning", "File Terlalu Besar", "Ukuran bukti transfer maksimal 4 MB."); return; }
+                          if (buktiPreview) URL.revokeObjectURL(buktiPreview);
+                          setBuktiFile(f);
+                          setBuktiPreview(URL.createObjectURL(f));
+                        }} />
+                    </label>
+                    {buktiFile && <p className="text-xs text-[#8B7355] mt-2 text-center">{buktiFile.name} · ketuk gambar untuk mengganti</p>}
+                  </div>
+
                   <p className="text-xs text-[#8B7355] mt-3 leading-relaxed">
-                    Setelah transfer, tekan tombol di bawah untuk mengonfirmasi. Meja akan langsung terkunci untuk Anda.
+                    Setelah transfer, upload bukti lalu tekan tombol di bawah. Reservasi Anda akan dikonfirmasi setelah admin memeriksa pembayaran. Meja tetap kami tahan untuk Anda.
                   </p>
                 </div>
+                  );
+                })() : (
+                <div className="bg-[#FDF6EC] border-2 border-[#C8973E]/20 rounded-2xl p-5">
+                  <p className="text-sm text-[#8B7355]">Meja ini tidak memerlukan uang muka. Tekan tombol di bawah untuk menyelesaikan reservasi.</p>
+                </div>
+                )}
 <div className="flex gap-3">
                   <button onClick={() => setShowBackConfirm(true)}
                     className="flex-1 py-4 rounded-xl border-2 border-[#E8DCC8] text-[#8B7355] font-semibold hover:bg-[#FDF6EC] transition-all">
@@ -1830,7 +1904,7 @@ useEffect(() => {
                   </button>
                   <button onClick={handleConfirmPayment} disabled={loading}
                     className={`flex-1 py-4 rounded-xl font-bold text-lg transition-all ${loading ? "bg-[#E8DCC8] text-[#B8A88A] cursor-not-allowed" : "bg-gradient-to-r from-[#C8973E] to-[#A67B2E] text-white active:scale-[0.98] shadow-lg shadow-[#C8973E]/25"}`}>
-                    {loading ? "Memproses..." : "Sudah Transfer ✦"}
+                    {loading ? "Memproses..." : (selectedGabungan?.dp_minimum || selectedTable?.dp_minimum || 0) > 0 ? "Kirim Bukti Transfer ✦" : "Selesaikan Reservasi ✦"}
                   </button>
                 </div>
               </div>

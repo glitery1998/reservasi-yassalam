@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { expirePendingTransfer } from "../_expire-transfer";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseAdmin = createClient(
@@ -12,13 +13,15 @@ function isTimeOverlap(startA: string, endA: string, startB: string, endB: strin
 
 /* ===== POST: buat hold baru (dengan cek konflik di server) ===== */
 export async function POST(request: Request) {
+  await expirePendingTransfer();
   const body = await request.json().catch(() => null);
   const { mejaIds, tanggal, jam, jamSelesai, holdMinutes, releaseHoldId, namaTamu, noWhatsapp } = body || {};
 
   if (!Array.isArray(mejaIds) || mejaIds.length === 0 || !tanggal || !jam || !jamSelesai) {
     return NextResponse.json({ success: false, error: "Data tidak lengkap" }, { status: 400 });
   }
-  const minutes = Number(holdMinutes) || 15;
+  // Batas atas 15 menit — tidak mengikuti angka dari browser, supaya meja pasti terbuka lagi kalau tidak dibayar
+  const minutes = Math.min(Math.max(Number(holdMinutes) || 15, 1), 15);
 
   // Lepas hold lama dari session sebelumnya (kalau customer kembali & pilih meja lain)
   if (releaseHoldId) {

@@ -12,6 +12,7 @@ type Reservation = {
   menu_paket_id: number | null; dp_amount: number | null;
   share_token: string | null; menu_finalized: boolean | null;
   checked_in_at: string | null;
+  dp_status?: string | null; bukti_transfer?: string | null;
 };
 
 // Gabungkan baris-baris reservasi yang share_token-nya sama jadi 1 entri saja
@@ -705,6 +706,8 @@ function validatePasswordStrength(password: string): string | null {
   const [notifWaSolo, setNotifWaSolo] = useState("");
   const [notifWaJogja, setNotifWaJogja] = useState("");
   const [savingNotifWa, setSavingNotifWa] = useState(false);
+  const [rekening, setRekening] = useState<Record<string, string>>({});
+  const [savingRekening, setSavingRekening] = useState(false);
   const [notifSuaraAktif, setNotifSuaraAktif] = useState(() => {
     if (typeof window === "undefined") return true;
     return localStorage.getItem("yassalam_notif_suara") !== "off";
@@ -807,6 +810,8 @@ function validatePasswordStrength(password: string): string | null {
 
   const fetchReservations = useCallback(async () => {
     setLoading(true);
+    // Batalkan otomatis reservasi yang menunggu verifikasi transfer > 15 menit
+    await fetch("/api/expire-pending", { method: "POST" }).catch(() => { /* best effort */ });
     let q = supabase.from("Reservation").select("*")
       .order("tanggal", { ascending: true })
       .order("jam", { ascending: true });
@@ -1184,9 +1189,11 @@ const [pelangganQuery, setPelangganQuery] = useState("");
   }, []);
 
   const fetchCutoffSetting = useCallback(async () => {
-    const keys = ["menu_cutoff_hours", "booking_hold_minutes", "booking_min_hours", "booking_max_days", "threshold_pelanggan_lama", "threshold_no_show", "jam_buka_solo", "jam_tutup_solo", "jam_buka_jogja", "jam_tutup_jogja", "admin_notif_wa_solo", "admin_notif_wa_jogja"];
+    const keys = ["menu_cutoff_hours", "booking_hold_minutes", "booking_min_hours", "booking_max_days", "threshold_pelanggan_lama", "threshold_no_show", "jam_buka_solo", "jam_tutup_solo", "jam_buka_jogja", "jam_tutup_jogja", "admin_notif_wa_solo", "admin_notif_wa_jogja",
+      "rekening_bank_solo", "rekening_nomor_solo", "rekening_nama_solo", "rekening_bank_jogja", "rekening_nomor_jogja", "rekening_nama_jogja"];
     const { data } = await supabase.from("AppSettings").select("key, value").in("key", keys);
     const map = Object.fromEntries((data || []).map((d: { key: string; value: string }) => [d.key, d.value]));
+    setRekening(map);
     if (map.menu_cutoff_hours) setCutoffSetting(map.menu_cutoff_hours);
     if (map.booking_hold_minutes) setHoldMinutes(map.booking_hold_minutes);
     if (map.booking_min_hours) setMinBookingHours(map.booking_min_hours);
@@ -1209,6 +1216,43 @@ const [pelangganQuery, setPelangganQuery] = useState("");
     setSavingNotifWa(false);
     if (error) { alert("Gagal simpan: " + error.message); return; }
     alert("Pengaturan disimpan.");
+  }
+  async function saveRekening() {
+    setSavingRekening(true);
+    // Admin outlet hanya menyimpan rekening outletnya sendiri.
+    const outlets = isSuper ? ["solo", "jogja"] : myOutlet ? [myOutlet] : [];
+    const rows = outlets.flatMap((o) => (["bank", "nomor", "nama"] as const).map((f) => ({
+      key: `rekening_${f}_${o}`, value: (rekening[`rekening_${f}_${o}`] || "").trim(),
+    })));
+    const { error } = await supabase.from("AppSettings").upsert(rows, { onConflict: "key" });
+    setSavingRekening(false);
+    if (error) { alert("Gagal simpan: " + error.message); return; }
+    logActivity("Ubah rekening transfer", outlets.join(", "));
+    alert("Rekening disimpan.");
+  }
+  async function lihatBukti(path: string) {
+    const { data: { session: s } } = await supabase.auth.getSession();
+    const res = await fetch(`/api/bukti-transfer?path=${encodeURIComponent(path)}`, { headers: { Authorization: `Bearer ${s?.access_token}` } });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.url) { alert(json?.error || "Gagal membuka bukti transfer"); return; }
+    window.open(json.url, "_blank", "noopener,noreferrer");
+  }
+  async function konfirmasiPembayaran(r: Reservation) {
+    const adaBukti = !!r.bukti_transfer && r.dp_status !== "sudah_bayar";
+    const teks = adaBukti
+      ? `Konfirmasi pembayaran DP ${r.nama_tamu}${r.dp_amount ? " " + formatRupiah(r.dp_amount) : ""}? Reservasi akan menjadi Terkonfirmasi dan customer otomatis dikirimi WhatsApp berisi link menu.`
+      : `Konfirmasi reservasi ${r.nama_tamu}? Customer otomatis dikirimi WhatsApp berisi link menu.`;
+    if (!confirm(teks)) return;
+    const { data: { session: s } } = await supabase.auth.getSession();
+    const res = await fetch("/api/admin-konfirmasi", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.access_token}` },
+      body: JSON.stringify({ id: r.Id }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) { alert(json?.error || "Gagal mengonfirmasi reservasi"); fetchReservations(); return; }
+    if (json?.wa_sent === false) alert("Reservasi terkonfirmasi, tetapi WhatsApp ke customer gagal terkirim. Silakan kirim manual lewat tombol Kirim Link.");
+    fetchReservations();
   }
   async function saveCutoffSetting() {
     setSavingCutoff(true);
@@ -2720,7 +2764,11 @@ const [pelangganQuery, setPelangganQuery] = useState("");
                         </div>
                         <div className="flex items-start gap-2.5">
                           <Icon name="cash" size={17} className="text-[#9A8B7A] mt-0.5 shrink-0" />
-                          <div><p className="text-[11px] text-[#9A8B7A]">Uang muka</p><p className="text-sm font-semibold text-[#3D2E1E] mt-0.5">{r.dp_amount ? formatRupiah(r.dp_amount) : "Belum bayar"}</p></div>
+                          <div><p className="text-[11px] text-[#9A8B7A]">Uang muka</p><p className="text-sm font-semibold text-[#3D2E1E] mt-0.5">{r.dp_amount ? formatRupiah(r.dp_amount) : "Belum bayar"}{r.dp_status === "menunggu_verifikasi" && <span className="ml-1.5 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">Menunggu verifikasi (maks 15 menit)</span>}
+                              {r.dp_status === "kedaluwarsa" && <span className="ml-1.5 text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">Verifikasi kedaluwarsa</span>}</p>
+                            {r.bukti_transfer && (
+                              <button onClick={() => lihatBukti(r.bukti_transfer!)} className="mt-1 text-xs font-bold text-[#5C1420] underline hover:no-underline">Lihat bukti transfer</button>
+                            )}</div>
                         </div>
                       </div>
 
@@ -2744,7 +2792,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
 
                       {r.status === "Pending" && (
                         <div className="grid grid-cols-2 gap-2">
-                          <button onClick={() => updateStatus(r.Id, "Confirmed")} className="py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold active:scale-[0.98] inline-flex items-center justify-center gap-1.5"><Icon name="check" size={15} /> Konfirmasi</button>
+                          <button onClick={() => konfirmasiPembayaran(r)} className="py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold active:scale-[0.98] inline-flex items-center justify-center gap-1.5"><Icon name="check" size={15} /> {r.bukti_transfer && r.dp_status !== "sudah_bayar" ? "Pembayaran Valid" : "Konfirmasi"}</button>
                           <button onClick={() => updateStatus(r.Id, "Cancelled")} className="py-2.5 rounded-xl border-2 border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50 inline-flex items-center justify-center gap-1.5"><Icon name="x" size={14} /> Tolak</button>
                         </div>
                       )}
@@ -4092,7 +4140,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
               <div className="flex flex-wrap items-center gap-3 mb-3">
                 <span className="text-sm text-[#3D2E1E] w-56">Durasi hold slot meja</span>
                 <input type="number" min="1" value={holdMinutes} onChange={(e) => setHoldMinutes(e.target.value)} className="w-20 px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420] text-center" />
-                <span className="text-sm text-[#9A8B7A]">menit</span>
+                <span className="text-sm text-[#9A8B7A]">menit (maksimal 15)</span>
               </div>
               <div className="flex flex-wrap items-center gap-3 mb-3">
                 <span className="text-sm text-[#3D2E1E] w-56">Minimal booking sebelum jam reservasi</span>
@@ -4152,6 +4200,30 @@ const [pelangganQuery, setPelangganQuery] = useState("");
                 <button onClick={saveJamOperasional} disabled={savingJamOperasional}
                   className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 disabled:opacity-50">
                   {savingJamOperasional ? "Menyimpan..." : "Simpan"}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white border-2 border-[#5C1420]/15 rounded-2xl p-5 mt-4">
+              <p className="text-[#5C1420] text-xs font-bold tracking-wider uppercase mb-1 inline-flex items-center gap-1.5"><Icon name="cash" size={13} /> Rekening Transfer Uang Muka</p>
+              <p className="text-xs text-[#9A8B7A] mb-3">Rekening yang ditampilkan ke customer saat membayar DP. Tiap outlet punya rekening sendiri.</p>
+              <div className="grid sm:grid-cols-2 gap-4 mb-3">
+                {([["solo", "Solo"], ["jogja", "Yogyakarta"]] as const).filter(([o]) => isSuper || myOutlet === o).map(([o, label]) => (
+                  <div key={o} className="border border-[#E5DDD4] rounded-xl p-4 space-y-2">
+                    <p className="text-sm font-bold text-[#3D2E1E]">{label}</p>
+                    <input type="text" value={rekening[`rekening_bank_${o}`] || ""} onChange={(e) => setRekening((p) => ({ ...p, [`rekening_bank_${o}`]: e.target.value }))} placeholder="Nama bank (mis. BCA)"
+                      className="w-full px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420]" />
+                    <input type="text" inputMode="numeric" value={rekening[`rekening_nomor_${o}`] || ""} onChange={(e) => setRekening((p) => ({ ...p, [`rekening_nomor_${o}`]: e.target.value }))} placeholder="Nomor rekening"
+                      className="w-full px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420]" />
+                    <input type="text" value={rekening[`rekening_nama_${o}`] || ""} onChange={(e) => setRekening((p) => ({ ...p, [`rekening_nama_${o}`]: e.target.value }))} placeholder="Atas nama"
+                      className="w-full px-3 py-2 rounded-xl border-2 border-[#E5DDD4] bg-white text-sm text-[#3D2E1E] outline-none focus:border-[#5C1420]" />
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-end">
+                <button onClick={saveRekening} disabled={savingRekening}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 disabled:opacity-50">
+                  {savingRekening ? "Menyimpan..." : "Simpan"}
                 </button>
               </div>
             </div>

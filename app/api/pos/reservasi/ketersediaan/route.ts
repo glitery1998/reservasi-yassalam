@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { expirePendingTransfer } from "../../../_expire-transfer";
 import { DATE_RE, OUTLETS, TIME_RE, addMinutes, findKonflik, keyValid, supabaseAdmin } from "../../_shared";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ type GabunganRow = {
 };
 
 export async function GET(request: Request) {
+  await expirePendingTransfer();
   if (!keyValid(request.headers.get("x-pos-key"))) {
     return NextResponse.json({ error: "Tidak diizinkan" }, { status: 401 });
   }
