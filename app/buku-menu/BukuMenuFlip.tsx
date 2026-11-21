@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import HTMLFlipBook from "react-pageflip";
 import { CoverPage, Page } from "../MenuFlipbook";
 
@@ -8,9 +8,42 @@ type FlipApi = { pageFlip: () => { flipNext: () => void; flipPrev: () => void } 
 // Buku menu ukuran besar untuk /buku-menu. Di layar lebar buku langsung terbuka: sampul di kiri, halaman 1 di kanan (seperti buku
 // menu di halaman awal reservasi). Di HP satu halaman (usePortrait). Tanpa sampul belakang, supaya jumlah halaman genap dan
 // bentangan terakhir tidak menyisakan sisi kosong.
+// Suara membalik halaman, sama dengan buku menu di halaman awal reservasi (MenuFlipbook)
+function useSuaraBalik() {
+  const ctxRef = useRef<AudioContext | null>(null);
+  const bufRef = useRef<AudioBuffer | null>(null);
+  useEffect(() => {
+    const ctx = new AudioContext();
+    ctxRef.current = ctx;
+    fetch("/page-flip.mp3")
+      .then((r) => r.arrayBuffer())
+      .then((b) => ctx.decodeAudioData(b))
+      .then((d) => {
+        bufRef.current = d;
+      })
+      .catch(() => {});
+    return () => {
+      ctx.close();
+    };
+  }, []);
+  return () => {
+    const ctx = ctxRef.current;
+    const buf = bufRef.current;
+    if (!ctx || !buf) return;
+    if (ctx.state === "suspended") ctx.resume();
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.6;
+    src.connect(gain).connect(ctx.destination);
+    src.start(0, 0.08);
+  };
+}
+
 export default function BukuMenuFlip({ halaman }: { halaman: string[] }) {
   const ref = useRef<FlipApi | null>(null);
   const [posisi, setPosisi] = useState(0);
+  const bunyi = useSuaraBalik();
   // Perkiraan awal (komponen ini hanya dimuat di browser); dipastikan lagi oleh onInit dan onChangeOrientation
   const [mendatar, setMendatar] = useState(() => window.innerWidth >= 640);
   const total = halaman.length + 1; // + sampul depan
@@ -44,7 +77,10 @@ export default function BukuMenuFlip({ halaman }: { halaman: string[] }) {
         drawShadow
         maxShadowOpacity={0.4}
         flippingTime={650}
-        onFlip={(e: { data: number }) => setPosisi(e.data)}
+        onFlip={(e: { data: number }) => {
+          setPosisi(e.data);
+          bunyi();
+        }}
         onInit={(e: { data: { mode: string } }) => setMendatar(e.data?.mode === 'landscape')}
         onChangeOrientation={(e: { data: string }) => setMendatar(e.data === 'landscape')}
         className="overflow-hidden rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.55)]"
