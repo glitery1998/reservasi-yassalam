@@ -32,7 +32,7 @@ export default function BukuMenuFlip({ halaman }: { halaman: string[] }) {
         maxShadowOpacity={0.4}
         flippingTime={650}
         onFlip={(e: { data: number }) => setPosisi(e.data)}
-        className="overflow-hidden rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.25)]"
+        className="overflow-hidden rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.55)]"
       >
         <CoverPage type="front" />
         {halaman.map((img, i) => (
@@ -46,25 +46,25 @@ export default function BukuMenuFlip({ halaman }: { halaman: string[] }) {
           type="button"
           onClick={() => ref.current?.pageFlip()?.flipPrev()}
           disabled={posisi === 0}
-          className="min-h-11 rounded-full border border-[#d9c7a8] bg-white px-5 text-sm font-semibold disabled:opacity-40"
+          className="min-h-11 rounded-full border border-[#C8973E]/50 bg-[#1a0f07]/70 px-5 text-sm font-semibold text-[#C8973E] disabled:opacity-40"
           aria-label="Halaman sebelumnya"
         >
           ← Sebelumnya
         </button>
-        <span className="min-w-36 text-center text-sm text-[#8B7355]" aria-live="polite">
+        <span className="min-w-36 text-center text-sm text-[#e8dcc8]/80" aria-live="polite">
           {label}
         </span>
         <button
           type="button"
           onClick={() => ref.current?.pageFlip()?.flipNext()}
           disabled={posisi >= total - 1}
-          className="min-h-11 rounded-full bg-[#3a2a1a] px-5 text-sm font-semibold text-[#FDF6EC] disabled:opacity-40"
+          className="min-h-11 rounded-full bg-[#C8973E] px-5 text-sm font-semibold text-[#1a0f07] disabled:opacity-40"
           aria-label="Halaman berikutnya"
         >
           Berikutnya →
         </button>
       </div>
-      <p className="mt-3 text-xs text-[#8B7355]">Geser atau ketuk tepi halaman untuk membalik.</p>
+      <p className="mt-3 text-xs text-[#e8dcc8]/60">Geser atau ketuk tepi halaman untuk membalik.</p>
     </div>
   );
 }
