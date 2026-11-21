@@ -2,9 +2,11 @@
 import { forwardRef, useState, useRef, useEffect } from "react";
 import HTMLFlipBook from "react-pageflip";
 
-const TOTAL_PAGES = 31;
+export const TOTAL_PAGES = 31;
+/** Gambar halaman menu, dipakai juga oleh /buku-menu */
+export const halamanMenu = () => Array.from({ length: TOTAL_PAGES }, (_, i) => `/menu/menu-${String(i + 1).padStart(2, "0")}.jpg`);
 
-const Page = forwardRef<HTMLDivElement, { image: string; pageNumber: number }>(
+export const Page = forwardRef<HTMLDivElement, { image: string; pageNumber: number }>(
   ({ image, pageNumber }, ref) => {
     return (
       <div ref={ref} className="bg-transparent relative">
@@ -16,7 +18,7 @@ const Page = forwardRef<HTMLDivElement, { image: string; pageNumber: number }>(
 );
 Page.displayName = "MenuPage";
 
-const CoverPage = forwardRef<HTMLDivElement, { type: "front" | "back" }>(
+export const CoverPage = forwardRef<HTMLDivElement, { type: "front" | "back" }>(
   ({ type }, ref) => {
     return (
       <div ref={ref} className="relative w-full h-full overflow-hidden">
