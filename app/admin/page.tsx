@@ -1869,17 +1869,24 @@ const [pelangganQuery, setPelangganQuery] = useState("");
       share_token: shareTokenFinal,
     };
 
-    const { error } = editingReservasiId
-      ? await supabase.from("Reservation").update(p).eq("Id", editingReservasiId)
-      : await supabase.from("Reservation").insert({ ...p, menu_finalized: false });
-    if (error) { setSavingReservasi(false); alert("Gagal simpan: " + error.message); return; }
-
-    // Baris meja lain dari reservasi yang sama (meja gabungan lama) dihapus, lalu dibuat ulang sesuai pilihan meja yang baru.
+    // Baris meja lain dari reservasi yang sama (meja gabungan lama) dihapus DULU, lalu dibuat ulang sesuai pilihan meja yang baru.
+    // Harus sebelum baris utama diperbarui: satu reservasi tidak boleh punya dua baris di meja yang sama
+    // (idx_reservation_share_token_meja), misalnya Meja 5 + Majelis Mona diubah menjadi Majelis Mona saja.
     // Tidak bergantung pada daftar meja gabungan: gabungan yang sudah diubah atau dihapus pun tidak meninggalkan meja tersisa.
     if (editingReservasiId && editingOriginalShareToken) {
       const oldSiblingIds = reservationsRef.current.filter((x) => x.share_token === editingOriginalShareToken && x.Id !== editingReservasiId).map((x) => x.Id);
-      if (oldSiblingIds.length > 0) await supabase.from("Reservation").delete().in("Id", oldSiblingIds);
+      if (oldSiblingIds.length > 0) {
+        // Menu yang menempel di baris yang dihapus dipindah ke baris yang diubah supaya tidak ikut hilang
+        await supabase.from("ReservationMenuItem").update({ reservation_id: editingReservasiId }).in("reservation_id", oldSiblingIds);
+        const { error: hapusError } = await supabase.from("Reservation").delete().in("Id", oldSiblingIds);
+        if (hapusError) { setSavingReservasi(false); alert("Gagal simpan: " + hapusError.message); return; }
+      }
     }
+
+    const { error } = editingReservasiId
+      ? await supabase.from("Reservation").update(p).eq("Id", editingReservasiId)
+      : await supabase.from("Reservation").insert({ ...p, menu_finalized: false });
+    if (error) { setSavingReservasi(false); alert("Gagal simpan: " + error.message); fetchReservations(); return; }
 
     if (mejaIds.length > 1) {
       const extraInserts = mejaIds.slice(1).map((mid) => ({

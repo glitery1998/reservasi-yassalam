@@ -211,9 +211,35 @@ export async function POST(request: Request) {
     ...(jamSelesaiBaru ? { jam_selesai: jamSelesaiBaru } : {}),
   };
 
-  const nLama = rows.length;
-  const nBaru = mejaBaru.length;
-  const perluTambah = mejaDiganti && nBaru > nLama;
+  // Rencana meja per baris. Satu reservasi tidak boleh punya dua baris di meja yang sama (idx_reservation_share_token_meja),
+  // jadi baris yang mejanya tetap dipakai mempertahankan mejanya, baris utama (pemegang DP dan menu) selalu dipertahankan,
+  // dan baris yang tidak dipakai lagi dihapus SEBELUM baris lain diperbarui. Dulu baris diperbarui berurutan, sehingga
+  // "Meja 5 + Majelis Mona" menjadi "Majelis Mona" gagal: Meja 5 diubah ke Majelis Mona selagi baris Majelis Mona masih ada.
+  const primaryId = grup.primaryId ?? rows[0].Id;
+  const target = new Map<number, number>(); // Id baris → meja
+  let mejaTambah: number[] = [];
+  if (mejaDiganti) {
+    const terpakai = () => new Set(target.values());
+    for (const r of rows) {
+      if (r.meja_id != null && mejaBaru.includes(r.meja_id) && !terpakai().has(r.meja_id)) target.set(r.Id, r.meja_id);
+    }
+    const bebas = mejaBaru.filter((m) => !terpakai().has(m));
+    if (!target.has(primaryId)) {
+      if (bebas.length > 0) target.set(primaryId, bebas.shift()!);
+      else {
+        // Semua meja baru sudah dipegang baris lain: baris utama mengambil salah satunya, baris itu dihapus
+        const ambil = [...target.entries()].find(([id]) => id !== primaryId)!;
+        target.delete(ambil[0]);
+        target.set(primaryId, ambil[1]);
+      }
+    }
+    for (const r of rows) {
+      if (!target.has(r.Id) && bebas.length > 0) target.set(r.Id, bebas.shift()!);
+    }
+    mejaTambah = bebas;
+  }
+  const tetapRows = mejaDiganti ? rows.filter((r) => target.has(r.Id)) : rows;
+  const perluTambah = mejaTambah.length > 0;
   const gabunganNama = body.gabungan_nama ? String(body.gabungan_nama).slice(0, 100) : "Gabungan";
 
   // Reservasi lama dari admin bisa belum punya token; beri supaya baris tambahan tetap satu kelompok
@@ -224,7 +250,20 @@ export async function POST(request: Request) {
     if (error) return NextResponse.json({ error: "Gagal menyiapkan data meja" }, { status: 500 });
   }
 
-  // 1. Baris tambahan kalau mejanya bertambah
+  // 1. Hapus baris meja yang tidak dipakai lagi DULU (menu yang menempel dipindah ke baris utama), supaya mejanya bebas dipakai
+  const hapusIds = mejaDiganti ? rows.filter((r) => !target.has(r.Id)).map((r) => r.Id) : [];
+  if (hapusIds.length > 0) {
+    await supabaseAdmin
+      .from("ReservationMenuItem")
+      .update({ reservation_id: primaryId })
+      .in("reservation_id", hapusIds);
+    const { error } = await supabaseAdmin.from("Reservation").delete().in("Id", hapusIds);
+    if (error) {
+      return NextResponse.json({ error: "Gagal melepas meja lama. Belum ada yang berubah, coba lagi." }, { status: 500 });
+    }
+  }
+
+  // 2. Baris tambahan kalau mejanya bertambah
   const tambahanIds: number[] = [];
   if (perluTambah) {
     const base = {
@@ -235,7 +274,7 @@ export async function POST(request: Request) {
       ...shared,
       jam_selesai: jamSelesaiFinal ?? addMinutes(jam, 120),
     };
-    const extras = mejaBaru.slice(nLama).map((mid) => ({
+    const extras = mejaTambah.map((mid) => ({
       ...base,
       catatan: `[Gabungan: ${gabunganNama}]`,
       meja_id: mid,
@@ -248,12 +287,11 @@ export async function POST(request: Request) {
     (inserted as { Id: number }[]).forEach((e) => tambahanIds.push(e.Id));
   }
 
-  // 2. Perbarui baris yang sudah ada (data bersama + meja)
-  for (let i = 0; i < nLama && i < nBaru; i++) {
-    const row = rows[i];
+  // 3. Perbarui baris yang dipertahankan (data bersama + meja menurut rencana)
+  for (const row of tetapRows) {
     const patch: Record<string, unknown> = { ...shared };
-    if (mejaDiganti) patch.meja_id = mejaBaru[i];
-    if (mejaDiganti && i >= 1 && (row.catatan == null || /^\[Gabungan:/.test(row.catatan))) {
+    if (mejaDiganti && target.get(row.Id) !== row.meja_id) patch.meja_id = target.get(row.Id);
+    if (mejaDiganti && row.Id !== primaryId && (row.catatan == null || /^\[Gabungan:/.test(row.catatan))) {
       patch.catatan = `[Gabungan: ${gabunganNama}]`;
     }
     const { error } = await supabaseAdmin.from("Reservation").update(patch).eq("Id", row.Id);
@@ -265,26 +303,7 @@ export async function POST(request: Request) {
     }
   }
 
-  // 3. Hapus baris meja yang tidak dipakai lagi (menu yang menempel dipindah ke baris utama)
-  const hapusIds = nBaru < nLama ? rows.slice(nBaru).map((r) => r.Id) : [];
-  if (hapusIds.length > 0) {
-    await supabaseAdmin
-      .from("ReservationMenuItem")
-      .update({ reservation_id: grup.primaryId })
-      .in("reservation_id", hapusIds);
-    const { error } = await supabaseAdmin.from("Reservation").delete().in("Id", hapusIds);
-    if (error) {
-      return NextResponse.json(
-        { error: "Perubahan tersimpan, tetapi baris meja lama gagal dihapus. Cek reservasi di daftar." },
-        { status: 500 }
-      );
-    }
-  }
-
-  const finalIds = rows
-    .slice(0, nBaru)
-    .map((r) => r.Id)
-    .concat(tambahanIds);
+  const finalIds = tetapRows.map((r) => r.Id).concat(tambahanIds);
 
   await logActivity(
     `${dibuatOleh} (POS)`,
