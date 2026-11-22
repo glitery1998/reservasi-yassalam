@@ -673,7 +673,7 @@ function validatePasswordStrength(password: string): string | null {
   const [showReservasiForm, setShowReservasiForm] = useState(false);
   const [editingReservasiId, setEditingReservasiId] = useState<number | null>(null);
   const [editingOriginalShareToken, setEditingOriginalShareToken] = useState<string | null>(null);
-  const [editingOriginalGabunganId, setEditingOriginalGabunganId] = useState<number | null>(null);
+  const [, setEditingOriginalGabunganId] = useState<number | null>(null);
   const [rTipeMeja, setRTipeMeja] = useState<"tunggal" | "gabungan">("tunggal");
   const [rGabunganId, setRGabunganId] = useState("");
   const [rNama, setRNama] = useState("");
@@ -1800,7 +1800,11 @@ const [pelangganQuery, setPelangganQuery] = useState("");
     if (rTipeMeja === "gabungan" && !rGabunganId) { alert("Pilih meja gabungan"); return; }
 
     const todayStr = new Date().toISOString().split("T")[0];
-    if (rTanggal === todayStr) {
+    // Reservasi yang sedang berjalan (jam mulai sudah lewat) tetap boleh diubah, misalnya pindah meja, selama tanggal dan jam
+    // mulainya tidak diganti. Pemeriksaan jam lewat hanya untuk reservasi baru atau bila jadwalnya dipindah.
+    const asli = editingReservasiId ? reservationsRef.current.find((x) => x.Id === editingReservasiId) : undefined;
+    const jadwalTetap = !!asli && asli.tanggal === rTanggal && formatJam(asli.jam) === rJam;
+    if (rTanggal === todayStr && !jadwalTetap) {
       const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
       const [jh, jm] = rJam.split(":").map(Number);
       if (jh * 60 + jm < nowMin) {
@@ -1870,7 +1874,9 @@ const [pelangganQuery, setPelangganQuery] = useState("");
       : await supabase.from("Reservation").insert({ ...p, menu_finalized: false });
     if (error) { setSavingReservasi(false); alert("Gagal simpan: " + error.message); return; }
 
-    if (editingReservasiId && editingOriginalGabunganId !== null && editingOriginalShareToken) {
+    // Baris meja lain dari reservasi yang sama (meja gabungan lama) dihapus, lalu dibuat ulang sesuai pilihan meja yang baru.
+    // Tidak bergantung pada daftar meja gabungan: gabungan yang sudah diubah atau dihapus pun tidak meninggalkan meja tersisa.
+    if (editingReservasiId && editingOriginalShareToken) {
       const oldSiblingIds = reservationsRef.current.filter((x) => x.share_token === editingOriginalShareToken && x.Id !== editingReservasiId).map((x) => x.Id);
       if (oldSiblingIds.length > 0) await supabase.from("Reservation").delete().in("Id", oldSiblingIds);
     }
