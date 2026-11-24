@@ -15,6 +15,37 @@ type Reservation = {
   dp_status?: string | null; bukti_transfer?: string | null;
 };
 
+// Tanggal YYYY-MM-DD menurut jam perangkat admin (WIB), bukan UTC
+function tglLokal(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function rpSingkat(n: number) {
+  if (n >= 1_000_000) return `Rp ${(n / 1_000_000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} jt`;
+  if (n >= 1_000) return `Rp ${Math.round(n / 1_000).toLocaleString("id-ID")} rb`;
+  return `Rp ${n.toLocaleString("id-ID")}`;
+}
+function inisial(nama: string) {
+  const kata = (nama || "?").replace(/^(bu|pak|ibu|bapak|keluarga|kel\.)\s+/i, "").trim().split(/\s+/).filter(Boolean);
+  return ((kata[0]?.[0] ?? "?") + (kata[1]?.[0] ?? "")).toUpperCase();
+}
+const WARNA_INISIAL = [
+  { bg: "#EFE8F8", fg: "#6D45A8" }, { bg: "#E5F3EA", fg: "#2E7D53" }, { bg: "#E6EFF9", fg: "#2F6AA3" },
+  { bg: "#FBE9E6", fg: "#B9443C" }, { bg: "#FAF1E1", fg: "#9A6A12" }, { bg: "#F7ECEE", fg: "#6B1A28" },
+];
+function warnaInisial(nama: string) {
+  let h = 0;
+  for (const c of nama || "") h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return WARNA_INISIAL[h % WARNA_INISIAL.length];
+}
+// Nomor WhatsApp dengan bagian yang cocok dengan kata pencarian ditandai
+function TandaCocok({ teks, cari }: { teks: string; cari: string }) {
+  const digit = cari.replace(/\D/g, "").replace(/^62/, "").replace(/^0/, "");
+  if (digit.length < 3) return <>{teks}</>;
+  const i = teks.indexOf(digit);
+  if (i < 0) return <>{teks}</>;
+  return <>{teks.slice(0, i)}<mark className="bg-[#FBE3A6] text-inherit rounded px-0.5">{teks.slice(i, i + digit.length)}</mark>{teks.slice(i + digit.length)}</>;
+}
+
 // Gabungkan baris-baris reservasi yang share_token-nya sama jadi 1 entri saja
 // (ambil baris dengan Id terkecil sebagai wakil dari grup meja gabungan).
 // Dipakai supaya statistik & daftar tidak menghitung 1 reservasi gabungan sebagai beberapa.
@@ -666,10 +697,16 @@ function validatePasswordStrength(password: string): string | null {
   const [gabunganList, setGabunganList] = useState<MejaGabungan[]>([]);
   const [filterOutlet, setFilterOutlet] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const PAGE_SIZE = 15;
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterDate, setFilterDate] = useState("");
+  const [filterStatus] = useState("");
+  const [filterDate, setFilterDate] = useState(() => tglLokal(new Date()));
+  // Tab Reservasi v3: reservasi terpilih, rincian layar penuh di HP, saringan, kata cari (ditunda), total menu, bukti menunggu dicek
+  const [selResId, setSelResId] = useState<number | null>(null);
+  const [detailHp, setDetailHp] = useState(false);
+  const [segmen, setSegmen] = useState<"semua" | "datang" | "hadir" | "selesai" | "batal">("semua");
+  const [cariAktif, setCariAktif] = useState("");
+  const [menuTotals, setMenuTotals] = useState<Record<string, number>>({});
+  const [pendingVerif, setPendingVerif] = useState<Reservation[]>([]);
+  const [buktiUrl, setBuktiUrl] = useState<Record<string, string>>({});
   const [showReservasiForm, setShowReservasiForm] = useState(false);
   const [editingReservasiId, setEditingReservasiId] = useState<number | null>(null);
   const [editingOriginalShareToken, setEditingOriginalShareToken] = useState<string | null>(null);
@@ -805,7 +842,7 @@ function validatePasswordStrength(password: string): string | null {
 
   useEffect(() => {
     /* eslint-disable-next-line react-hooks/set-state-in-effect */
-    setCurrentPage(1);
+    setSelResId(null); // ganti tanggal, outlet, atau kata cari: pilih ulang dari atas daftar
   }, [filterOutlet, filterStatus, filterDate, searchQuery]);
 
   const fetchReservations = useCallback(async () => {
@@ -816,10 +853,37 @@ function validatePasswordStrength(password: string): string | null {
       .order("tanggal", { ascending: true })
       .order("jam", { ascending: true });
     if (filterOutlet) q = q.eq("outlet", filterOutlet);
-    if (filterStatus) q = q.eq("status", filterStatus);
-    if (filterDate) q = q.eq("tanggal", filterDate);
-    const { data } = await q; setReservations(data || []); setLoading(false);
-  }, [filterOutlet, filterStatus, filterDate]);
+    const kata = cariAktif.replace(/[%,()*]/g, " ").trim();
+    if (kata) {
+      // Cari nama atau nomor WhatsApp di semua tanggal (nomor boleh diketik dengan 0 atau 62)
+      const digit = kata.replace(/\D/g, "").replace(/^62/, "").replace(/^0/, "");
+      const syarat = [`nama_tamu.ilike.%${kata}%`];
+      if (digit.length >= 3) syarat.push(`no_whatsapp.ilike.%${digit}%`);
+      q = q.or(syarat.join(",")).limit(200);
+    } else {
+      if (filterStatus) q = q.eq("status", filterStatus);
+      if (filterDate) q = q.eq("tanggal", filterDate);
+    }
+    let qPending = supabase.from("Reservation").select("*").eq("status", "Pending").eq("dp_status", "menunggu_verifikasi").order("created_at", { ascending: true }).limit(20);
+    if (filterOutlet) qPending = qPending.eq("outlet", filterOutlet);
+    const [{ data }, { data: pend }] = await Promise.all([q, qPending]);
+    const rows = (data || []) as Reservation[];
+    setReservations(rows);
+    setPendingVerif(dedupeByShareToken((pend || []) as Reservation[]));
+    // Total pesanan menu per reservasi (meja gabungan dijumlah per share_token)
+    const ids = rows.map((r) => r.Id).slice(0, 300);
+    if (ids.length > 0) {
+      const keyOf = new Map(rows.map((r) => [r.Id, r.share_token || `id-${r.Id}`]));
+      const { data: menu } = await supabase.from("ReservationMenuItem").select("reservation_id, subtotal").in("reservation_id", ids);
+      const tot: Record<string, number> = {};
+      for (const m of (menu || []) as { reservation_id: number; subtotal: number }[]) {
+        const k = keyOf.get(m.reservation_id);
+        if (k) tot[k] = (tot[k] ?? 0) + (Number(m.subtotal) || 0);
+      }
+      setMenuTotals(tot);
+    } else setMenuTotals({});
+    setLoading(false);
+  }, [filterOutlet, filterStatus, filterDate, cariAktif]);
   const fetchAreas = useCallback(async () => { const { data } = await supabase.from("Areas").select("*").order("outlet").order("urutan"); setAreas(data || []); }, []);
   const fetchTables = useCallback(async () => { const { data } = await supabase.from("Tables").select("*").order("outlet").order("nomor_meja"); setTables(data || []); }, []);
 
@@ -2000,26 +2064,19 @@ const [pelangganQuery, setPelangganQuery] = useState("");
   function getOrderVarianName(id: number | null) { if (!id) return null; return allVarianAdmin.find((v) => v.Id === id)?.nama || null; }
   function getOrderAddonNames(ids: number[]) { return (ids || []).map((id) => allAddonAdmin.find((a) => a.Id === id)?.nama).filter(Boolean).join(", "); }
 
-  async function toggleExpandOrders(r: Reservation) {
+  async function muatPesanan(r: Reservation) {
     const key = orderKey(r);
-    setExpandedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-    if (!ordersCache[key]) {
-      setLoadingOrderKeys((prev) => new Set(prev).add(key));
-      let resIds = [r.Id];
-      if (r.share_token) {
-        const { data: groupRes } = await supabase.from("Reservation").select("Id").eq("share_token", r.share_token);
-        resIds = (groupRes || []).map((x: { Id: number }) => x.Id);
-      }
-      const { data: orderData } = await supabase.from("ReservationMenuItem").select("*").in("reservation_id", resIds).order("created_at");
-      setOrdersCache((prev) => ({ ...prev, [key]: orderData || [] }));
-      setLoadingOrderKeys((prev) => { const n = new Set(prev); n.delete(key); return n; });
+    setExpandedKeys((prev) => new Set(prev).add(key));
+    setLoadingOrderKeys((prev) => new Set(prev).add(key));
+    let resIds = [r.Id];
+    if (r.share_token) {
+      const { data: groupRes } = await supabase.from("Reservation").select("Id").eq("share_token", r.share_token);
+      resIds = (groupRes || []).map((x: { Id: number }) => x.Id);
     }
+    const { data: orderData } = await supabase.from("ReservationMenuItem").select("*").in("reservation_id", resIds).order("created_at");
+    setOrdersCache((prev) => ({ ...prev, [key]: orderData || [] }));
+    setLoadingOrderKeys((prev) => { const n = new Set(prev); n.delete(key); return n; });
   }
-
   // ===== MENU KATEGORI =====
   function openKategoriForm(k?: MenuKategori) {
     if (k) { setEditKategori(k); setKOutlet(k.outlet); setKNama(k.nama); setKUrutan(String(k.urutan)); }
@@ -2133,7 +2190,126 @@ const [pelangganQuery, setPelangganQuery] = useState("");
     fetchAdminList();
   }
   const dedupedReservationsForStats = dedupeByShareToken(reservations);
-  const stats = { total: dedupedReservationsForStats.length, pending: dedupedReservationsForStats.filter((r) => r.status === "Pending").length, confirmed: dedupedReservationsForStats.filter((r) => r.status === "Confirmed").length, completed: dedupedReservationsForStats.filter((r) => r.status === "Completed").length, noshow: dedupedReservationsForStats.filter((r) => r.status === "No-Show").length, cancelled: dedupedReservationsForStats.filter((r) => r.status === "Cancelled").length };
+  // ===== Tab Reservasi (desain v3): data turunan untuk satu tanggal atau hasil cari =====
+  const daftarHari = dedupedReservationsForStats
+    .slice()
+    .sort((a, b) => (a.tanggal === b.tanggal ? (a.jam || "").localeCompare(b.jam || "") : a.tanggal.localeCompare(b.tanggal)));
+  const hasilCari = cariAktif ? daftarHari : [];
+  function cocokSegmen(r: Reservation, s: typeof segmen) {
+    if (s === "semua") return true;
+    if (s === "datang") return r.status === "Pending" || (r.status === "Confirmed" && !r.checked_in_at);
+    if (s === "hadir") return r.status === "Confirmed" && !!r.checked_in_at;
+    if (s === "selesai") return r.status === "Completed";
+    return r.status === "Cancelled" || r.status === "No-Show";
+  }
+  const hitungSegmen = {
+    semua: daftarHari.length,
+    datang: daftarHari.filter((r) => cocokSegmen(r, "datang")).length,
+    hadir: daftarHari.filter((r) => cocokSegmen(r, "hadir")).length,
+    selesai: daftarHari.filter((r) => cocokSegmen(r, "selesai")).length,
+    batal: daftarHari.filter((r) => cocokSegmen(r, "batal")).length,
+  };
+  const sumberTampil = cariAktif ? hasilCari : daftarHari.filter((r) => cocokSegmen(r, segmen));
+  const terpilihRes = sumberTampil.find((r) => r.Id === selResId) ?? sumberTampil[0] ?? null;
+  const ringkasHari = (() => {
+    const aktif = daftarHari.filter((r) => r.status !== "Cancelled");
+    const outletMeja = filterOutlet || (isSuper ? "" : myOutlet);
+    const mejaOutlet = tables.filter((t) => !outletMeja || t.outlet === outletMeja);
+    const terpakai = new Set(reservations.filter((r) => r.status !== "Cancelled" && r.meja_id != null).map((r) => r.meja_id));
+    return {
+      reservasi: aktif.length,
+      tamu: aktif.reduce((s, r) => s + (r.jumlah_tamu || 0), 0),
+      dp: aktif.filter((r) => r.dp_status !== "kedaluwarsa").reduce((s, r) => s + (r.dp_amount || 0), 0),
+      menu: aktif.reduce((s, r) => s + (menuTotals[orderKey(r)] ?? 0), 0),
+      mejaTotal: mejaOutlet.length,
+      mejaKosong: Math.max(mejaOutlet.filter((t) => !terpakai.has(t.Id)).length, 0),
+    };
+  })();
+  // Tamu terkonfirmasi yang belum datang lebih dari 15 menit setelah jam mulai (hanya hari ini)
+  const tamuTelat = daftarHari.filter((r) => {
+    if (r.status !== "Confirmed" || r.checked_in_at || r.tanggal !== tglLokal(now)) return false;
+    const mulai = new Date(`${r.tanggal}T${(r.jam || "00:00:00").slice(0, 8)}`).getTime();
+    const selesai = new Date(`${r.tanggal}T${(r.jam_selesai || "23:59:00").slice(0, 8)}`).getTime();
+    return now.getTime() > mulai + 15 * 60000 && now.getTime() < selesai;
+  });
+  function statusTampil(r: Reservation): { t: string; kelas: string; titik: string } {
+    const w = (t: string, warna: "amber" | "red" | "green" | "blue" | "grey") => ({
+      t,
+      kelas: { amber: "bg-[#FDF1DB] text-[#B5730F]", red: "bg-[#FBE9E6] text-[#B9443C]", green: "bg-[#E5F3EA] text-[#2E7D53]", blue: "bg-[#E6EFF9] text-[#2F6AA3]", grey: "bg-[#F0EDE9] text-[#8E8378]" }[warna],
+      titik: { amber: "bg-[#B5730F]", red: "bg-[#B9443C]", green: "bg-[#2E7D53]", blue: "bg-[#2F6AA3]", grey: "bg-[#C9BFB3]" }[warna],
+    });
+    if (r.status === "Pending") return r.dp_status === "menunggu_verifikasi" ? w("Cek bukti", "amber") : w("Menunggu", "amber");
+    if (r.status === "Cancelled") return w(r.dp_status === "kedaluwarsa" ? "Kedaluwarsa" : "Batal", "grey");
+    if (r.status === "No-Show") return w("Tidak datang", "red");
+    if (r.status === "Completed") return w("Selesai", "green");
+    if (r.checked_in_at) return w(`Hadir ${new Date(r.checked_in_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }).replace(":", ".")}`, "green");
+    if (tamuTelat.some((x) => x.Id === r.Id)) {
+      const menit = Math.floor((now.getTime() - new Date(`${r.tanggal}T${(r.jam || "00:00:00").slice(0, 8)}`).getTime()) / 60000);
+      return w(`Terlambat ${menit} mnt`, "red");
+    }
+    if (r.share_token && !r.menu_finalized && r.tanggal === tglLokal(now) && (menuTotals[orderKey(r)] ?? 0) > 0) return w("Menu belum dikunci", "amber");
+    return w("Terkonfirmasi", "blue");
+  }
+  function tagTamu(r: Reservation): { t: string; bg: string; fg: string } | null {
+    const hist = customerHistoryMap[normalizeWhatsapp(r.no_whatsapp)];
+    if (hist && hist.noShow >= Number(thresholdNoShow)) return { t: "Pernah tidak datang", bg: "#FBE9E6", fg: "#B9443C" };
+    if (hist && hist.total >= Number(thresholdLama)) return { t: `Langganan ${hist.total}×`, bg: "#E5F3EA", fg: "#2E7D53" };
+    if (!hist || hist.total <= 1) return { t: "Baru", bg: "#EFE8F8", fg: "#6D45A8" };
+    return null;
+  }
+  function riwayatTamu(r: Reservation) {
+    const hist = customerHistoryMap[normalizeWhatsapp(r.no_whatsapp)];
+    if (!hist || hist.total <= 1) return "Tamu baru";
+    return `${hist.total}× reservasi${hist.noShow > 0 ? ` · ${hist.noShow}× tidak datang` : ""}`;
+  }
+  function lamaJam(r: Reservation) {
+    if (!r.jam || !r.jam_selesai) return "";
+    const [h1, m1] = r.jam.split(":").map(Number);
+    const [h2, m2] = r.jam_selesai.split(":").map(Number);
+    const menit = h2 * 60 + m2 - (h1 * 60 + m1);
+    if (!(menit > 0)) return "";
+    return menit % 60 === 0 ? `${menit / 60} jam` : `${Math.floor(menit / 60)}j ${menit % 60}m`;
+  }
+  function geserTanggal(n: number) {
+    const d = new Date(`${filterDate || tglLokal(new Date())}T12:00:00`);
+    d.setDate(d.getDate() + n);
+    setFilterDate(tglLokal(d));
+  }
+  // Dari baris peringatan: pindah ke tanggal reservasi itu dan buka rinciannya
+  function bukaReservasi(r: Reservation) {
+    setSearchQuery("");
+    setSegmen("semua");
+    setFilterDate(r.tanggal);
+    setSelResId(r.Id);
+    setDetailHp(true);
+  }
+
+  // Cari: ditunda sebentar supaya tidak memuat ulang di setiap ketukan
+  useEffect(() => {
+    const t = setTimeout(() => setCariAktif(searchQuery.trim()), 350);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+  // Rincian terpilih: muat pesanan menu dan gambar bukti transfer (sekali per reservasi)
+  const keyTerpilih = terpilihRes ? orderKey(terpilihRes) : null;
+  useEffect(() => {
+    if (tab !== "reservasi" || !terpilihRes || !keyTerpilih || !terpilihRes.share_token || ordersCache[keyTerpilih] || loadingOrderKeys.has(keyTerpilih)) return;
+    const r = terpilihRes;
+    queueMicrotask(() => void muatPesanan(r));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, keyTerpilih]);
+  const buktiTerpilih = terpilihRes?.bukti_transfer ?? null;
+  useEffect(() => {
+    if (tab !== "reservasi" || !buktiTerpilih || buktiUrl[buktiTerpilih]) return;
+    let hidup = true;
+    (async () => {
+      const { data: { session: s } } = await supabase.auth.getSession();
+      const res = await fetch(`/api/bukti-transfer?path=${encodeURIComponent(buktiTerpilih)}`, { headers: { Authorization: `Bearer ${s?.access_token}` } });
+      const json = await res.json().catch(() => null);
+      if (hidup && res.ok && json?.url) setBuktiUrl((m) => ({ ...m, [buktiTerpilih]: json.url as string }));
+    })();
+    return () => { hidup = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, buktiTerpilih]);
   const visibleAdminList = isSuper ? adminList : adminList.filter((a) => a.outlet === myOutlet);
   const statusStyle: Record<string, string> = { Pending: "bg-amber-50 text-amber-700 border-amber-200", Confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200", Completed: "bg-blue-50 text-blue-700 border-blue-200", Cancelled: "bg-red-50 text-red-600 border-red-200", "No-Show": "bg-orange-50 text-orange-700 border-orange-300" };
 
@@ -2300,8 +2476,8 @@ const [pelangganQuery, setPelangganQuery] = useState("");
             <button key={item.key} onClick={() => { playClick(); setTab(item.key as typeof tab); setDrillArea(null); setDrillKategori(null); }}
               className={`shrink-0 flex items-center gap-2.5 whitespace-nowrap px-3.5 py-2.5 rounded-lg text-sm transition-all ${tab === item.key ? "bg-white/15 text-white font-bold shadow-sm" : "text-white/85 hover:text-white hover:bg-white/10 font-medium"}`}>
               <Icon name={item.icon} /> {item.label}
-              {item.key === "reservasi" && stats.total > 0 && (
-                <span className="ml-auto text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-bold">{stats.total}</span>
+              {item.key === "reservasi" && pendingVerif.length > 0 && (
+                <span title="Bukti transfer menunggu dicek" className="ml-auto text-[10px] bg-[#F0B44C] text-[#3A2400] px-1.5 py-0.5 rounded-full font-bold">{pendingVerif.length}</span>
               )}
               {item.key === "bookinghold" && allHolds.length > 0 && (
                 <span className="ml-auto text-[10px] bg-sky-400 text-white px-1.5 py-0.5 rounded-full font-bold">{allHolds.length}</span>
@@ -2330,8 +2506,8 @@ const [pelangganQuery, setPelangganQuery] = useState("");
                       <button key={item.key} onClick={() => { playClick(); setTab(item.key as typeof tab); setDrillArea(null); setDrillKategori(null); }}
                         className={`flex items-center gap-2.5 whitespace-nowrap px-3.5 py-2.5 rounded-lg text-sm transition-all ${tab === item.key ? "bg-white/15 text-white font-bold shadow-sm" : "text-white/85 hover:text-white hover:bg-white/10 font-medium"}`}>
                         <Icon name={item.icon} /> {item.label}
-                        {item.key === "reservasi" && stats.total > 0 && (
-                          <span className="ml-auto text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-bold">{stats.total}</span>
+                        {item.key === "reservasi" && pendingVerif.length > 0 && (
+                          <span title="Bukti transfer menunggu dicek" className="ml-auto text-[10px] bg-[#F0B44C] text-[#3A2400] px-1.5 py-0.5 rounded-full font-bold">{pendingVerif.length}</span>
                         )}
                         {item.key === "bookinghold" && allHolds.length > 0 && (
                           <span className="ml-auto text-[10px] bg-sky-400 text-white px-1.5 py-0.5 rounded-full font-bold">{allHolds.length}</span>
@@ -2494,50 +2670,111 @@ const [pelangganQuery, setPelangganQuery] = useState("");
 
         {/* ========== TAB RESERVASI ========== */}
         {tab === "reservasi" && (<>
-          <div className="flex justify-end mb-4">
-            <button onClick={() => openReservasiForm()} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-lg shadow-[#5C1420]/20 active:scale-[0.98] transition-all">+ Reservasi Baru</button>
-          </div>
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5 sm:gap-3 mb-6">
-            {[
-              { label: "Total", value: stats.total, color: "text-[#3D2E1E]", icon: "chart" },
-              { label: "Pending", value: stats.pending, color: "text-amber-600", icon: "hourglass" },
-              { label: "Confirmed", value: stats.confirmed, color: "text-emerald-600", icon: "check-circle" },
-              { label: "Completed", value: stats.completed, color: "text-blue-600", icon: "party" },
-              { label: "No-Show", value: stats.noshow, color: "text-orange-600", icon: "ghost" },
-              { label: "Cancelled", value: stats.cancelled, color: "text-red-500", icon: "x-circle" },
-            ].map((s) => (
-              <div key={s.label} className="bg-white border border-[#E5DDD4] rounded-xl p-3 sm:p-4">
-                <Icon name={s.icon} size={16} className={s.color} />
-                <p className={`text-xl sm:text-2xl font-bold mt-1 ${s.color}`}>{s.value}</p>
-                <p className="text-[10px] sm:text-xs text-[#9A8B7A] tracking-wider uppercase mt-0.5">{s.label}</p>
+          {/* ===== Kepala: tanggal, cari, tombol baru (desain Reservasi v3, 25 Nov 2026) ===== */}
+          {(() => {
+            const tglAktif = filterDate || tglLokal(new Date());
+            const judulTgl = new Date(`${tglAktif}T12:00:00`).toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", ...(tglAktif.slice(0, 4) !== String(new Date().getFullYear()) ? { year: "numeric" } : {}) });
+            return (
+              <div className="flex flex-wrap items-end gap-3 mb-5">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-[#8E8378]">
+                    {cariAktif ? "Hasil pencarian · semua tanggal" : `Reservasi · ${isSuper ? (filterOutlet === "jogja" ? "Yogyakarta" : filterOutlet === "solo" ? "Solo" : "Semua outlet") : myOutlet === "solo" ? "Solo" : "Yogyakarta"}`}
+                  </p>
+                  <h2 className="font-serif font-bold text-[30px] sm:text-[34px] leading-tight text-[#6B1A28] truncate">
+                    {cariAktif ? `${hasilCari.length} reservasi untuk “${cariAktif}”` : judulTgl}
+                  </h2>
+                </div>
+                {!cariAktif && (
+                  <div className="flex items-center gap-1 mb-1">
+                    <button onClick={() => geserTanggal(-1)} aria-label="Hari sebelumnya" className="w-9 h-9 rounded-full bg-white border border-[#ECE6DE] text-[#4B433B] text-lg">‹</button>
+                    <button onClick={() => geserTanggal(1)} aria-label="Hari berikutnya" className="w-9 h-9 rounded-full bg-white border border-[#ECE6DE] text-[#4B433B] text-lg">›</button>
+                    {tglAktif !== tglLokal(new Date()) && (
+                      <button onClick={() => setFilterDate(tglLokal(new Date()))} className="ml-1 h-9 px-3 rounded-full text-sm font-bold text-[#6B1A28] hover:bg-[#F7ECEE]">Hari ini</button>
+                    )}
+                    <input type="date" value={tglAktif} onChange={(e) => e.target.value && setFilterDate(e.target.value)} aria-label="Pilih tanggal" className="ml-1 h-9 px-2 rounded-full border border-[#ECE6DE] bg-white text-xs text-[#4B433B]" />
+                  </div>
+                )}
+                <div className="flex-1" />
+                {isSuper && (
+                  <select value={filterOutlet} onChange={(e) => setFilterOutlet(e.target.value)} className="h-[42px] px-3 rounded-full border border-[#ECE6DE] bg-white text-sm text-[#1F1A16]">
+                    <option value="">Semua outlet</option><option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
+                  </select>
+                )}
+                <label className={`h-[42px] w-full sm:w-[330px] rounded-full bg-white border flex items-center gap-2 px-4 shadow-sm ${searchQuery ? "border-[#6B1A28] ring-4 ring-[#6B1A28]/10" : "border-[#ECE6DE]"}`}>
+                  <Icon name="search" size={16} className={searchQuery ? "text-[#6B1A28]" : "text-[#8E8378]"} />
+                  <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Cari nama atau no. WhatsApp" className="flex-1 min-w-0 bg-transparent outline-none text-sm text-[#1F1A16] placeholder-[#8E8378]" />
+                  {searchQuery && <button onClick={() => setSearchQuery("")} aria-label="Hapus pencarian" className="text-[#8E8378] font-extrabold">✕</button>}
+                </label>
+                <button onClick={() => openReservasiForm()} className="h-[42px] px-5 rounded-full bg-[#6B1A28] text-white text-sm font-bold inline-flex items-center gap-2 active:scale-[0.98]">
+                  <span className="text-lg leading-none">+</span> Reservasi
+                </button>
               </div>
-            ))}
-          </div>
-          <div className="bg-white border border-[#E5DDD4] rounded-xl p-4 mb-4 space-y-2.5">
-            <span className="text-[#5C1420] text-xs font-bold tracking-wider uppercase">Filter</span>
-            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3 items-center">
-            <div className="relative col-span-2 sm:w-56">
-              <Icon name="search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#B5A999]" />
-              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Cari nama / no. HP..." className={filterClass + " w-full pl-8"} />
-            </div>
-            {isSuper ? (
-              <select value={filterOutlet} onChange={(e) => setFilterOutlet(e.target.value)} className={filterClass}>
-                <option value="">Semua Outlet</option><option value="solo">Solo</option><option value="jogja">Yogyakarta</option>
-              </select>
-            ) : (
-              <span className="px-3 py-2 rounded-xl bg-[#5C1420]/10 border border-[#5C1420]/20 text-sm font-bold text-[#5C1420] capitalize inline-flex items-center gap-1.5">
-                <Icon name="map-pin" size={14} /> {myOutlet === "solo" ? "Solo" : "Yogyakarta"}
-              </span>
-            )}
-            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className={filterClass}>
-              <option value="">Semua Status</option><option value="Pending">Pending</option><option value="Confirmed">Confirmed</option><option value="Completed">Completed</option><option value="Cancelled">Cancelled</option>
-            </select>
-            <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className={filterClass} />
-            <button onClick={() => setFilterDate(new Date().toISOString().split("T")[0])}
-              className="px-3 py-2 rounded-xl border border-[#5C1420]/30 text-[#5C1420] text-sm font-bold hover:bg-[#5C1420]/5 inline-flex items-center gap-1.5"><Icon name="calendar" size={14} /> Hari Ini</button>
-            {(filterOutlet || filterStatus || filterDate || searchQuery) && <button onClick={() => { setFilterOutlet(""); setFilterStatus(""); setFilterDate(""); setSearchQuery(""); }} className="text-sm text-[#5C1420] hover:underline col-span-2 sm:col-span-1 inline-flex items-center gap-1"><Icon name="x" size={12} /> Reset</button>}
-            </div>
-          </div>
+            );
+          })()}
+
+          {cariAktif ? (
+            <p className="text-[13px] text-[#8E8378] -mt-2 mb-4">Cocok dengan nama atau nomor WhatsApp, boleh sebagian (dengan 0 atau 62). Tekan ✕ untuk kembali ke daftar per tanggal.</p>
+          ) : (
+            <>
+              {/* Angka hari itu */}
+              <div className="flex flex-wrap gap-2.5 mb-4">
+                {[
+                  { ico: "reservasi", bg: "#F7ECEE", fg: "#6B1A28", v: String(ringkasHari.reservasi), l: "reservasi" },
+                  { ico: "pelanggan", bg: "#E6EFF9", fg: "#2F6AA3", v: String(ringkasHari.tamu), l: "tamu" },
+                  { ico: "cash", bg: "#FAF1E1", fg: "#B88A3E", v: rpSingkat(ringkasHari.dp), l: "uang muka" },
+                  { ico: "menu", bg: "#E5F3EA", fg: "#2E7D53", v: rpSingkat(ringkasHari.menu), l: "pesanan menu" },
+                  { ico: "area", bg: "#EFE8F8", fg: "#6D45A8", v: `${ringkasHari.mejaKosong} kosong`, l: `dari ${ringkasHari.mejaTotal} meja` },
+                ].map((s) => (
+                  <div key={s.l} className="flex items-center gap-2.5 bg-white rounded-2xl py-2.5 pl-2.5 pr-4 shadow-[0_1px_2px_rgba(40,20,10,.05),0_2px_8px_rgba(40,20,10,.04)]">
+                    <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: s.bg, color: s.fg }}><Icon name={s.ico} size={16} /></span>
+                    <span><b className="block text-base font-extrabold leading-tight text-[#1F1A16]">{s.v}</b><span className="text-xs text-[#8E8378]">{s.l}</span></span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Satu baris peringatan, hanya bila ada yang mendesak */}
+              {(pendingVerif.length > 0 || tamuTelat.length > 0) && (() => {
+                const pv = pendingVerif[0];
+                const sisa = pv?.created_at ? Math.max(0, new Date(pv.created_at).getTime() + 15 * 60000 - now.getTime()) : null;
+                const target = pv ?? tamuTelat[0];
+                return (
+                  <div className="flex flex-wrap items-center gap-3 bg-[#FDF1DB] rounded-2xl py-2.5 pl-3.5 pr-3 mb-4">
+                    <span className="w-8 h-8 rounded-xl bg-white text-[#B5730F] flex items-center justify-center"><Icon name="clock" size={16} /></span>
+                    <p className="text-[13.5px] text-[#1F1A16] min-w-0">
+                      <b>{pv ? `Bukti transfer ${pv.nama_tamu} menunggu dicek` : `${tamuTelat[0].nama_tamu} terlambat datang`}</b>
+                      <span className="text-[#8E8378]">
+                        {pv && pendingVerif.length > 1 ? ` · +${pendingVerif.length - 1} bukti lain` : ""}
+                        {pv && tamuTelat.length > 0 ? ` · ${tamuTelat.length} tamu terlambat` : ""}
+                        {pv && pv.tanggal !== (filterDate || tglLokal(new Date())) ? ` · reservasi ${pv.tanggal}` : ""}
+                      </span>
+                    </p>
+                    {sisa !== null && (
+                      <span className="text-[12.5px] font-extrabold text-[#B5730F] bg-white rounded-full px-2.5 py-0.5 tabular-nums">
+                        {String(Math.floor(sisa / 60000)).padStart(2, "0")}:{String(Math.floor((sisa % 60000) / 1000)).padStart(2, "0")}
+                      </span>
+                    )}
+                    <div className="flex-1" />
+                    <button onClick={() => bukaReservasi(target)} className="h-8 px-4 rounded-full bg-white text-sm font-bold text-[#1F1A16]">Periksa</button>
+                  </div>
+                );
+              })()}
+
+              {/* Saringan */}
+              <div className="inline-flex flex-wrap bg-[#ECE6DE] rounded-full p-[3px] mb-2">
+                {([
+                  ["semua", "Semua"],
+                  ["datang", "Akan datang"],
+                  ["hadir", "Hadir"],
+                  ["selesai", "Selesai"],
+                  ["batal", "Batal"],
+                ] as const).map(([k, l]) => (
+                  <button key={k} onClick={() => setSegmen(k)} className={`h-8 px-3.5 rounded-full text-[13px] font-bold inline-flex items-center gap-1.5 ${segmen === k ? "bg-white text-[#1F1A16] shadow-sm" : "text-[#4B433B]"}`}>
+                    {l} <span className="font-semibold text-[#8E8378]">{hitungSegmen[k]}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
 
           {showReservasiForm && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
@@ -2697,209 +2934,222 @@ const [pelangganQuery, setPelangganQuery] = useState("");
             </div>
           )}
 
+          {/* ===== Daftar kartu per sesi + panel rincian ===== */}
           {(() => {
-            // Gabungkan baris-baris yang share_token-nya sama jadi 1 kartu saja
-            // (ambil baris dengan Id terkecil sebagai wakil/representatif dari grup)
-            const dedupedReservations = (() => {
-              const bestByToken = new Map<string, Reservation>();
-              const noToken: Reservation[] = [];
-              for (const r of reservations) {
-                if (!r.share_token) { noToken.push(r); continue; }
-                const existing = bestByToken.get(r.share_token);
-                if (!existing || r.Id < existing.Id) bestByToken.set(r.share_token, r);
-              }
-              return [...bestByToken.values(), ...noToken];
-            })();
+            const sumber = sumberTampil;
+            const terpilih = terpilihRes;
+            const tglHariIni = tglLokal(new Date());
+            const kelompok: { judul: string; warna: string; titik: string; isi: Reservation[] }[] = cariAktif
+              ? [
+                  { judul: "Akan datang", warna: "#4B433B", titik: "#B88A3E", isi: sumber.filter((r) => r.tanggal >= tglHariIni) },
+                  { judul: "Sudah lewat", warna: "#8E8378", titik: "#C9BFB3", isi: sumber.filter((r) => r.tanggal < tglHariIni).reverse() },
+                ]
+              : [
+                  { judul: "Pagi", warna: "#A06C10", titik: "#EDB548", isi: sumber.filter((r) => (r.jam || "") < "12:00") },
+                  { judul: "Siang", warna: "#B0521E", titik: "#E07B43", isi: sumber.filter((r) => (r.jam || "") >= "12:00" && (r.jam || "") < "17:00") },
+                  { judul: "Malam", warna: "#4A4E95", titik: "#6267B5", isi: sumber.filter((r) => (r.jam || "") >= "17:00") },
+                ];
 
-            const q = searchQuery.trim().toLowerCase();
-            const filteredReservations = q
-              ? dedupedReservations.filter((r) => r.nama_tamu.toLowerCase().includes(q) || r.no_whatsapp.includes(q))
-              : dedupedReservations;
-            const totalPages = Math.max(1, Math.ceil(filteredReservations.length / PAGE_SIZE));
-            const pageSafe = Math.min(currentPage, totalPages);
-            const paginatedReservations = filteredReservations.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
-            return loading ? <p className="text-center text-[#B5A999] py-16">Memuat data...</p> : filteredReservations.length === 0 ? (
-              <p className="text-center text-[#B5A999] py-16">{q ? `Tidak ada reservasi dengan kata kunci "${searchQuery}"` : "Tidak ada reservasi"}</p>
-            ) : (
-            <>
-            <div className="space-y-4">
-              {paginatedReservations.map((r) => (
-                <div key={r.Id} className="bg-white border border-[#E5DDD4] rounded-2xl overflow-hidden hover:shadow-lg hover:shadow-[#5C1420]/5 transition-all">
-                  <div className="flex flex-col lg:flex-row">
-                    <div className="flex-1 p-6">
-                      <div className="flex items-start justify-between gap-4 flex-wrap">
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-bold text-[#3D2E1E] text-xl font-serif">{r.nama_tamu}</h3>
-                            {r.share_token && reservations.filter((x) => x.share_token === r.share_token).length > 1 && (
-                              <span className="bg-[#5C1420]/10 text-[#5C1420] text-[10px] px-2 py-0.5 rounded-full font-bold border border-[#5C1420]/20">Gabungan {reservations.filter((x) => x.share_token === r.share_token).length} meja</span>
-                            )}
-                            {(() => {
-                              const hist = customerHistoryMap[normalizeWhatsapp(r.no_whatsapp)];
-                              if (!hist || hist.total < Number(thresholdLama)) return null;
-                              return (
-                                <>
-                                  <span className="bg-purple-50 text-purple-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-purple-200 inline-flex items-center gap-1"><Icon name="users" size={11} /> Pelanggan Lama · {hist.total}x</span>
-                                  {hist.noShow >= Number(thresholdNoShow) && (
-                                    <span className="bg-orange-50 text-orange-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-orange-200 inline-flex items-center gap-1"><Icon name="warning" size={11} /> {hist.noShow}x No-Show</span>
-                                  )}
-                                </>
-                              );
+            const kartu = (r: Reservation) => {
+              const st = statusTampil(r);
+              const tg = tagTamu(r);
+              const av = warnaInisial(r.nama_tamu);
+              const total = menuTotals[orderKey(r)] ?? 0;
+              const durasi = lamaJam(r);
+              const pilih = terpilih?.Id === r.Id;
+              return (
+                <button key={r.Id} type="button" onClick={() => { setSelResId(r.Id); setDetailHp(true); }}
+                  className={`w-full text-left flex items-center gap-3 sm:gap-3.5 bg-white rounded-2xl py-3 pl-3 pr-4 mb-2 shadow-[0_1px_2px_rgba(40,20,10,.05),0_2px_8px_rgba(40,20,10,.04)] ${pilih ? "ring-2 ring-[#6B1A28]" : ""} ${r.status === "Cancelled" ? "opacity-55" : ""}`}>
+                  <span className="w-[52px] text-center shrink-0">
+                    {cariAktif ? (
+                      <><b className="block text-base font-extrabold tabular-nums">{Number(r.tanggal.slice(8, 10))}</b><span className="text-[11px] text-[#8E8378]">{new Date(`${r.tanggal}T12:00:00`).toLocaleDateString("id-ID", { month: "short" })}</span></>
+                    ) : (
+                      <><b className="block text-base font-extrabold tabular-nums">{formatJam(r.jam).replace(":", ".")}</b>{durasi && <span className="text-[11px] text-[#8E8378]">{durasi}</span>}</>
+                    )}
+                  </span>
+                  <span className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-extrabold shrink-0" style={{ background: av.bg, color: av.fg }}>{inisial(r.nama_tamu)}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <b className="text-[15px] font-bold text-[#1F1A16] truncate">{r.nama_tamu}</b>
+                      {tg && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-md shrink-0" style={{ background: tg.bg, color: tg.fg }}>{tg.t}</span>}
+                    </span>
+                    <span className="block text-[12.5px] text-[#8E8378] mt-0.5 truncate">
+                      {cariAktif ? `${new Date(`${r.tanggal}T12:00:00`).toLocaleDateString("id-ID", { weekday: "long" })} ${formatJam(r.jam).replace(":", ".")} · ` : ""}
+                      {r.jumlah_tamu} orang · {getReservasiMejaLabel(r)}
+                      {cariAktif ? <> · <TandaCocok teks={r.no_whatsapp} cari={cariAktif} /></> : null}
+                    </span>
+                  </span>
+                  <span className={`hidden sm:inline-flex items-center gap-1.5 h-[26px] px-2.5 rounded-full text-xs font-bold whitespace-nowrap shrink-0 ${st.kelas}`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-current" />{st.t}
+                  </span>
+                  <span className="hidden md:block w-[96px] text-right text-[12.5px] text-[#8E8378] shrink-0 tabular-nums">
+                    {total > 0 ? `Menu ${rpSingkat(total).replace("Rp ", "")}` : r.dp_amount ? `DP ${rpSingkat(r.dp_amount).replace("Rp ", "")}` : r.share_token ? "Belum pesan" : ""}
+                  </span>
+                  <span className={`sm:hidden w-2.5 h-2.5 rounded-full shrink-0 ${st.titik}`} />
+                </button>
+              );
+            };
+
+            return (
+              <div className="flex gap-5 items-start">
+                <div className="flex-1 min-w-0">
+                  {loading ? (
+                    <p className="text-center text-[#8E8378] py-16">Memuat data...</p>
+                  ) : sumber.length === 0 ? (
+                    <div className="text-center py-16">
+                      <p className="text-[#8E8378]">{cariAktif ? `Tidak ada reservasi untuk “${cariAktif}”.` : "Belum ada reservasi pada tanggal ini."}</p>
+                      {!cariAktif && <button onClick={() => openReservasiForm()} className="mt-3 h-10 px-5 rounded-full border border-[#ECE6DE] bg-white text-sm font-bold text-[#6B1A28]">+ Buat reservasi</button>}
+                    </div>
+                  ) : (
+                    kelompok.filter((k) => k.isi.length > 0).map((k) => (
+                      <div key={k.judul}>
+                        <p className="flex items-center gap-2 text-xs font-extrabold tracking-[0.06em] uppercase mt-3.5 mb-2" style={{ color: k.warna }}>
+                          <span className="w-2 h-2 rounded-full" style={{ background: k.titik }} />{k.judul}
+                        </p>
+                        {k.isi.map(kartu)}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {terpilih && (
+                  <aside className={`${detailHp ? "fixed inset-0 z-40 overflow-y-auto bg-[#F6F3EF] p-3" : "hidden"} lg:static lg:block lg:p-0 lg:bg-transparent lg:w-[360px] lg:shrink-0 lg:sticky lg:top-4`}>
+                    <div className="bg-white rounded-[18px] overflow-hidden shadow-[0_1px_2px_rgba(40,20,10,.05),0_2px_8px_rgba(40,20,10,.04)]">
+                      {/* Kepala marun */}
+                      <div className="bg-[#6B1A28] text-white p-5 relative">
+                        <div className="absolute top-4 right-4 flex gap-1.5">
+                          <button onClick={() => openReservasiForm(terpilih)} className="h-8 px-3 rounded-full bg-white/15 text-[12.5px] font-bold">Ubah</button>
+                          <button onClick={() => setDetailHp(false)} aria-label="Tutup" className="lg:hidden h-8 w-8 rounded-full bg-white/15 text-sm font-bold">✕</button>
+                        </div>
+                        <h3 className="font-serif text-[30px] font-bold leading-none pr-24 break-words">{terpilih.nama_tamu}</h3>
+                        <p className="text-[12.5px] text-[#EBCFCF] mt-1.5">
+                          {riwayatTamu(terpilih)} ·{" "}
+                          <a href={`https://wa.me/${normalizeWhatsapp(terpilih.no_whatsapp)}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{terpilih.no_whatsapp}</a>
+                        </p>
+                        <div className="grid grid-cols-3 gap-2 mt-4">
+                          {[
+                            [cariAktif ? "Tanggal" : "Jam", cariAktif ? new Date(`${terpilih.tanggal}T12:00:00`).toLocaleDateString("id-ID", { day: "numeric", month: "short" }) + " " + formatJam(terpilih.jam).replace(":", ".") : `${formatJam(terpilih.jam).replace(":", ".")}–${formatJam(terpilih.jam_selesai).replace(":", ".")}`],
+                            ["Tamu", `${terpilih.jumlah_tamu} orang`],
+                            ["Meja", getReservasiMejaLabel(terpilih)],
+                          ].map(([l, v]) => (
+                            <div key={l} className="bg-white/10 rounded-xl px-2.5 py-2 min-w-0">
+                              <span className="block text-[11px] text-[#E3C3C3]">{l}</span>
+                              <b className="block text-sm truncate">{v}</b>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="p-4 flex flex-col gap-3">
+                        {/* Status */}
+                        {(() => { const st = statusTampil(terpilih); return (
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex items-center gap-1.5 h-[26px] px-2.5 rounded-full text-xs font-bold ${st.kelas}`}><span className="w-1.5 h-1.5 rounded-full bg-current" />{st.t}</span>
+                            {terpilih.status === "Confirmed" && !terpilih.checked_in_at && <span className="text-xs text-[#8E8378]">{getWaktuInfo(terpilih).label}</span>}
+                          </div>
+                        ); })()}
+
+                        {/* Uang muka */}
+                        <div className="rounded-2xl p-3.5" style={{ background: terpilih.dp_status === "menunggu_verifikasi" ? "#FDF1DB" : "#FAF1E1" }}>
+                          <div className="flex items-center">
+                            <span className="text-[11.5px] font-extrabold tracking-[0.08em] uppercase text-[#B5730F]">Uang muka</span>
+                            <span className="flex-1" />
+                            {terpilih.dp_status === "menunggu_verifikasi" && terpilih.created_at && (() => {
+                              const sisa = Math.max(0, new Date(terpilih.created_at).getTime() + 15 * 60000 - now.getTime());
+                              return <span className="text-xs font-extrabold text-[#B5730F] bg-white rounded-full px-2.5 py-0.5 tabular-nums">{String(Math.floor(sisa / 60000)).padStart(2, "0")}:{String(Math.floor((sisa % 60000) / 1000)).padStart(2, "0")}</span>;
                             })()}
                           </div>
-                          <p className="text-xs text-[#9A8B7A] tracking-wide uppercase mt-1 capitalize">{r.outlet} · {r.tanggal}</p>
+                          <div className="flex items-start gap-3 mt-2.5">
+                            {terpilih.bukti_transfer && (
+                              <button onClick={() => lihatBukti(terpilih.bukti_transfer!)} title="Buka bukti transfer" className="w-16 h-[86px] rounded-lg border border-[#EADCC0] bg-white overflow-hidden shrink-0 flex items-center justify-center text-[10px] text-[#8E8378]">
+                                {buktiUrl[terpilih.bukti_transfer]
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  ? <img src={buktiUrl[terpilih.bukti_transfer]} alt="Bukti transfer" className="w-full h-full object-cover" />
+                                  : "Bukti"}
+                              </button>
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-[22px] font-extrabold tabular-nums text-[#1F1A16]">{terpilih.dp_amount ? formatRupiah(terpilih.dp_amount) : "Tanpa DP"}</p>
+                              <p className="text-[12.5px] text-[#4B433B] mt-0.5 leading-snug">
+                                {terpilih.dp_status === "menunggu_verifikasi" ? "Menunggu dicek, cocokkan dengan mutasi bank" : terpilih.dp_status === "kedaluwarsa" ? "Verifikasi kedaluwarsa" : terpilih.dp_amount ? "Sudah diterima" : "Reservasi tanpa uang muka"}
+                                {terpilih.bukti_transfer && <><br /><span className="text-[#8E8378]">Ketuk gambar untuk memperbesar</span></>}
+                              </p>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <span className={`text-[10px] px-3 py-1 rounded-full border-2 font-bold tracking-wider uppercase ${statusStyle[r.status] || ""}`}>
-                            {r.status === "Pending" ? "Menunggu" : r.status === "Confirmed" ? "Terkonfirmasi" : r.status === "Completed" ? "Selesai" : r.status === "No-Show" ? "Tidak Hadir" : "Dibatalkan"}
-                          </span>
-                          {r.status === "Confirmed" && (() => {
-                            const info = getWaktuInfo(r);
-                            const toneClass = info.tone === "active" ? "text-emerald-600" : info.tone === "overdue" ? "text-[#B5A999]" : "text-[#5C1420]";
-                            return <span className={`text-[10px] font-bold ${toneClass}`}>{info.label}</span>;
-                          })()}
-                          {r.status === "Confirmed" && r.checked_in_at && (
-                            <span className="text-[10px] font-bold text-emerald-600">✓ Sudah Hadir</span>
-                          )}
-                        </div>
-                      </div>
 
-                      <div className="bg-[#FBF8F3] rounded-xl p-4 mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
-                        <div className="flex items-start gap-2.5">
-                          <Icon name="clock" size={17} className="text-[#9A8B7A] mt-0.5 shrink-0" />
-                          <div><p className="text-[11px] text-[#9A8B7A]">Jam kunjungan</p><p className="text-sm font-semibold text-[#3D2E1E] mt-0.5">{formatJam(r.jam)} – {formatJam(r.jam_selesai)}</p></div>
-                        </div>
-                        <div className="flex items-start gap-2.5">
-                          <Icon name="chair" size={17} className="text-[#9A8B7A] mt-0.5 shrink-0" />
-                          <div><p className="text-[11px] text-[#9A8B7A]">Meja</p><p className="text-sm font-semibold text-[#5C1420] mt-0.5">{getReservasiMejaLabel(r)}</p></div>
-                        </div>
-                        <div className="flex items-start gap-2.5">
-                          <Icon name="users" size={17} className="text-[#9A8B7A] mt-0.5 shrink-0" />
-                          <div><p className="text-[11px] text-[#9A8B7A]">Jumlah tamu</p><p className="text-sm font-semibold text-[#3D2E1E] mt-0.5">{r.jumlah_tamu} orang</p></div>
-                        </div>
-                        <div className="flex items-start gap-2.5">
-                          <Icon name="cash" size={17} className="text-[#9A8B7A] mt-0.5 shrink-0" />
-                          <div><p className="text-[11px] text-[#9A8B7A]">Uang muka</p><p className="text-sm font-semibold text-[#3D2E1E] mt-0.5">{r.dp_amount ? formatRupiah(r.dp_amount) : "Belum bayar"}{r.dp_status === "menunggu_verifikasi" && <span className="ml-1.5 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">Menunggu verifikasi (maks 15 menit)</span>}
-                              {r.dp_status === "kedaluwarsa" && <span className="ml-1.5 text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">Verifikasi kedaluwarsa</span>}</p>
-                            {r.bukti_transfer && (
-                              <button onClick={() => lihatBukti(r.bukti_transfer!)} className="mt-1 text-xs font-bold text-[#5C1420] underline hover:no-underline">Lihat bukti transfer</button>
-                            )}</div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2.5 mt-3 border border-[#E5DDD4] rounded-xl px-4 py-2.5">
-                        <Icon name="phone" size={15} className="text-[#9A8B7A] shrink-0" />
-                        <span className="text-sm text-[#3D2E1E]">{r.no_whatsapp}</span>
-                        <a href={`https://wa.me/${normalizeWhatsapp(r.no_whatsapp)}`} target="_blank" rel="noopener noreferrer"
-                          className="ml-auto text-xs text-[#1DA851] font-semibold inline-flex items-center gap-1 hover:underline">
-                          WhatsApp
-                        </a>
-                      </div>
-
-                      {r.catatan && <p className="text-sm text-[#9A8B7A] italic border-l-2 border-[#5C1420]/30 pl-3 mt-3">&ldquo;{r.catatan}&rdquo;</p>}
-                    </div>
-
-                    <div className="lg:w-64 shrink-0 bg-[#FBF8F3] border-t lg:border-t-0 lg:border-l border-[#E5DDD4] p-5 flex flex-col gap-2">
-                      <button onClick={() => openReservasiForm(r)}
-                        className="w-full py-3 rounded-xl bg-gradient-to-r from-[#5C1420] to-[#3D0D14] text-white text-sm font-bold shadow-md shadow-[#5C1420]/20 active:scale-[0.98] transition-all inline-flex items-center justify-center gap-2">
-                        <Icon name="edit" size={16} /> Ubah Reservasi
-                      </button>
-
-                      {r.status === "Pending" && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <button onClick={() => konfirmasiPembayaran(r)} className="py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold active:scale-[0.98] inline-flex items-center justify-center gap-1.5"><Icon name="check" size={15} /> {r.bukti_transfer && r.dp_status !== "sudah_bayar" ? "Pembayaran Valid" : "Konfirmasi"}</button>
-                          <button onClick={() => updateStatus(r.Id, "Cancelled")} className="py-2.5 rounded-xl border-2 border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50 inline-flex items-center justify-center gap-1.5"><Icon name="x" size={14} /> Tolak</button>
-                        </div>
-                      )}
-                      {r.status === "Confirmed" && !r.checked_in_at && (
-                        <button onClick={() => tandaiHadir(r.Id)} className="w-full py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold active:scale-[0.98] inline-flex items-center justify-center gap-1.5"><Icon name="check" size={15} /> Tandai Hadir</button>
-                      )}
-                      {r.status === "Confirmed" && (
-                        <button onClick={() => { if (confirm(`Batalkan reservasi ${r.nama_tamu}?`)) updateStatus(r.Id, "Cancelled"); }} className="w-full py-2.5 rounded-xl border-2 border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50 inline-flex items-center justify-center gap-1.5"><Icon name="x" size={14} /> Batalkan</button>
-                      )}
-                      {r.status === "No-Show" && (
-                        <button onClick={() => updateStatus(r.Id, "Confirmed")} className="w-full py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/5 inline-flex items-center justify-center gap-1.5"><Icon name="repeat" size={14} /> Kembalikan</button>
-                      )}
-                      {r.status === "Cancelled" && (
-                        <button onClick={() => updateStatus(r.Id, "Pending")} className="w-full py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-sm font-semibold hover:bg-[#5C1420]/5 inline-flex items-center justify-center gap-1.5"><Icon name="repeat" size={14} /> Kembalikan</button>
-                      )}
-
-                      {r.share_token && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <button onClick={() => toggleExpandOrders(r)} className="py-2.5 rounded-xl border-2 border-[#5C1420]/30 text-[#5C1420] text-xs font-bold hover:bg-[#5C1420]/5 inline-flex items-center justify-center gap-1.5"><Icon name="menu" size={14} /> Pesanan Menu</button>
-                          <button onClick={() => sendMenuLinkWA(r)} className="py-2.5 rounded-xl border-2 border-[#25D366] text-[#1DA851] text-xs font-bold hover:bg-[#25D366]/10 inline-flex items-center justify-center gap-1.5"><Icon name="send" size={13} /> Kirim Link</button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* TOMBOL & PANEL PESANAN MENU */}
-                  <div className="px-6 pb-5 pt-3 border-t border-[#E5DDD4]">
-                    <button onClick={() => toggleExpandOrders(r)}
-                      className="flex items-center gap-2 text-sm font-bold text-[#5C1420] hover:text-[#3D0D14] transition-colors">
-                      <Icon name="chevron-right" size={12} className={`transition-transform ${expandedKeys.has(orderKey(r)) ? "rotate-90" : ""}`} />
-                      Pesanan Menu
-                      {r.menu_finalized ? (
-                        <span className="bg-emerald-50 text-emerald-600 border border-emerald-200 text-[10px] px-2 py-0.5 rounded-full font-bold">Terkirim</span>
-                      ) : (
-                        <span className="bg-[#F9F6F2] text-[#B5A999] border border-[#E5DDD4] text-[10px] px-2 py-0.5 rounded-full font-bold">Belum Dikirim</span>
-                      )}
-                    </button>
-
-                    {expandedKeys.has(orderKey(r)) && (
-                      <div className="mt-3">
-                        {loadingOrderKeys.has(orderKey(r)) ? (
-                          <p className="text-sm text-[#B5A999]">Memuat pesanan...</p>
-                        ) : (ordersCache[orderKey(r)] || []).length === 0 ? (
-                          <p className="text-sm text-[#B5A999] bg-[#F9F6F2] rounded-xl p-3">Belum ada pesanan menu.</p>
-                        ) : (
-                          <div className="bg-[#F9F6F2] border border-[#E5DDD4] rounded-xl divide-y divide-[#E5DDD4] overflow-hidden">
-                            {(ordersCache[orderKey(r)] || []).map((o) => (
-                              <div key={o.Id} className="p-3 flex justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="font-semibold text-[#3D2E1E] text-sm">{o.jumlah_porsi}× {getOrderMenuName(o.menu_id)}</p>
-                                  {getOrderVarianName(o.varian_id) && <p className="text-xs text-[#9A8B7A]">Varian: {getOrderVarianName(o.varian_id)}</p>}
-                                  {o.addon_ids?.length > 0 && <p className="text-xs text-[#9A8B7A]">Add-on: {getOrderAddonNames(o.addon_ids)}</p>}
-                                  {o.nama_pemesan && <p className="text-xs text-[#5C1420] font-semibold">Pemesan: {o.nama_pemesan}</p>}
-                                  {o.catatan && <p className="text-xs text-[#9A8B7A] italic">&ldquo;{o.catatan}&rdquo;</p>}
-                                </div>
-                                <p className="font-bold text-[#5C1420] text-sm shrink-0">{formatRupiah(o.subtotal)}</p>
+                        {/* Pesanan menu */}
+                        <div className="rounded-2xl p-3.5 bg-[#F0EDE9]">
+                          <div className="flex items-center">
+                            <span className="text-[11.5px] font-extrabold tracking-[0.08em] uppercase text-[#8E8378]">Pesanan menu</span>
+                            <span className="flex-1" />
+                            {terpilih.share_token && (terpilih.menu_finalized
+                              ? <span className="text-[11px] font-bold text-[#2E7D53]">Terkirim</span>
+                              : <span className="text-[11px] font-bold text-[#B5730F]">Belum dikunci</span>)}
+                          </div>
+                          {(() => {
+                            const key = orderKey(terpilih);
+                            const items = ordersCache[key] || [];
+                            if (!terpilih.share_token) return <p className="text-[13px] text-[#4B433B] mt-2">Link pesan menu belum aktif untuk reservasi ini.</p>;
+                            if (loadingOrderKeys.has(key)) return <p className="text-[13px] text-[#8E8378] mt-2">Memuat pesanan...</p>;
+                            if (items.length === 0) return <p className="text-[13px] text-[#4B433B] mt-2">{terpilih.status === "Pending" ? "Link menu dikirim ke WhatsApp tamu setelah dikonfirmasi." : "Belum ada pesanan menu."}</p>;
+                            const subtotal = items.reduce((s, o) => s + o.subtotal, 0);
+                            const pajak = Math.round(subtotal * 0.1);
+                            return (
+                              <div className="mt-2">
+                                {items.map((o) => (
+                                  <div key={o.Id} className="flex justify-between gap-3 py-1 text-[13px]">
+                                    <span className="min-w-0 text-[#1F1A16]">{o.jumlah_porsi}× {getOrderMenuName(o.menu_id)}{getOrderVarianName(o.varian_id) ? ` · ${getOrderVarianName(o.varian_id)}` : ""}{o.addon_ids?.length ? ` + ${getOrderAddonNames(o.addon_ids)}` : ""}{o.nama_pemesan ? <span className="text-[#8E8378]"> · {o.nama_pemesan}</span> : null}</span>
+                                    <b className="tabular-nums shrink-0">{o.subtotal.toLocaleString("id-ID")}</b>
+                                  </div>
+                                ))}
+                                <div className="flex justify-between text-[12.5px] text-[#8E8378] pt-1.5 mt-1 border-t border-[#E2DCD4]"><span>Pajak 10%</span><span className="tabular-nums">{pajak.toLocaleString("id-ID")}</span></div>
+                                <div className="flex justify-between text-sm font-extrabold pt-1"><span>Total</span><span className="tabular-nums text-[#6B1A28]">{formatRupiah(subtotal + pajak)}</span></div>
                               </div>
-                            ))}
-                            {(() => {
-                              const items = ordersCache[orderKey(r)] || [];
-                              const subtotal = items.reduce((s, o) => s + o.subtotal, 0);
-                              const pajak = Math.round(subtotal * 0.1);
-                              return (
-                                <div className="p-3 bg-white space-y-1">
-                                  <div className="flex justify-between text-xs"><span className="text-[#9A8B7A]">Subtotal</span><span className="text-[#3D2E1E]">{formatRupiah(subtotal)}</span></div>
-                                  <div className="flex justify-between text-xs"><span className="text-[#9A8B7A]">Pajak (10%)</span><span className="text-[#3D2E1E]">{formatRupiah(pajak)}</span></div>
-                                  <div className="flex justify-between font-bold text-sm pt-1 border-t border-[#E5DDD4]"><span className="text-[#3D2E1E]">Total</span><span className="text-[#5C1420]">{formatRupiah(subtotal + pajak)}</span></div>
-                                </div>
-                              );
-                            })()}
+                            );
+                          })()}
+                        </div>
+
+                        {terpilih.catatan && (
+                          <div className="rounded-2xl p-3.5 bg-[#E6EFF9]">
+                            <span className="text-[11.5px] font-extrabold tracking-[0.08em] uppercase text-[#2F6AA3]">Catatan tamu</span>
+                            <p className="text-[13px] text-[#4B433B] mt-1.5">{terpilih.catatan}</p>
                           </div>
                         )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
 
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 mt-6">
-                <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={pageSafe === 1}
-                  className="px-3 py-2 rounded-xl border-2 border-[#E5DDD4] text-[#5C1420] text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#F9F6F2]">← Sebelumnya</button>
-                <span className="text-sm text-[#9A8B7A] px-3">
-                  Halaman <span className="font-bold text-[#3D2E1E]">{pageSafe}</span> dari <span className="font-bold text-[#3D2E1E]">{totalPages}</span>
-                  <span className="hidden sm:inline"> · {filteredReservations.length} total reservasi</span>
-                </span>
-                <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={pageSafe === totalPages}
-                  className="px-3 py-2 rounded-xl border-2 border-[#E5DDD4] text-[#5C1420] text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#F9F6F2]">Selanjutnya →</button>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] font-bold">
+                          {terpilih.share_token && terpilih.status !== "Pending" && terpilih.status !== "Cancelled" && <button onClick={() => sendMenuLinkWA(terpilih)} className="text-[#178A43]">Kirim link menu</button>}
+                          {terpilih.status === "Confirmed" && <button onClick={() => { if (confirm(`Batalkan reservasi ${terpilih.nama_tamu}?`)) updateStatus(terpilih.Id, "Cancelled"); }} className="text-[#B9443C]">Batalkan</button>}
+                          {terpilih.status === "Confirmed" && !terpilih.checked_in_at && <button onClick={() => { if (confirm(`Tandai ${terpilih.nama_tamu} tidak datang?`)) updateStatus(terpilih.Id, "No-Show"); }} className="text-[#8E8378]">Tidak datang</button>}
+                        </div>
+                      </div>
+
+                      {/* Satu tombol utama sesuai keadaan */}
+                      <div className="px-4 pb-4 pt-3 border-t border-[#ECE6DE] flex gap-2">
+                        {terpilih.status === "Pending" && (<>
+                          <button onClick={() => updateStatus(terpilih.Id, "Cancelled")} className="h-10 px-4 rounded-full border border-[#ECE6DE] text-sm font-bold text-[#B9443C]">Tolak</button>
+                          <button onClick={() => konfirmasiPembayaran(terpilih)} className="flex-1 h-10 rounded-full bg-[#6B1A28] text-white text-sm font-bold">{terpilih.bukti_transfer && terpilih.dp_status !== "sudah_bayar" ? "Pembayaran valid" : "Konfirmasi"}</button>
+                        </>)}
+                        {terpilih.status === "Confirmed" && !terpilih.checked_in_at && (
+                          <button onClick={() => tandaiHadir(terpilih.Id)} className="flex-1 h-10 rounded-full bg-[#6B1A28] text-white text-sm font-bold">Tandai hadir</button>
+                        )}
+                        {terpilih.status === "Confirmed" && terpilih.checked_in_at && (
+                          terpilih.share_token
+                            ? <button onClick={() => sendMenuLinkWA(terpilih)} className="flex-1 h-10 rounded-full border border-[#ECE6DE] text-sm font-bold text-[#178A43]">Kirim link menu</button>
+                            : <p className="flex-1 text-center text-sm text-[#2E7D53] font-bold py-2">Tamu sudah hadir</p>
+                        )}
+                        {terpilih.status === "No-Show" && (
+                          <button onClick={() => updateStatus(terpilih.Id, "Confirmed")} className="flex-1 h-10 rounded-full border border-[#6B1A28]/30 text-sm font-bold text-[#6B1A28]">Kembalikan</button>
+                        )}
+                        {terpilih.status === "Cancelled" && (
+                          <button onClick={() => updateStatus(terpilih.Id, "Pending")} className="flex-1 h-10 rounded-full border border-[#6B1A28]/30 text-sm font-bold text-[#6B1A28]">Kembalikan</button>
+                        )}
+                        {terpilih.status === "Completed" && <p className="flex-1 text-center text-sm text-[#2F6AA3] font-bold py-2">Reservasi selesai</p>}
+                      </div>
+                    </div>
+                  </aside>
+                )}
               </div>
-            )}
-            </>
             );
           })()}
         </>)}
