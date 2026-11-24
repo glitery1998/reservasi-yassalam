@@ -1597,14 +1597,16 @@ const [pelangganQuery, setPelangganQuery] = useState("");
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "Reservation" },
         (payload) => {
-          const newRes = payload.new as { nama_tamu?: string; outlet?: string; tanggal?: string; jam?: string; jumlah_tamu?: number; catatan?: string | null };
+          const newRes = payload.new as { nama_tamu?: string; outlet?: string; tanggal?: string; jam?: string; jumlah_tamu?: number; catatan?: string | null; dp_status?: string | null };
+          // Bukti transfer dari website: admin harus memeriksa dan menekan "Pembayaran Valid" dalam 15 menit
+          const perluCek = newRes.dp_status === "menunggu_verifikasi";
           fetchReservations();
           // Bunyikan suara
           if (notifSuaraAktif) notifAudioRef.current?.play().catch(() => {});
           // Tampilkan notifikasi browser (kalau diizinkan)
           if (notifSuaraAktif && Notification.permission === "granted") {
-            new Notification("Reservasi Baru!", {
-              body: `${newRes.nama_tamu || "Tamu"} — ${newRes.outlet || ""} ${newRes.tanggal || ""} ${newRes.jam || ""}`,
+            new Notification(perluCek ? "Bukti transfer masuk — perlu dikonfirmasi" : "Reservasi Baru!", {
+              body: `${newRes.nama_tamu || "Tamu"} — ${newRes.outlet || ""} ${newRes.tanggal || ""} ${newRes.jam || ""}${perluCek ? " · cek bukti transfer, maks 15 menit" : ""}`,
               icon: "/logo.PNG",
             });
           }
@@ -1617,7 +1619,7 @@ const [pelangganQuery, setPelangganQuery] = useState("");
               admin_email: null,
               admin_nama: "Sistem (Reservasi Customer)",
               action: "Reservasi baru masuk",
-              detail: `${newRes.nama_tamu || "Tamu"} • ${outletLabel} • ${newRes.tanggal || ""} ${formatJam(newRes.jam || "")} • ${newRes.jumlah_tamu || "-"} orang`,
+              detail: `${newRes.nama_tamu || "Tamu"} • ${outletLabel} • ${newRes.tanggal || ""} ${formatJam(newRes.jam || "")} • ${newRes.jumlah_tamu || "-"} orang${perluCek ? " • bukti transfer menunggu konfirmasi" : ""}`,
             });
           }
         }

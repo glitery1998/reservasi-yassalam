@@ -1006,7 +1006,10 @@ async function checkRateLimitWa(noWaValue: string): Promise<boolean> {
         return false;
       }
       setHoldId(json.holdId);
-      setHoldExpiry(new Date(json.expiresAt));
+      // Batas waktu = jam perangkat ini + sisa waktu menurut server, supaya jam HP/laptop yang meleset tidak membuat
+      // timer lebih panjang (atau lebih pendek) daripada kunci meja di server
+      const sisaMs = typeof json.sisaDetik === "number" ? json.sisaDetik * 1000 : new Date(json.expiresAt).getTime() - Date.now();
+      setHoldExpiry(new Date(Date.now() + Math.max(sisaMs, 0)));
       return true;
     } catch {
       showNotif("error", "Gagal Mengunci Meja", "Terjadi kesalahan, coba lagi.");
@@ -1362,7 +1365,9 @@ useEffect(() => {
               ) : null}
             </div>
 
-            {/* Link Pesan Menu Bersama */}
+            {/* Link Pesan Menu Bersama: hanya setelah reservasi terkonfirmasi. Yang masih menunggu verifikasi bukti transfer
+                menerima link menu lewat WhatsApp setelah admin menekan "Pembayaran Valid". */}
+            {!menungguVerifikasi && (
             <div className="mt-6 bg-[#FEFCF8] border border-[#E8DCC8] rounded-2xl p-5 text-left">
               <p className="text-xs font-bold text-[#C8973E] mb-2 tracking-[0.15em] uppercase">Pesan Menu (opsional)</p>
               <p className="text-[#8B7355] text-xs leading-relaxed mb-3">
@@ -1378,6 +1383,7 @@ useEffect(() => {
                 🍽 Pesan Menu Sekarang
               </a>
             </div>
+            )}
 
             <div className="flex flex-col gap-3 mt-6">
               {!menungguVerifikasi && (

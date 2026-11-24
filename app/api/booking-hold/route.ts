@@ -59,7 +59,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: "Gagal mengunci meja" }, { status: 500 });
   }
 
-  return NextResponse.json({ success: true, holdId: data[0].Id, expiresAt });
+  // sisaDetik: browser menghitung mundur dari sini, bukan dari jam perangkat tamu (jam HP/laptop yang meleset
+  // dulu membuat timer tampil 30-an menit padahal meja hanya dikunci 15 menit)
+  const sisaDetik = Math.max(0, Math.round((new Date(expiresAt).getTime() - Date.now()) / 1000));
+  return NextResponse.json({ success: true, holdId: data[0].Id, expiresAt, sisaDetik });
 }
 
 /* ===== DELETE: lepas hold ===== */
